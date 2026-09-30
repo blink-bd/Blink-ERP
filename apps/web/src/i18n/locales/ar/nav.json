@@ -1,0 +1,14 @@
+{
+  "dashboard": "لوحة التحكم",
+  "sales": "المبيعات",
+  "pos": "نقطة البيع",
+  "products": "المنتجات",
+  "inventory": "المخزون",
+  "customers": "العملاء",
+  "suppliers": "الموردون",
+  "purchases": "المشتريات",
+  "expenses": "المصروفات",
+  "cashRegister": "الخزينة",
+  "reports": "التقارير",
+  "settings": "الإعدادات"
+}

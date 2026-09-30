@@ -1,0 +1,6 @@
+@echo off
+echo Stopping ERP/POS System...
+echo Stopping Docker containers...
+docker-compose down
+echo Done!
+pause

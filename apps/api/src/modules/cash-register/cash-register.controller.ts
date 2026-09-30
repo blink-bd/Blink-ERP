@@ -1,0 +1,71 @@
+import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
+import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { CashRegisterService } from './cash-register.service';
+
+@ApiTags('cash-register')
+@ApiBearerAuth()
+@Controller({ path: 'cash-register', version: '1' })
+@RequireFeature('cash_register')
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+export class CashRegisterController {
+  constructor(private readonly service: CashRegisterService) {}
+
+  @Get('registers')
+  async listRegisters(@Request() req) {
+    return { success: true, data: await this.service.findAllRegisters(req.tenantId) };
+  }
+
+  @Post('registers')
+  async createRegister(@Request() req, @Body() dto: any) {
+    const register = await this.service.createRegister(req.tenantId, dto, req.user?.id);
+    return { success: true, data: register, message: 'تم إضافة الكاشير بنجاح' };
+  }
+
+  @Get('shifts/current')
+  async currentShift(@Request() req) {
+    const shift = await this.service.getCurrentShift(req.tenantId, req.user.id);
+    return { success: true, data: shift };
+  }
+
+  @Post('shifts')
+  async openShift(@Request() req, @Body() dto: { cashRegisterId: string; openingBalance: number; notes?: string }) {
+    const shift = await this.service.openShift(
+      req.tenantId,
+      dto.cashRegisterId,
+      dto.openingBalance,
+      dto.notes,
+      req.user.id
+    );
+    return { success: true, data: shift, message: 'تم فتح الوردية بنجاح' };
+  }
+
+  @Post('shifts/:id/close')
+  async closeShift(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: { actualCash: number; actualCard: number; notes?: string }
+  ) {
+    const shift = await this.service.closeShift(req.tenantId, id, dto.actualCash, dto.actualCard, dto.notes);
+    return { success: true, data: shift, message: 'تم إغلاق الوردية بنجاح' };
+  }
+
+  @Post('transactions')
+  async addTransaction(
+    @Request() req,
+    @Body() dto: { shiftId: string; type: 'cash_in' | 'cash_out' | 'expense'; amount: number; description?: string }
+  ) {
+    const transaction = await this.service.addCashTransaction(
+      req.tenantId,
+      dto.shiftId,
+      dto.type,
+      dto.amount,
+      dto.description,
+      req.user.id
+    );
+    return { success: true, data: transaction, message: 'تمت العملية بنجاح' };
+  }
+}

@@ -1,0 +1,45 @@
+import { Controller, Get, Put, Body, Param, UseGuards, Request } from '@nestjs/common';
+import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
+import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { BrandingService } from './branding.service';
+import { MasterAdminGuard } from '@/modules/master-admin/master-admin.guard';
+
+@ApiTags('branding')
+@Controller({ path: 'branding', version: '1' })
+@UseGuards(JwtAuthGuard, TenantContextGuard)
+@ApiBearerAuth()
+export class BrandingController {
+  constructor(private readonly brandingService: BrandingService) {}
+
+  @Get()
+  async get(@Request() req) {
+    const branding = await this.brandingService.getTenantBranding(req.tenantId);
+    return { success: true, data: branding };
+  }
+
+  @Put()
+  async update(@Request() req, @Body() dto: Partial<any>) {
+    const branding = await this.brandingService.updateBranding(req.tenantId, dto);
+    return { success: true, data: branding, message: 'تم تحديث الهوية البصرية بنجاح' };
+  }
+}
+
+@ApiTags('admin-branding')
+@Controller({ path: 'admin/tenants/:tenantId/branding', version: '1' })
+@UseGuards(MasterAdminGuard)
+export class AdminBrandingController {
+  constructor(private readonly brandingService: BrandingService) {}
+
+  @Get()
+  async get(@Param('tenantId') tenantId: string) {
+    const branding = await this.brandingService.getTenantBranding(tenantId);
+    return { success: true, data: branding };
+  }
+
+  @Put()
+  async update(@Param('tenantId') tenantId: string, @Body() dto: Partial<any>) {
+    const branding = await this.brandingService.updateBranding(tenantId, dto);
+    return { success: true, data: branding, message: 'Branding updated successfully' };
+  }
+}

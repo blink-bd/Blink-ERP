@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: erp-api
+    runtime: node
+    plan: free
+    rootDir: apps/api
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm run db:migrate:prod && npm run db:seed:prod && npm run start:prod
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false        # رابط Supabase (Session pooler)
+      - key: FRONTEND_URL
+        sync: false        # رابط الواجهة على Cloudflare Pages
+      - key: JWT_ACCESS_SECRET
+        generateValue: true
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      - key: JWT_MASTER_SECRET
+        generateValue: true
+      - key: JWT_ACCESS_EXPIRATION
+        value: 15m
+      - key: JWT_REFRESH_EXPIRATION
+        value: 7d
+      - key: MASTER_ADMIN_EMAIL
+        sync: false
+      - key: MASTER_ADMIN_PASSWORD
+        sync: false        # 12+ حرف: كبير وصغير ورقم ورمز
+      - key: MASTER_ADMIN_NAME
+        value: المدير العام
