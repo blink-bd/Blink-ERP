@@ -38,7 +38,7 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async me(@Request() req) {
+  async me(@Request() req: any) {
     return { success: true, data: req.user };
   }
 }
