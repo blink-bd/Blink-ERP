@@ -39,7 +39,7 @@ export async function seedPermissions(dataSource: DataSource): Promise<void> {
   for (const permission of permissions) {
     const exists = await permissionsRepository.findOne({ where: { name: permission.name } });
     if (!exists) {
-      await permissionsRepository.save(permission);
+      await permissionsRepository.save(permission as any);
     }
   }
 
