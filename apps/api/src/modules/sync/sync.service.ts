@@ -9,6 +9,13 @@ interface SyncOperation {
   data: any;
 }
 
+interface SyncResult {
+  idempotencyKey: string;
+  status: 'synced' | 'already_synced' | 'failed';
+  entityId?: string;
+  error?: string;
+}
+
 @Injectable()
 export class SyncService {
   constructor(
@@ -23,7 +30,7 @@ export class SyncService {
    * retries from a flaky connection never double-apply a sale.
    */
   async syncSales(tenantId: string, deviceId: string, userId: string, operations: SyncOperation[]) {
-    const results = [];
+    const results: SyncResult[] = [];
 
     for (const op of operations) {
       const existing = await this.dataSource.query(
