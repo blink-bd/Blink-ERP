@@ -3,13 +3,13 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { SalesService } from '@/modules/sales/sales.service';
 
-interface SyncOperation {
+export interface SyncOperation {
   operation: 'create' | 'update' | 'delete';
   idempotencyKey: string;
   data: any;
 }
 
-interface SyncResult {
+export interface SyncResult {
   idempotencyKey: string;
   status: 'synced' | 'already_synced' | 'failed';
   entityId?: string;
