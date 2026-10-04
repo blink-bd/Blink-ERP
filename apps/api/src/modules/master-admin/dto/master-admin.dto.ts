@@ -1,4 +1,13 @@
-import { IsBoolean, IsDateString, IsEmail, IsIn, IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEmail,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+} from 'class-validator';
 
 export class MasterLoginDto {
   @IsEmail() email: string;

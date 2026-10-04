@@ -39,7 +39,11 @@ export class SyncService {
       );
 
       if (existing.length > 0) {
-        results.push({ idempotencyKey: op.idempotencyKey, status: 'already_synced', entityId: existing[0].entity_id });
+        results.push({
+          idempotencyKey: op.idempotencyKey,
+          status: 'already_synced',
+          entityId: existing[0].entity_id,
+        });
         continue;
       }
 

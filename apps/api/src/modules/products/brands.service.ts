@@ -12,11 +12,16 @@ export class BrandsService {
   ) {}
 
   async findAll(tenantId: string): Promise<Brand[]> {
-    return this.brandsRepository.find({ where: { tenantId, deletedAt: IsNull() }, order: { name: 'ASC' } });
+    return this.brandsRepository.find({
+      where: { tenantId, deletedAt: IsNull() },
+      order: { name: 'ASC' },
+    });
   }
 
   async findById(tenantId: string, id: string): Promise<Brand> {
-    const brand = await this.brandsRepository.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
+    const brand = await this.brandsRepository.findOne({
+      where: { id, tenantId, deletedAt: IsNull() },
+    });
     if (!brand) throw new NotFoundException('العلامة التجارية غير موجودة');
     return brand;
   }
@@ -24,7 +29,11 @@ export class BrandsService {
   async create(tenantId: string, data: Partial<Brand>, userId?: string): Promise<Brand> {
     const existing = await this.brandsRepository.findOne({ where: { tenantId, name: data.name } });
     if (existing) throw new ConflictException('العلامة التجارية موجودة مسبقاً');
-    const brand = this.brandsRepository.create({ ...stripProtected(data), tenantId, createdBy: userId });
+    const brand = this.brandsRepository.create({
+      ...stripProtected(data),
+      tenantId,
+      createdBy: userId,
+    });
     return this.brandsRepository.save(brand);
   }
 

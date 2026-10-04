@@ -13,13 +13,21 @@ export async function seedMasterAdmin(dataSource: DataSource): Promise<void> {
   const name = process.env.MASTER_ADMIN_NAME || 'المدير العام';
 
   if (!email || !password) {
-    console.warn('⚠️  MASTER_ADMIN_EMAIL / MASTER_ADMIN_PASSWORD غير مضبوطين — لم يتم إنشاء مدير عام');
+    console.warn(
+      '⚠️  MASTER_ADMIN_EMAIL / MASTER_ADMIN_PASSWORD غير مضبوطين — لم يتم إنشاء مدير عام'
+    );
     return;
   }
-  const strong = password.length >= 12 && /[A-Z]/.test(password) && /[a-z]/.test(password)
-    && /[0-9]/.test(password) && /[^A-Za-z0-9]/.test(password);
+  const strong =
+    password.length >= 12 &&
+    /[A-Z]/.test(password) &&
+    /[a-z]/.test(password) &&
+    /[0-9]/.test(password) &&
+    /[^A-Za-z0-9]/.test(password);
   if (process.env.NODE_ENV === 'production' && !strong) {
-    console.error('❌ MASTER_ADMIN_PASSWORD ضعيفة (لازم 12+ حرف بحروف كبيرة وصغيرة وأرقام ورموز) — تم التخطي');
+    console.error(
+      '❌ MASTER_ADMIN_PASSWORD ضعيفة (لازم 12+ حرف بحروف كبيرة وصغيرة وأرقام ورموز) — تم التخطي'
+    );
     return;
   }
 

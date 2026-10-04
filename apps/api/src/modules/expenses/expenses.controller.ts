@@ -15,8 +15,15 @@ export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) {}
 
   @Get()
-  async findAll(@Request() req, @Query('startDate') startDate?: string, @Query('endDate') endDate?: string) {
-    return { success: true, data: await this.expensesService.findAll(req.tenantId, startDate, endDate) };
+  async findAll(
+    @Request() req,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string
+  ) {
+    return {
+      success: true,
+      data: await this.expensesService.findAll(req.tenantId, startDate, endDate),
+    };
   }
 
   @Get('summary')

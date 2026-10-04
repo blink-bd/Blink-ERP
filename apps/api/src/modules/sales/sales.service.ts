@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Sale } from './entities/sale.entity';
@@ -19,9 +19,11 @@ export class SalesService {
     @InjectRepository(Sale) private readonly salesRepository: Repository<Sale>,
     @InjectRepository(SaleItem) private readonly saleItemsRepository: Repository<SaleItem>,
     @InjectRepository(Payment) private readonly paymentsRepository: Repository<Payment>,
-    @InjectRepository(PaymentMethod) private readonly paymentMethodsRepository: Repository<PaymentMethod>,
+    @InjectRepository(PaymentMethod)
+    private readonly paymentMethodsRepository: Repository<PaymentMethod>,
     @InjectRepository(SaleReturn) private readonly returnsRepository: Repository<SaleReturn>,
-    @InjectRepository(SaleReturnItem) private readonly returnItemsRepository: Repository<SaleReturnItem>,
+    @InjectRepository(SaleReturnItem)
+    private readonly returnItemsRepository: Repository<SaleReturnItem>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly productsService: ProductsService,
     private readonly inventoryService: InventoryService,
@@ -34,7 +36,10 @@ export class SalesService {
     return `INV-${year}-${String(count + 1).padStart(4, '0')}`;
   }
 
-  async findAll(tenantId: string, options: { page?: number; limit?: number; search?: string; status?: string } = {}) {
+  async findAll(
+    tenantId: string,
+    options: { page?: number; limit?: number; search?: string; status?: string } = {}
+  ) {
     const page = options.page || 1;
     const limit = options.limit || 20;
     const query = this.salesRepository
@@ -58,7 +63,10 @@ export class SalesService {
   }
 
   async findById(tenantId: string, id: string): Promise<Sale> {
-    const sale = await this.salesRepository.findOne({ where: { id, tenantId }, relations: ['items'] });
+    const sale = await this.salesRepository.findOne({
+      where: { id, tenantId },
+      relations: ['items'],
+    });
     if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
     return sale;
   }
@@ -81,9 +89,10 @@ export class SalesService {
         // تحديد السعر تلقائيًا حسب الفئة (جملة/قطاعي) لو مش متبعت صراحة
         let unitPrice = itemInput.unitPrice;
         if (unitPrice === undefined || unitPrice === null) {
-          unitPrice = itemInput.priceTier === 'wholesale' && product.wholesalePrice
-            ? Number(product.wholesalePrice)
-            : Number(product.sellingPrice);
+          unitPrice =
+            itemInput.priceTier === 'wholesale' && product.wholesalePrice
+              ? Number(product.wholesalePrice)
+              : Number(product.sellingPrice);
         }
 
         if (product.trackInventory) {
@@ -199,7 +208,14 @@ export class SalesService {
         await this.customersService.adjustBalance(tenantId, dto.customerId, total - paidAmount);
       }
 
-      return this.findById(tenantId, savedSale.id);
+      // لا تستخدم repository خارج transaction هنا؛ الفاتورة غير ملتزمة بعد،
+      // وكان ذلك سبب ظهور رسالة «الفاتورة غير موجودة» بعد الضغط على الدفع.
+      const result = await manager.findOne(Sale, {
+        where: { id: savedSale.id, tenantId },
+        relations: ['items'],
+      });
+      if (!result) throw new NotFoundException('الفاتورة غير موجودة بعد الحفظ');
+      return result;
     });
   }
 
@@ -265,7 +281,10 @@ export class SalesService {
   }
 
   async getDefaultPaymentMethods(tenantId: string): Promise<PaymentMethod[]> {
-    return this.paymentMethodsRepository.find({ where: { tenantId, isActive: true }, order: { sortOrder: 'ASC' } });
+    return this.paymentMethodsRepository.find({
+      where: { tenantId, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
   }
 
   /**
@@ -273,9 +292,17 @@ export class SalesService {
    * رصيد العميل (لو الفاتورة كانت آجلة) أو يسجّل مبلغ مسترد (لو كانت متحصّلة).
    * كل عملية استرجاع بتتحفظ كمرجع دائم في sale_returns وتظهر في كشف حساب العميل.
    */
-  async createReturn(tenantId: string, saleId: string, dto: CreateReturnDto, userId: string): Promise<SaleReturn> {
+  async createReturn(
+    tenantId: string,
+    saleId: string,
+    dto: CreateReturnDto,
+    userId: string
+  ): Promise<SaleReturn> {
     return this.dataSource.transaction(async (manager) => {
-      const sale = await manager.findOne(Sale, { where: { id: saleId, tenantId }, relations: ['items'] });
+      const sale = await manager.findOne(Sale, {
+        where: { id: saleId, tenantId },
+        relations: ['items'],
+      });
       if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
 
       let subtotal = 0;
@@ -298,16 +325,27 @@ export class SalesService {
         cogsAdjustment += Number(saleItem.unitCost) * input.quantity;
 
         itemsToSave.push({
-          tenantId, saleItemId: saleItem.id, productId: saleItem.productId,
-          quantity: input.quantity, unitPrice, taxRate: saleItem.taxRate,
-          taxAmount: lineTax, total: lineTotal + lineTax, unitCost: saleItem.unitCost,
+          tenantId,
+          saleItemId: saleItem.id,
+          productId: saleItem.productId,
+          quantity: input.quantity,
+          unitPrice,
+          taxRate: saleItem.taxRate,
+          taxAmount: lineTax,
+          total: lineTotal + lineTax,
+          unitCost: saleItem.unitCost,
         });
 
         // إرجاع الكمية للمخزون
         await this.inventoryService.adjustInventory({
-          tenantId, productId: saleItem.productId, warehouseId: sale.warehouseId,
-          quantity: input.quantity, type: 'return_in',
-          referenceType: 'sale_return', referenceId: sale.id, userId,
+          tenantId,
+          productId: saleItem.productId,
+          warehouseId: sale.warehouseId,
+          quantity: input.quantity,
+          type: 'return_in',
+          referenceType: 'sale_return',
+          referenceId: sale.id,
+          userId,
         });
       }
 
@@ -316,10 +354,19 @@ export class SalesService {
       const returnNumber = `RET-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
 
       const saleReturn = manager.create(SaleReturn, {
-        tenantId, returnNumber, originalSaleId: sale.id, customerId: sale.customerId,
-        warehouseId: sale.warehouseId, returnDate: new Date(),
-        subtotal, taxAmount, total, refundAmount: total, cogsAdjustment,
-        reason: dto.reason, createdBy: userId,
+        tenantId,
+        returnNumber,
+        originalSaleId: sale.id,
+        customerId: sale.customerId,
+        warehouseId: sale.warehouseId,
+        returnDate: new Date(),
+        subtotal,
+        taxAmount,
+        total,
+        refundAmount: total,
+        cogsAdjustment,
+        reason: dto.reason,
+        createdBy: userId,
       });
       const savedReturn = await manager.save(saleReturn);
 

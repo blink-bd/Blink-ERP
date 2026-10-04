@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -21,7 +32,7 @@ export class CustomersController {
   }
 
   @Get('search')
-  async quickSearch(@Request() req, @Query('q') q: string) {
+  async quickSearch(@Request() req, @Query('q') q?: string) {
     return { success: true, data: await this.customersService.search(req.tenantId, q) };
   }
 
@@ -43,7 +54,10 @@ export class CustomersController {
 
   @Put(':id')
   async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
-    const customer = await this.customersService.update(req.tenantId, id, dto);
+    const customer = await this.customersService.update(req.tenantId, id, {
+      ...dto,
+      updatedBy: req.user?.id,
+    } as any);
     return { success: true, data: customer, message: 'تم تحديث بيانات العميل بنجاح' };
   }
 
@@ -54,7 +68,12 @@ export class CustomersController {
     @Body() dto: { amount: number; methodId: string; notes?: string }
   ) {
     const customer = await this.customersService.collectPayment(
-      req.tenantId, id, dto.amount, dto.methodId, dto.notes, req.user.id
+      req.tenantId,
+      id,
+      dto.amount,
+      dto.methodId,
+      dto.notes,
+      req.user.id
     );
     return { success: true, data: customer, message: 'تم تسجيل السداد بنجاح' };
   }

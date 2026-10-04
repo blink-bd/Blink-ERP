@@ -15,7 +15,11 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Get('sales')
-  async sales(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {
+  async sales(
+    @Request() req,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string
+  ) {
     const data = await this.reportsService.salesReport(req.tenantId, startDate, endDate);
     return { success: true, data };
   }
@@ -27,18 +31,36 @@ export class ReportsController {
   }
 
   @Get('purchases')
-  async purchases(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {
-    return { success: true, data: await this.reportsService.purchasesReport(req.tenantId, startDate, endDate) };
+  async purchases(
+    @Request() req,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string
+  ) {
+    return {
+      success: true,
+      data: await this.reportsService.purchasesReport(req.tenantId, startDate, endDate),
+    };
   }
 
   @Get('expenses')
-  async expenses(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {
-    return { success: true, data: await this.reportsService.expensesReport(req.tenantId, startDate, endDate) };
+  async expenses(
+    @Request() req,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string
+  ) {
+    return {
+      success: true,
+      data: await this.reportsService.expensesReport(req.tenantId, startDate, endDate),
+    };
   }
 
   @Get('profit-loss')
   @RequireFeature('advanced_reports')
-  async profitLoss(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {
+  async profitLoss(
+    @Request() req,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string
+  ) {
     const data = await this.reportsService.profitLossReport(req.tenantId, startDate, endDate);
     return { success: true, data };
   }

@@ -14,7 +14,9 @@ import { WarehousesController } from './warehouses.controller';
 
 @Module({
   imports: [
-    FeaturesModule,TypeOrmModule.forFeature([Branch, Warehouse, Inventory, InventoryTransaction])],
+    FeaturesModule,
+    TypeOrmModule.forFeature([Branch, Warehouse, Inventory, InventoryTransaction]),
+  ],
   controllers: [InventoryController, BranchesController, WarehousesController],
   providers: [InventoryService, BranchesService, WarehousesService],
   exports: [InventoryService, BranchesService, WarehousesService],

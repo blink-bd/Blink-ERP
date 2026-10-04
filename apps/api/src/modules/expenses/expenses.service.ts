@@ -9,11 +9,14 @@ import { ExpenseCategory } from './entities/expense-category.entity';
 export class ExpensesService {
   constructor(
     @InjectRepository(Expense) private readonly expensesRepository: Repository<Expense>,
-    @InjectRepository(ExpenseCategory) private readonly categoriesRepository: Repository<ExpenseCategory>
+    @InjectRepository(ExpenseCategory)
+    private readonly categoriesRepository: Repository<ExpenseCategory>
   ) {}
 
   async findAll(tenantId: string, startDate?: string, endDate?: string) {
-    const query = this.expensesRepository.createQueryBuilder('e').where('e.tenantId = :tenantId', { tenantId });
+    const query = this.expensesRepository
+      .createQueryBuilder('e')
+      .where('e.tenantId = :tenantId', { tenantId });
     if (startDate) query.andWhere('e.expenseDate >= :startDate', { startDate });
     if (endDate) query.andWhere('e.expenseDate <= :endDate', { endDate });
     return query.orderBy('e.expenseDate', 'DESC').getMany();

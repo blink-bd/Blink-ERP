@@ -1,7 +1,8 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { toast } from 'react-hot-toast';
 
-const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api/v1';
+// استخدم مساراً نسبياً افتراضياً حتى يعمل التطبيق خلف نفس النطاق (ومن خلال proxy في التطوير).
+const API_URL = (import.meta as any).env?.VITE_API_URL || '/api/v1';
 
 class ApiClient {
   private client: AxiosInstance;

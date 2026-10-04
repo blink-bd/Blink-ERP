@@ -1,11 +1,26 @@
-import { Body, Controller, Get, Ip, Param, Patch, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Ip,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Request,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { MasterAdminService } from './master-admin.service';
 import { MasterAdminGuard } from './master-admin.guard';
 import {
-  MasterChangePasswordDto, MasterLoginDto, ResetTenantUserPasswordDto,
-  TenantStatusDto, TenantSubscriptionDto,
+  MasterChangePasswordDto,
+  MasterLoginDto,
+  ResetTenantUserPasswordDto,
+  TenantStatusDto,
+  TenantSubscriptionDto,
 } from './dto/master-admin.dto';
 
 @ApiTags('master-auth')
@@ -63,13 +78,23 @@ export class MasterAdminController {
   }
 
   @Patch('tenants/:id/status')
-  async status(@Request() req, @Ip() ip: string, @Param('id') id: string, @Body() dto: TenantStatusDto) {
+  async status(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body() dto: TenantStatusDto
+  ) {
     const data = await this.service.setTenantStatus(id, dto, req.masterAdmin.email, ip);
     return { success: true, data, message: 'تم تحديث حالة التاجر' };
   }
 
   @Put('tenants/:id/subscription')
-  async subscription(@Request() req, @Ip() ip: string, @Param('id') id: string, @Body() dto: TenantSubscriptionDto) {
+  async subscription(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body() dto: TenantSubscriptionDto
+  ) {
     const data = await this.service.setTenantSubscription(id, dto, req.masterAdmin.email, ip);
     return { success: true, data, message: 'تم تحديث الاشتراك' };
   }
@@ -80,8 +105,19 @@ export class MasterAdminController {
   }
 
   @Post('tenants/:id/reset-user-password')
-  async resetPassword(@Request() req, @Ip() ip: string, @Param('id') id: string, @Body() dto: ResetTenantUserPasswordDto) {
-    await this.service.resetTenantUserPassword(id, dto.userId, dto.newPassword, req.masterAdmin.email, ip);
+  async resetPassword(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body() dto: ResetTenantUserPasswordDto
+  ) {
+    await this.service.resetTenantUserPassword(
+      id,
+      dto.userId,
+      dto.newPassword,
+      req.masterAdmin.email,
+      ip
+    );
     return { success: true, message: 'تم تغيير كلمة مرور المستخدم' };
   }
 }

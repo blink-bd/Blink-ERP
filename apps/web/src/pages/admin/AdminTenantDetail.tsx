@@ -12,21 +12,25 @@ export function AdminTenantDetailPage() {
   const [features, setFeatures] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
+  const [branding, setBranding] = useState<any>({ appName: '', logoUrl: '', primaryColor: '#0858A2', secondaryColor: '#64748B', sidebarColor: '#1E293B', headerColor: '#FFFFFF' });
+  const [brandingSaving, setBrandingSaving] = useState(false);
   const [endDate, setEndDate] = useState('');
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
 
   const load = async () => {
-    const [t, f, u, p] = await Promise.all([
+    const [t, f, u, p, b] = await Promise.all([
       adminApi.get(`/admin/tenants/${id}`),
       adminApi.get(`/admin/tenants/${id}/features`),
       adminApi.get(`/admin/tenants/${id}/users`),
       adminApi.get('/admin/plans'),
+      adminApi.get(`/admin/tenants/${id}/branding`),
     ]);
     setTenant(t.data.data);
     setFeatures(f.data.data);
     setUsers(u.data.data);
     setPlans(p.data.data);
+    setBranding((current: any) => ({ ...current, ...b.data.data }));
     setEndDate(t.data.data.subscriptionEndDate ? t.data.data.subscriptionEndDate.slice(0, 10) : '');
   };
   useEffect(() => { load(); }, [id]);
@@ -51,6 +55,23 @@ export function AdminTenantDetailPage() {
     load();
   };
 
+  const saveBranding = async () => {
+    setBrandingSaving(true);
+    try {
+      await adminApi.put(`/admin/tenants/${id}/branding`, {
+        appName: branding.appName,
+        logoUrl: branding.logoUrl || undefined,
+        primaryColor: branding.primaryColor,
+        secondaryColor: branding.secondaryColor,
+        sidebarColor: branding.sidebarColor,
+        headerColor: branding.headerColor,
+      });
+      toast.success('تم حفظ هوية التاجر البصرية');
+    } finally {
+      setBrandingSaving(false);
+    }
+  };
+
   const toggleFeature = async (featureId: string, isEnabled: boolean) => {
     await adminApi.put(`/admin/tenants/${id}/features`, { features: [{ featureId, isEnabled }] });
     load();
@@ -70,6 +91,23 @@ export function AdminTenantDetailPage() {
       <div>
         <h1 className="text-2xl font-bold">{tenant.businessName}</h1>
         <p className="text-gray-500 text-sm">Tenant ID: {tenant.id}</p>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-5 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">هوية التاجر البصرية</h2>
+          <p className="text-sm text-gray-500">هذه الإعدادات تظهر في لوحة التاجر، ولا يمكن للتاجر تعديلها.</p>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div><Label>اسم النظام / المتجر</Label><Input value={branding.appName || ''} onChange={(e) => setBranding({ ...branding, appName: e.target.value })} /></div>
+          <div className="md:col-span-2"><Label>رابط اللوجو</Label><Input placeholder="https://.../logo.png" value={branding.logoUrl || ''} onChange={(e) => setBranding({ ...branding, logoUrl: e.target.value })} /></div>
+          <div><Label>اللون الأساسي</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.primaryColor || '#0858A2'} onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })} /><Input value={branding.primaryColor || ''} onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })} /></div></div>
+          <div><Label>اللون الثانوي</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.secondaryColor || '#64748B'} onChange={(e) => setBranding({ ...branding, secondaryColor: e.target.value })} /><Input value={branding.secondaryColor || ''} onChange={(e) => setBranding({ ...branding, secondaryColor: e.target.value })} /></div></div>
+          <div><Label>لون القائمة الجانبية</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.sidebarColor || '#1E293B'} onChange={(e) => setBranding({ ...branding, sidebarColor: e.target.value })} /><Input value={branding.sidebarColor || ''} onChange={(e) => setBranding({ ...branding, sidebarColor: e.target.value })} /></div></div>
+          <div><Label>لون الشريط العلوي</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.headerColor || '#FFFFFF'} onChange={(e) => setBranding({ ...branding, headerColor: e.target.value })} /><Input value={branding.headerColor || ''} onChange={(e) => setBranding({ ...branding, headerColor: e.target.value })} /></div></div>
+        </div>
+        {branding.logoUrl && <img src={branding.logoUrl} alt="معاينة اللوجو" className="h-16 max-w-48 object-contain border rounded p-2" />}
+        <Button onClick={saveBranding} disabled={brandingSaving}>{brandingSaving ? 'جاري الحفظ...' : 'حفظ الهوية البصرية'}</Button>
       </div>
 
       <div className="bg-white rounded-lg shadow p-5 grid grid-cols-3 gap-6">

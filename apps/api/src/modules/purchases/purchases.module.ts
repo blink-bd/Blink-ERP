@@ -10,7 +10,13 @@ import { ProductsModule } from '@/modules/products/products.module';
 import { FeaturesModule } from '@/modules/features/features.module';
 
 @Module({
-  imports: [FeaturesModule, TypeOrmModule.forFeature([Purchase, PurchaseItem]), InventoryModule, SuppliersModule, ProductsModule],
+  imports: [
+    FeaturesModule,
+    TypeOrmModule.forFeature([Purchase, PurchaseItem]),
+    InventoryModule,
+    SuppliersModule,
+    ProductsModule,
+  ],
   controllers: [PurchasesController],
   providers: [PurchasesService],
   exports: [PurchasesService],

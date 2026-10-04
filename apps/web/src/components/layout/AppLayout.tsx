@@ -2,15 +2,17 @@ import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
+import { useBranding } from '@/contexts/BrandingContext';
 
 export function AppLayout() {
   const { user, logout } = useAuth();
+  const { branding } = useBranding();
 
   return (
     <div className="flex min-h-screen bg-gray-50" dir="rtl">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="bg-white border-b px-6 py-3 flex items-center justify-between">
+        <header className="border-b px-6 py-3 flex items-center justify-between" style={{ backgroundColor: branding.headerColor }}>
           <div />
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">{user?.fullName}</span>

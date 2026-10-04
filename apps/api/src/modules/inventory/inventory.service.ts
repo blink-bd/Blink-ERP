@@ -1,8 +1,11 @@
-import { Injectable, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Inventory } from './entities/inventory.entity';
-import { InventoryTransaction, InventoryTransactionType } from './entities/inventory-transaction.entity';
+import {
+  InventoryTransaction,
+  InventoryTransactionType,
+} from './entities/inventory-transaction.entity';
 
 interface AdjustInventoryInput {
   tenantId: string;
@@ -29,7 +32,10 @@ export class InventoryService {
     private readonly dataSource: DataSource
   ) {}
 
-  async getSummary(tenantId: string, options: { warehouseId?: string; search?: string; categoryId?: string } = {}) {
+  async getSummary(
+    tenantId: string,
+    options: { warehouseId?: string; search?: string; categoryId?: string } = {}
+  ) {
     const query = this.inventoryRepository
       .createQueryBuilder('inv')
       .leftJoinAndSelect('inv.product', 'product')
@@ -44,9 +50,12 @@ export class InventoryService {
       query.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
     }
     if (options.search) {
-      query.andWhere('(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)', {
-        search: `%${options.search}%`,
-      });
+      query.andWhere(
+        '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
+        {
+          search: `%${options.search}%`,
+        }
+      );
     }
 
     const rows = await query.orderBy('product.name', 'ASC').getMany();
@@ -55,9 +64,11 @@ export class InventoryService {
       ...r,
       stockValue: Number(r.quantity) * Number(r.weightedAvgCost || r.product?.costPrice || 0),
       status:
-        Number(r.availableQuantity) <= 0 ? 'out_of_stock'
-          : Number(r.availableQuantity) <= (r.product?.minStockLevel || 0) ? 'low_stock'
-          : 'available',
+        Number(r.availableQuantity) <= 0
+          ? 'out_of_stock'
+          : Number(r.availableQuantity) <= (r.product?.minStockLevel || 0)
+            ? 'low_stock'
+            : 'available',
     }));
   }
 
@@ -80,7 +91,11 @@ export class InventoryService {
   async adjustInventory(input: AdjustInventoryInput): Promise<InventoryTransaction> {
     return this.dataSource.transaction(async (manager) => {
       let inventory = await manager.findOne(Inventory, {
-        where: { tenantId: input.tenantId, productId: input.productId, warehouseId: input.warehouseId },
+        where: {
+          tenantId: input.tenantId,
+          productId: input.productId,
+          warehouseId: input.warehouseId,
+        },
         lock: { mode: 'pessimistic_write' },
       });
 
@@ -107,7 +122,8 @@ export class InventoryService {
         inventory.weightedAvgCost =
           currentQty + input.quantity === 0
             ? input.unitCost
-            : (currentQty * currentCost + input.quantity * input.unitCost) / (currentQty + input.quantity);
+            : (currentQty * currentCost + input.quantity * input.unitCost) /
+              (currentQty + input.quantity);
         inventory.lastCost = input.unitCost;
       }
 
@@ -180,8 +196,14 @@ export class InventoryService {
     return { out, in: inTxn };
   }
 
-  async getAvailableQuantity(tenantId: string, productId: string, warehouseId: string): Promise<number> {
-    const inventory = await this.inventoryRepository.findOne({ where: { tenantId, productId, warehouseId } });
+  async getAvailableQuantity(
+    tenantId: string,
+    productId: string,
+    warehouseId: string
+  ): Promise<number> {
+    const inventory = await this.inventoryRepository.findOne({
+      where: { tenantId, productId, warehouseId },
+    });
     if (!inventory) return 0;
     return Number(inventory.quantity) - Number(inventory.reservedQuantity);
   }

@@ -70,7 +70,9 @@ export class TenantsService {
       address: dto.address,
       city: dto.city,
       planId: dto.planId,
-      subscriptionStartDate: dto.subscriptionStartDate ? new Date(dto.subscriptionStartDate) : undefined,
+      subscriptionStartDate: dto.subscriptionStartDate
+        ? new Date(dto.subscriptionStartDate)
+        : undefined,
       subscriptionEndDate: dto.subscriptionEndDate ? new Date(dto.subscriptionEndDate) : undefined,
     });
 
@@ -96,12 +98,20 @@ export class TenantsService {
 
     // 3.1 فئة مصروفات افتراضية (عشان صفحة المصروفات تشتغل فورًا)
     await this.expenseCategoriesRepository.save(
-      this.expenseCategoriesRepository.create({ tenantId: savedTenant.id, name: 'General', nameAr: 'عام' })
+      this.expenseCategoriesRepository.create({
+        tenantId: savedTenant.id,
+        name: 'General',
+        nameAr: 'عام',
+      })
     );
 
     // 3.2 كاشير افتراضي (عشان صفحة الخزينة تشتغل فورًا)
     await this.cashRegistersRepository.save(
-      this.cashRegistersRepository.create({ tenantId: savedTenant.id, name: 'الكاشير الرئيسي', code: 'MAIN' })
+      this.cashRegistersRepository.create({
+        tenantId: savedTenant.id,
+        name: 'الكاشير الرئيسي',
+        code: 'MAIN',
+      })
     );
 
     // 4. Enable all default features

@@ -22,15 +22,14 @@ export class CustomersService {
   }
 
   /** بحث سريع بالهاتف أو الاسم — يستخدم في نقطة البيع للـ Autocomplete */
-  async search(tenantId: string, query: string) {
-    if (!query || query.length < 2) return [];
-    return this.repo
+  async search(tenantId: string, query?: string) {
+    const trimmed = query?.trim();
+    const builder = this.repo
       .createQueryBuilder('c')
       .where('c.tenantId = :tenantId', { tenantId })
-      .andWhere('c.deletedAt IS NULL')
-      .andWhere('(c.name ILIKE :q OR c.phone ILIKE :q)', { q: `%${query}%` })
-      .limit(10)
-      .getMany();
+      .andWhere('c.deletedAt IS NULL');
+    if (trimmed) builder.andWhere('(c.name ILIKE :q OR c.phone ILIKE :q)', { q: `%${trimmed}%` });
+    return builder.orderBy('c.name', 'ASC').limit(10).getMany();
   }
 
   async findById(tenantId: string, id: string): Promise<Customer> {
@@ -52,9 +51,37 @@ export class CustomersService {
     return this.repo.save(customer);
   }
 
-  async update(tenantId: string, id: string, data: Partial<Customer>) {
+  async update(
+    tenantId: string,
+    id: string,
+    data: Partial<Customer> & { openingBalanceReason?: string; updatedBy?: string }
+  ) {
     const customer = await this.findById(tenantId, id);
-    Object.assign(customer, stripProtected(data));
+    const clean = stripProtected(data as any);
+    delete (clean as any).previousBalance;
+    delete (clean as any).openingBalanceReason;
+    Object.assign(customer, clean);
+
+    if (Object.prototype.hasOwnProperty.call(data, 'previousBalance')) {
+      const nextOpening = Number((data as any).previousBalance);
+      const before = Number(customer.previousBalance);
+      if (!Number.isFinite(nextOpening) || nextOpening < 0) {
+        throw new BadRequestException('الرصيد الافتتاحي يجب أن يكون صفراً أو أكبر');
+      }
+      const delta = nextOpening - before;
+      if (Math.abs(delta) > 0.0001) {
+        const reason = String((data as any).openingBalanceReason || '').trim();
+        if (!reason) throw new BadRequestException('اكتب سبب تعديل الرصيد الافتتاحي');
+        await this.repo.manager.query(
+          `INSERT INTO party_balance_adjustments
+             (tenant_id, party_type, customer_id, amount, balance_before, balance_after, reason, created_by)
+           VALUES ($1, 'customer', $2, $3, $4, $5, $6, $7)`,
+          [tenantId, id, delta, before, nextOpening, reason, (data as any).updatedBy || null]
+        );
+        customer.balance = Number(customer.balance) + delta;
+      }
+      customer.previousBalance = nextOpening;
+    }
     return this.repo.save(customer);
   }
 
@@ -92,20 +119,68 @@ export class CustomersService {
        ORDER BY return_date ASC`,
       [tenantId, customerId]
     );
+    const adjustments = await this.repo.manager.query(
+      `SELECT id, created_at AS date, amount, balance_before AS "balanceBefore",
+              balance_after AS "balanceAfter", reason
+       FROM party_balance_adjustments
+       WHERE tenant_id = $1 AND party_type = 'customer' AND customer_id = $2
+       ORDER BY created_at ASC`,
+      [tenantId, customerId]
+    );
 
     const entries = [
-      ...sales.map((s: any) => ({ id: s.id, date: s.date, type: 'sale', referenceNumber: s.referenceNumber, debit: Number(s.amount), credit: 0, description: 'فاتورة بيع' })),
-      ...payments.map((p: any) => ({ date: p.date, type: 'payment', referenceNumber: p.referenceNumber, debit: 0, credit: Number(p.amount), description: `سداد (${p.method})` })),
-      ...returns.map((r: any) => ({ date: r.date, type: 'return', referenceNumber: r.referenceNumber, debit: 0, credit: Number(r.amount), description: 'مرتجع' })),
+      ...sales.map((s: any) => ({
+        id: s.id,
+        date: s.date,
+        type: 'sale',
+        referenceNumber: s.referenceNumber,
+        debit: Number(s.amount),
+        credit: 0,
+        description: 'فاتورة بيع',
+      })),
+      ...payments.map((p: any) => ({
+        date: p.date,
+        type: 'payment',
+        referenceNumber: p.referenceNumber,
+        debit: 0,
+        credit: Number(p.amount),
+        description: `سداد (${p.method})`,
+      })),
+      ...returns.map((r: any) => ({
+        date: r.date,
+        type: 'return',
+        referenceNumber: r.referenceNumber,
+        debit: 0,
+        credit: Number(r.amount),
+        description: 'مرتجع',
+      })),
+      ...adjustments.map((a: any) => ({
+        id: a.id,
+        date: a.date,
+        type: 'opening_balance_adjustment',
+        referenceNumber: '',
+        debit: Number(a.amount) > 0 ? Number(a.amount) : 0,
+        credit: Number(a.amount) < 0 ? Math.abs(Number(a.amount)) : 0,
+        reason: a.reason,
+        description: `تعديل الرصيد الافتتاحي: ${a.reason}`,
+      })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    let running = Number(customer.previousBalance);
+    // previousBalance يحمل آخر قيمة، لذلك نرجع منه مجموع التعديلات حتى يظهر
+    // الرصيد الافتتاحي الأصلي ثم كل تعديل كسطر مستقل في الكشف.
+    const adjustmentTotal = adjustments.reduce((sum: number, a: any) => sum + Number(a.amount), 0);
+    let running = Number(customer.previousBalance) - adjustmentTotal;
     const withBalance = entries.map((e) => {
       running = running + e.debit - e.credit;
       return { ...e, balance: running };
     });
 
-    return { customer, previousBalance: customer.previousBalance, entries: withBalance, currentBalance: customer.balance };
+    return {
+      customer,
+      previousBalance: customer.previousBalance,
+      entries: withBalance,
+      currentBalance: customer.balance,
+    };
   }
 
   /** سداد مبلغ مباشر من العميل (مش مرتبط بفاتورة بعينها). */
@@ -121,7 +196,8 @@ export class CustomersService {
     const customer = await this.findById(tenantId, customerId);
 
     const count = await this.repo.manager.query(
-      `SELECT COUNT(*)::int AS c FROM payments WHERE tenant_id = $1`, [tenantId]
+      `SELECT COUNT(*)::int AS c FROM payments WHERE tenant_id = $1`,
+      [tenantId]
     );
     const paymentNumber = `PAY-${new Date().getFullYear()}-${String(count[0].c + 1).padStart(4, '0')}`;
 

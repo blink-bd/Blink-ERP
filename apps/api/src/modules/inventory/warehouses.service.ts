@@ -19,7 +19,9 @@ export class WarehousesService {
   }
 
   async findOrCreateDefault(tenantId: string, userId?: string): Promise<Warehouse> {
-    const existing = await this.repo.findOne({ where: { tenantId, isMain: true, deletedAt: IsNull() } });
+    const existing = await this.repo.findOne({
+      where: { tenantId, isMain: true, deletedAt: IsNull() },
+    });
     if (existing) return existing;
     const warehouse = this.repo.create({
       tenantId,

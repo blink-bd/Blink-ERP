@@ -37,7 +37,10 @@ export class CashRegisterController {
   }
 
   @Post('shifts')
-  async openShift(@Request() req, @Body() dto: { cashRegisterId: string; openingBalance: number; notes?: string }) {
+  async openShift(
+    @Request() req,
+    @Body() dto: { cashRegisterId: string; openingBalance: number; notes?: string }
+  ) {
     const shift = await this.service.openShift(
       req.tenantId,
       dto.cashRegisterId,
@@ -59,14 +62,26 @@ export class CashRegisterController {
     @Param('id') id: string,
     @Body() dto: { actualCash: number; actualCard: number; notes?: string }
   ) {
-    const shift = await this.service.closeShift(req.tenantId, id, dto.actualCash, dto.actualCard, dto.notes);
+    const shift = await this.service.closeShift(
+      req.tenantId,
+      id,
+      dto.actualCash,
+      dto.actualCard,
+      dto.notes
+    );
     return { success: true, data: shift, message: 'تم إغلاق الوردية بنجاح' };
   }
 
   @Post('transactions')
   async addTransaction(
     @Request() req,
-    @Body() dto: { shiftId: string; type: 'cash_in' | 'cash_out' | 'expense'; amount: number; description?: string }
+    @Body()
+    dto: {
+      shiftId: string;
+      type: 'cash_in' | 'cash_out' | 'expense';
+      amount: number;
+      description?: string;
+    }
   ) {
     const transaction = await this.service.addCashTransaction(
       req.tenantId,

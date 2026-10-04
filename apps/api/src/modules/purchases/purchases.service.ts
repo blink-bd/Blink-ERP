@@ -43,7 +43,10 @@ export class PurchasesService {
   }
 
   async findById(tenantId: string, id: string): Promise<Purchase> {
-    const purchase = await this.purchasesRepository.findOne({ where: { id, tenantId }, relations: ['items'] });
+    const purchase = await this.purchasesRepository.findOne({
+      where: { id, tenantId },
+      relations: ['items'],
+    });
     if (!purchase) throw new NotFoundException('أمر الشراء غير موجود');
     return purchase;
   }
@@ -91,11 +94,16 @@ export class PurchasesService {
         const product = await this.productsService.findById(tenantId, itemInput.productId);
         if (Math.abs(Number(product.costPrice) - itemInput.unitCost) > 0.0001) {
           const oldCost = Number(product.costPrice);
-          await this.productsService.update(tenantId, itemInput.productId, {
-            costPrice: itemInput.unitCost,
-            needsPriceReview: true,
-            priceReviewNote: `تغيّر سعر التكلفة من ${oldCost.toFixed(2)} إلى ${itemInput.unitCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر البيع القطاعي والجملة`,
-          } as any, userId);
+          await this.productsService.update(
+            tenantId,
+            itemInput.productId,
+            {
+              costPrice: itemInput.unitCost,
+              needsPriceReview: true,
+              priceReviewNote: `تغيّر سعر التكلفة من ${oldCost.toFixed(2)} إلى ${itemInput.unitCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر البيع القطاعي والجملة`,
+            } as any,
+            userId
+          );
         }
       }
 
@@ -129,7 +137,14 @@ export class PurchasesService {
         await this.suppliersService.adjustBalance(tenantId, dto.supplierId, total - paidAmount);
       }
 
-      return this.findById(tenantId, saved.id);
+      // لا نقرأ عبر repository خارج الـ transaction قبل commit؛ هذا كان يعيد
+      // «أمر الشراء غير موجود» رغم نجاح إدخاله.
+      const result = await manager.findOne(Purchase, {
+        where: { id: saved.id, tenantId },
+        relations: ['items'],
+      });
+      if (!result) throw new NotFoundException('أمر الشراء غير موجود بعد الحفظ');
+      return result;
     });
   }
 }

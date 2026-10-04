@@ -21,7 +21,11 @@ export class InventoryController {
     @Query('search') search?: string,
     @Query('categoryId') categoryId?: string
   ) {
-    const data = await this.inventoryService.getSummary(req.tenantId, { warehouseId, search, categoryId });
+    const data = await this.inventoryService.getSummary(req.tenantId, {
+      warehouseId,
+      search,
+      categoryId,
+    });
     return { success: true, data };
   }
 
@@ -36,7 +40,10 @@ export class InventoryController {
   }
 
   @Post('adjust')
-  async adjust(@Request() req, @Body() dto: { productId: string; warehouseId: string; quantity: number; reason: string }) {
+  async adjust(
+    @Request() req,
+    @Body() dto: { productId: string; warehouseId: string; quantity: number; reason: string }
+  ) {
     const transaction = await this.inventoryService.adjustManual(
       req.tenantId,
       dto.productId,
@@ -51,7 +58,8 @@ export class InventoryController {
   @Post('transfer')
   async transfer(
     @Request() req,
-    @Body() dto: { productId: string; fromWarehouseId: string; toWarehouseId: string; quantity: number }
+    @Body()
+    dto: { productId: string; fromWarehouseId: string; toWarehouseId: string; quantity: number }
   ) {
     const result = await this.inventoryService.transfer(
       req.tenantId,

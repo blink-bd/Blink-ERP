@@ -50,11 +50,27 @@ export class AdminFeaturesController {
   }
 
   @Put()
-  async update(@Request() req, @Ip() ip: string, @Param('tenantId') tenantId: string, @Body() dto: UpdateTenantFeaturesDto) {
+  async update(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('tenantId') tenantId: string,
+    @Body() dto: UpdateTenantFeaturesDto
+  ) {
     for (const f of dto.features) {
       await this.featuresService.setFeatureStatus(tenantId, f.featureId, f.isEnabled);
     }
-    await this.master.audit(req.masterAdmin.email, 'TENANT_FEATURES_UPDATED', 'tenant', tenantId, dto, ip);
-    return { success: true, data: await this.featuresService.getAllWithStatus(tenantId), message: 'تم تحديث ميزات التاجر بنجاح' };
+    await this.master.audit(
+      req.masterAdmin.email,
+      'TENANT_FEATURES_UPDATED',
+      'tenant',
+      tenantId,
+      dto,
+      ip
+    );
+    return {
+      success: true,
+      data: await this.featuresService.getAllWithStatus(tenantId),
+      message: 'تم تحديث ميزات التاجر بنجاح',
+    };
   }
 }

@@ -10,8 +10,10 @@ import { CashTransaction } from './entities/cash-transaction.entity';
 export class CashRegisterService {
   constructor(
     @InjectRepository(CashRegister) private readonly registersRepository: Repository<CashRegister>,
-    @InjectRepository(CashRegisterShift) private readonly shiftsRepository: Repository<CashRegisterShift>,
-    @InjectRepository(CashTransaction) private readonly transactionsRepository: Repository<CashTransaction>
+    @InjectRepository(CashRegisterShift)
+    private readonly shiftsRepository: Repository<CashRegisterShift>,
+    @InjectRepository(CashTransaction)
+    private readonly transactionsRepository: Repository<CashTransaction>
   ) {}
 
   async getCurrentShift(tenantId: string, userId: string): Promise<CashRegisterShift> {
@@ -30,7 +32,9 @@ export class CashRegisterService {
     notes: string | undefined,
     userId: string
   ): Promise<CashRegisterShift> {
-    const register = await this.registersRepository.findOne({ where: { id: cashRegisterId, tenantId } });
+    const register = await this.registersRepository.findOne({
+      where: { id: cashRegisterId, tenantId },
+    });
     if (!register) throw new NotFoundException('الكاشير غير موجود');
     if (register.isOpen) throw new BadRequestException('يوجد وردية مفتوحة بالفعل على هذا الكاشير');
 
@@ -71,7 +75,9 @@ export class CashRegisterService {
     shift.status = 'closed';
     const saved = await this.shiftsRepository.save(shift);
 
-    const register = await this.registersRepository.findOne({ where: { id: shift.cashRegisterId, tenantId } });
+    const register = await this.registersRepository.findOne({
+      where: { id: shift.cashRegisterId, tenantId },
+    });
     if (register) {
       register.isOpen = false;
       register.currentShiftId = undefined;
@@ -104,7 +110,12 @@ export class CashRegisterService {
     return this.registersRepository.find({ where: { tenantId } });
   }
 
-  async createRegister(tenantId: string, data: Partial<CashRegister>, userId?: string): Promise<CashRegister> {
+  async createRegister(
+    tenantId: string,
+    data: Partial<CashRegister>,
+    userId?: string
+  ): Promise<CashRegister> {
+    void userId;
     const register = this.registersRepository.create({ ...stripProtected(data), tenantId });
     return this.registersRepository.save(register);
   }
