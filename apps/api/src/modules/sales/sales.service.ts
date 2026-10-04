@@ -147,6 +147,20 @@ export class SalesService {
         const lineTotal = lineSubtotal + lineTax;
         const lineCost = itemInput.quantity * Number(product.costPrice);
 
+        if (unitPrice < Number(product.costPrice) || lineSubtotal < lineCost) {
+          throw new BadRequestException({
+            code: 'PRICE_BELOW_COST',
+            message: `لا يمكن بيع الصنف (${product.name}) بأقل من سعر التكلفة`,
+            details: {
+              productId: product.id,
+              costPrice: Number(product.costPrice),
+              unitPrice,
+              lineTotalAfterDiscount: lineSubtotal,
+              lineCost,
+            },
+          });
+        }
+
         subtotal += lineSubtotal;
         taxAmount += lineTax;
         cogs += lineCost;
@@ -181,7 +195,15 @@ export class SalesService {
       }
 
       const discountAmount = dto.discountAmount || 0;
-      const total = subtotal - discountAmount + taxAmount;
+      const netBeforeTax = subtotal - discountAmount;
+      if (netBeforeTax < cogs) {
+        throw new BadRequestException({
+          code: 'INVOICE_BELOW_COST',
+          message: 'لا يمكن إتمام البيع: إجمالي الفاتورة بعد الخصم أقل من إجمالي تكلفة البضاعة',
+          details: { netBeforeTax, totalCost: cogs },
+        });
+      }
+      const total = netBeforeTax + taxAmount;
       const paidAmount = (dto.payments || []).reduce((sum, p) => sum + p.amount, 0);
       const changeAmount = paidAmount > total ? paidAmount - total : 0;
       const paymentStatus = paidAmount >= total ? 'paid' : paidAmount > 0 ? 'partial' : 'pending';
