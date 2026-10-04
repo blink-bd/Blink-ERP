@@ -4,7 +4,7 @@ import { Permission } from '@/modules/users/entities/permission.entity';
 export async function seedPermissions(dataSource: DataSource): Promise<void> {
   const permissionsRepository = dataSource.getRepository(Permission);
 
-  const permissions = [
+  const permissions: Partial<Permission>[] = [
     { resource: 'sales', action: 'view', scope: 'all', name: 'sales.view', category: 'sales' },
     { resource: 'sales', action: 'create', scope: 'all', name: 'sales.create', category: 'sales' },
     { resource: 'sales', action: 'update', scope: 'all', name: 'sales.update', category: 'sales' },
