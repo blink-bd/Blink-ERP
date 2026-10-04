@@ -4,16 +4,41 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
-import { Plus, X, Pencil, AlertTriangle } from 'lucide-react';
+import { Plus, X, Pencil, Trash2 } from 'lucide-react';
 
 interface Product {
-  id: string; name: string; sku?: string; barcode?: string;
-  sellingPrice: number; wholesalePrice?: number; costPrice: number;
-  categoryId?: string; category?: { id: string; name: string };
-  minStockLevel: number; isActive: boolean;
-  availableQuantity: number | null; stockStatus: string;
-  needsPriceReview?: boolean; priceReviewNote?: string;
+  id: string;
+  name: string;
+  sku?: string;
+  barcode?: string;
+  sellingPrice: number;
+  wholesalePrice?: number;
+  costPrice: number;
+  categoryId?: string;
+  category?: { id: string; name: string };
+  minStockLevel: number;
+  isActive: boolean;
+  availableQuantity: number | null;
+  openingQuantity: number | null;
+  stockStatus: string;
+  needsPriceReview?: boolean;
+  priceReviewNote?: string;
 }
+
+type ProductForm = {
+  id: string;
+  name: string;
+  sku: string;
+  barcode: string;
+  costPrice: string;
+  sellingPrice: string;
+  wholesalePrice: string;
+  minStockLevel: string;
+  categoryId: string;
+  initialQuantity: string;
+  originalInitialQuantity: string;
+  needsPriceReview: boolean;
+};
 
 const statusLabel: Record<string, { text: string; cls: string }> = {
   available: { text: 'متوفر', cls: 'bg-green-100 text-green-700' },
@@ -22,9 +47,16 @@ const statusLabel: Record<string, { text: string; cls: string }> = {
   not_tracked: { text: '—', cls: 'bg-gray-100 text-gray-500' },
 };
 
-const emptyForm = {
+const emptyForm: ProductForm = {
   id: '', name: '', sku: '', barcode: '', costPrice: '', sellingPrice: '', wholesalePrice: '',
-  minStockLevel: '5', categoryId: '', initialQuantity: '',
+  minStockLevel: '5', categoryId: '', initialQuantity: '', originalInitialQuantity: '', needsPriceReview: false,
+};
+
+const formatQuantity = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return Number.isInteger(number) ? String(number) : number.toLocaleString('ar-EG', { maximumFractionDigits: 4 });
 };
 
 export function ProductsPage() {
@@ -34,8 +66,11 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState(emptyForm);
+  const [form, setForm] = useState<ProductForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [identifierStatus, setIdentifierStatus] = useState({ skuAvailable: true, barcodeAvailable: true });
 
   const load = async () => {
     setLoading(true);
@@ -53,46 +88,132 @@ export function ProductsPage() {
 
   useEffect(() => { load(); }, [categoryFilter]);
 
+  useEffect(() => {
+    if (!showForm || (!form.sku.trim() && !form.barcode.trim())) {
+      setIdentifierStatus({ skuAvailable: true, barcodeAvailable: true });
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await api.get('/products/check-identifiers', {
+          params: {
+            sku: form.sku.trim() || undefined,
+            barcode: form.barcode.trim() || undefined,
+            excludeId: form.id || undefined,
+          },
+        });
+        setIdentifierStatus(response.data.data);
+      } catch {
+        // يعرض interceptor رسالة الخطأ عند الحاجة، ولا نوقف الكتابة.
+      }
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [form.sku, form.barcode, form.id, showForm]);
+
   const handleSearch = (e: React.FormEvent) => { e.preventDefault(); load(); };
 
-  const openCreate = () => { setForm(emptyForm); setShowForm(true); };
+  const openCreate = () => { setForm({ ...emptyForm }); setShowForm(true); };
   const openEdit = (p: Product) => {
+    const currentQuantity = p.openingQuantity === null || p.openingQuantity === undefined ? '' : String(p.openingQuantity);
     setForm({
       id: p.id, name: p.name, sku: p.sku || '', barcode: p.barcode || '',
       costPrice: String(p.costPrice), sellingPrice: String(p.sellingPrice),
-      wholesalePrice: p.wholesalePrice ? String(p.wholesalePrice) : '',
-      minStockLevel: String(p.minStockLevel), categoryId: p.categoryId || '', initialQuantity: '',
+      wholesalePrice: p.wholesalePrice !== undefined && p.wholesalePrice !== null ? String(p.wholesalePrice) : '',
+      minStockLevel: String(p.minStockLevel), categoryId: p.categoryId || '',
+      initialQuantity: currentQuantity, originalInitialQuantity: currentQuantity,
+      needsPriceReview: !!p.needsPriceReview,
     });
     setShowForm(true);
   };
 
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    setAddingCategory(true);
+    try {
+      const response = await api.post('/categories', { name: newCategoryName.trim() });
+      const category = response.data.data;
+      setCategories((previous) => [...previous, category]);
+      setForm((previous) => ({ ...previous, categoryId: category.id }));
+      setNewCategoryName('');
+      toast.success('تمت إضافة الصنف');
+    } finally {
+      setAddingCategory(false);
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const cost = Number(form.costPrice) || 0;
+    const retail = Number(form.sellingPrice);
+    const wholesale = form.wholesalePrice === '' ? undefined : Number(form.wholesalePrice);
+    if (!Number.isFinite(retail) || retail <= cost) {
+      toast.error('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
+      return;
+    }
+    if (wholesale !== undefined && (!Number.isFinite(wholesale) || wholesale <= cost)) {
+      toast.error('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
+      return;
+    }
+    if (!identifierStatus.skuAvailable || !identifierStatus.barcodeAvailable) {
+      toast.error('لا يمكن حفظ المنتج: رمز المنتج أو الباركود مستخدم بالفعل');
+      return;
+    }
+
+    const openingChanged = !!form.id && form.initialQuantity !== form.originalInitialQuantity;
+    let openingQuantityReason = '';
+    if (openingChanged) {
+      if (!window.confirm('سيتم تعديل الكمية الافتتاحية وتسجيل العملية في حركة المخزون. هل تريد المتابعة؟')) return;
+      openingQuantityReason = window.prompt('اكتب سبب تعديل الكمية الافتتاحية لضمان سلامة السجل:')?.trim() || '';
+      if (!openingQuantityReason) {
+        toast.error('يجب كتابة سبب تعديل الكمية الافتتاحية');
+        return;
+      }
+    }
+
+    let confirmPriceReview = false;
+    if (form.id && form.needsPriceReview) {
+      if (!window.confirm('تم تغيير سعر التكلفة سابقاً. هل راجعت أسعار البيع وتريد تأكيد حفظ المراجعة؟')) return;
+      confirmPriceReview = true;
+    }
+
     setSaving(true);
     try {
       const payload: any = {
-        name: form.name,
-        sku: form.sku || undefined,
-        barcode: form.barcode || undefined,
-        costPrice: Number(form.costPrice) || 0,
-        sellingPrice: Number(form.sellingPrice),
-        wholesalePrice: form.wholesalePrice ? Number(form.wholesalePrice) : undefined,
+        name: form.name.trim(),
+        sku: form.sku.trim() || undefined,
+        barcode: form.barcode.trim() || undefined,
+        costPrice: cost,
+        sellingPrice: retail,
+        wholesalePrice: wholesale,
         minStockLevel: Number(form.minStockLevel) || 0,
         categoryId: form.categoryId || undefined,
       };
       if (form.id) {
+        if (openingChanged && form.initialQuantity !== '') payload.initialQuantity = Number(form.initialQuantity);
+        if (openingChanged) {
+          payload.confirmOpeningQuantityChange = true;
+          payload.openingQuantityReason = openingQuantityReason;
+        }
+        if (confirmPriceReview) payload.confirmPriceReview = true;
         await api.put(`/products/${form.id}`, payload);
         toast.success('تم تحديث المنتج بنجاح');
       } else {
-        if (form.initialQuantity) payload.initialQuantity = Number(form.initialQuantity);
+        if (form.initialQuantity !== '') payload.initialQuantity = Number(form.initialQuantity);
         await api.post('/products', payload);
-        toast.success('تم إضافة المنتج بنجاح');
+        toast.success('تمت إضافة المنتج بنجاح');
       }
       setShowForm(false);
-      load();
+      await load();
     } finally {
       setSaving(false);
     }
+  };
+
+  const removeProduct = async (product: Product) => {
+    if (!window.confirm(`هل أنت متأكد من حذف المنتج «${product.name}»؟`)) return;
+    await api.delete(`/products/${product.id}`);
+    toast.success('تم حذف المنتج');
+    load();
   };
 
   return (
@@ -109,33 +230,47 @@ export function ProductsPage() {
         <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-3 gap-4">
           <div><Label>اسم المنتج</Label>
             <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
-          <div><Label>رمز المنتج (SKU)</Label>
-            <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></div>
-          <div><Label>الباركود</Label>
-            <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} /></div>
+          <div>
+            <Label>رمز المنتج (SKU)</Label>
+            <Input value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} />
+            {!identifierStatus.skuAvailable && <p className="text-xs text-red-600 mt-1">رمز المنتج موجود مسبقاً</p>}
+          </div>
+          <div>
+            <Label>الباركود</Label>
+            <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+            {!identifierStatus.barcodeAvailable && <p className="text-xs text-red-600 mt-1">الباركود موجود مسبقاً</p>}
+          </div>
 
-          <div><Label>الصنف</Label>
-            <select className="border rounded-md h-10 px-3 w-full" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
-              <option value="">بدون صنف</option>
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
+          <div>
+            <Label>الصنف</Label>
+            <div className="flex gap-2">
+              <select className="border rounded-md h-10 px-3 w-full" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
+                <option value="">بدون صنف</option>
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <Button type="button" size="icon" variant="outline" title="إضافة صنف" onClick={() => document.getElementById('new-category-name')?.focus()}><Plus className="h-4 w-4" /></Button>
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Input id="new-category-name" placeholder="اكتب اسم صنف جديد" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} />
+              <Button type="button" size="sm" variant="outline" disabled={addingCategory || !newCategoryName.trim()} onClick={addCategory}>إضافة</Button>
+            </div>
           </div>
           <div><Label>سعر التكلفة</Label>
-            <Input type="number" step="0.01" value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: e.target.value })} /></div>
+            <Input type="number" step="0.01" min="0" required value={form.costPrice} onChange={(e) => setForm({ ...form, costPrice: e.target.value })} /></div>
           <div><Label>الحد الأدنى للتنبيه</Label>
-            <Input type="number" value={form.minStockLevel} onChange={(e) => setForm({ ...form, minStockLevel: e.target.value })} /></div>
+            <Input type="number" min="0" value={form.minStockLevel} onChange={(e) => setForm({ ...form, minStockLevel: e.target.value })} /></div>
 
           <div><Label>سعر البيع القطاعي</Label>
-            <Input type="number" step="0.01" required value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })} /></div>
+            <Input type="number" step="0.01" min="0.01" required value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })} /></div>
           <div><Label>سعر البيع بالجملة (اختياري)</Label>
-            <Input type="number" step="0.01" value={form.wholesalePrice} onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })} /></div>
-          {!form.id && (
-            <div><Label>الكمية الافتتاحية (اختياري)</Label>
-              <Input type="number" value={form.initialQuantity} onChange={(e) => setForm({ ...form, initialQuantity: e.target.value })} /></div>
-          )}
+            <Input type="number" step="0.01" min="0" value={form.wholesalePrice} onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })} /></div>
+          <div><Label>{form.id ? 'الكمية الافتتاحية / الحالية' : 'الكمية الافتتاحية (اختياري)'}</Label>
+            <Input type="number" step="0.0001" min="0" value={form.initialQuantity} onChange={(e) => setForm({ ...form, initialQuantity: e.target.value })} />
+            {form.id && <p className="text-xs text-gray-500 mt-1">تغييرها يحتاج تأكيداً وسبباً ويُسجل في حركة المخزون.</p>}
+          </div>
 
           <div className="col-span-3 flex justify-end">
-            <Button type="submit" disabled={saving}>{saving ? 'جاري الحفظ...' : form.id ? 'حفظ التعديلات' : 'حفظ المنتج'}</Button>
+            <Button type="submit" disabled={saving || !identifierStatus.skuAvailable || !identifierStatus.barcodeAvailable}>{saving ? 'جاري الحفظ...' : form.id ? 'حفظ التعديلات' : 'حفظ المنتج'}</Button>
           </div>
         </form>
       )}
@@ -155,6 +290,8 @@ export function ProductsPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="text-right p-3">المنتج</th>
+              <th className="text-right p-3">رمز المنتج</th>
+              <th className="text-right p-3">الباركود</th>
               <th className="text-right p-3">الصنف</th>
               <th className="text-right p-3">التكلفة</th>
               <th className="text-right p-3">قطاعي</th>
@@ -165,28 +302,24 @@ export function ProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={8} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
-            {!loading && products.length === 0 && <tr><td colSpan={8} className="text-center py-8 text-gray-400">لا توجد منتجات</td></tr>}
+            {loading && <tr><td colSpan={10} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
+            {!loading && products.length === 0 && <tr><td colSpan={10} className="text-center py-8 text-gray-400">لا توجد منتجات</td></tr>}
             {products.map((p) => {
               const st = statusLabel[p.stockStatus] || statusLabel.not_tracked;
               return (
                 <tr key={p.id} className="border-t">
-                  <td className="p-3">
-                    {p.name}
-                    {p.needsPriceReview && (
-                      <span title={p.priceReviewNote} className="inline-flex items-center gap-1 text-xs text-orange-600 mr-2">
-                        <AlertTriangle className="h-3 w-3" /> راجع السعر
-                      </span>
-                    )}
-                  </td>
+                  <td className="p-3">{p.name}</td>
+                  <td className="p-3 text-gray-500">{p.sku || '-'}</td>
+                  <td className="p-3 text-gray-500">{p.barcode || '-'}</td>
                   <td className="p-3 text-gray-500">{p.category?.name || '-'}</td>
                   <td className="p-3">{Number(p.costPrice).toFixed(2)}</td>
                   <td className="p-3 font-medium">{Number(p.sellingPrice).toFixed(2)}</td>
-                  <td className="p-3 text-gray-500">{p.wholesalePrice ? Number(p.wholesalePrice).toFixed(2) : '-'}</td>
-                  <td className="p-3">{p.availableQuantity ?? '-'}</td>
+                  <td className="p-3 text-gray-500">{p.wholesalePrice !== undefined && p.wholesalePrice !== null ? Number(p.wholesalePrice).toFixed(2) : '-'}</td>
+                  <td className="p-3">{formatQuantity(p.availableQuantity)}</td>
                   <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${st.cls}`}>{st.text}</span></td>
-                  <td className="p-3">
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(p)}><Pencil className="h-4 w-4" /></Button>
+                  <td className="p-3 flex gap-1">
+                    <Button size="icon" variant="ghost" onClick={() => openEdit(p)} title="تعديل"><Pencil className="h-4 w-4" /></Button>
+                    <Button size="icon" variant="ghost" onClick={() => removeProduct(p)} title="حذف"><Trash2 className="h-4 w-4 text-red-500" /></Button>
                   </td>
                 </tr>
               );

@@ -13,7 +13,6 @@ import {
   Wallet,
   Receipt,
   BarChart3,
-  Settings,
 } from 'lucide-react';
 
 interface NavItem {
@@ -34,12 +33,12 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/expenses', labelKey: 'expenses', icon: Wallet, feature: 'expenses' },
   { to: '/cash-register', labelKey: 'cashRegister', icon: Receipt, feature: 'cash_register' },
   { to: '/reports', labelKey: 'reports', icon: BarChart3, feature: 'reports' },
-  { to: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
 function NavItemLink({ item }: { item: NavItem }) {
   const { t } = useTranslation('nav');
-  const hasFeature = item.feature ? useFeature(item.feature) : true;
+  const featureEnabled = useFeature(item.feature || '__always__');
+  const hasFeature = item.feature ? featureEnabled : true;
   if (!hasFeature) return null;
 
   const Icon = item.icon;
@@ -62,9 +61,10 @@ export function Sidebar() {
   const { branding } = useBranding();
 
   return (
-    <aside className="w-64 shrink-0 h-screen sticky top-0 flex flex-col" style={{ backgroundColor: '#1E293B' }}>
-      <div className="px-4 py-5 border-b border-white/10">
-        <h1 className="text-white text-lg font-bold">{branding.appName}</h1>
+    <aside className="w-64 shrink-0 h-screen sticky top-0 flex flex-col" style={{ backgroundColor: branding.sidebarColor }}>
+      <div className="px-4 py-5 border-b border-white/10 flex items-center gap-3">
+        {branding.logoUrl && <img src={branding.logoUrl} alt="الشعار" className="h-9 w-9 object-contain rounded bg-white/10" />}
+        <h1 className="text-white text-lg font-bold truncate">{branding.appName}</h1>
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">
         {NAV_ITEMS.map((item) => (

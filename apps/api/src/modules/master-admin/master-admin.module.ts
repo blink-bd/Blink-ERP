@@ -14,7 +14,11 @@ import { MasterAuthController, MasterAdminController } from './master-admin.cont
 /** Global: عشان الـ Guard يتستخدم في أي Controller خاص بالمدير العام. */
 @Global()
 @Module({
-  imports: [TypeOrmModule.forFeature([MasterAdmin, Tenant, User, Plan, Feature]), JwtModule.register({}), UsersModule],
+  imports: [
+    TypeOrmModule.forFeature([MasterAdmin, Tenant, User, Plan, Feature]),
+    JwtModule.register({}),
+    UsersModule,
+  ],
   controllers: [MasterAuthController, MasterAdminController],
   providers: [MasterAdminService, MasterAdminGuard],
   exports: [MasterAdminService, MasterAdminGuard],

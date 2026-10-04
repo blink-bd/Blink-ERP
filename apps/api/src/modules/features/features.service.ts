@@ -129,7 +129,10 @@ export class FeaturesService {
   /** كل الميزات + هل هي مفعّلة للتاجر (للوحة المدير العام). */
   async getAllWithStatus(tenantId: string) {
     const [features, assigned] = await Promise.all([
-      this.featuresRepository.find({ where: { isActive: true }, order: { category: 'ASC', code: 'ASC' } }),
+      this.featuresRepository.find({
+        where: { isActive: true },
+        order: { category: 'ASC', code: 'ASC' },
+      }),
       this.tenantFeaturesRepository.find({ where: { tenantId } }),
     ]);
     const map = new Map(assigned.map((t) => [t.featureId, t]));

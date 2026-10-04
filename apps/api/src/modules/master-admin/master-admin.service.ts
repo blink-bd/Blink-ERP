@@ -1,5 +1,9 @@
 import {
-  Injectable, OnModuleInit, UnauthorizedException, ForbiddenException, NotFoundException,
+  Injectable,
+  OnModuleInit,
+  UnauthorizedException,
+  ForbiddenException,
+  NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -36,7 +40,9 @@ export class MasterAdminService implements OnModuleInit {
   onModuleInit() {
     const secret = this.config.get<string>('JWT_MASTER_SECRET');
     if (!secret || secret.length < 32) {
-      throw new Error('JWT_MASTER_SECRET مطلوب ولازم يكون 32 حرف على الأقل (منفصل عن JWT_ACCESS_SECRET)');
+      throw new Error(
+        'JWT_MASTER_SECRET مطلوب ولازم يكون 32 حرف على الأقل (منفصل عن JWT_ACCESS_SECRET)'
+      );
     }
     if (secret === this.config.get('JWT_ACCESS_SECRET')) {
       throw new Error('JWT_MASTER_SECRET لازم يختلف عن JWT_ACCESS_SECRET');
@@ -66,7 +72,15 @@ export class MasterAdminService implements OnModuleInit {
         admin.failedLoginAttempts = 0;
       }
       await this.admins.save(admin);
-      await this.audit(admin.email, 'MASTER_LOGIN_FAILED', 'master_admin', admin.id, {}, ip, 'warning');
+      await this.audit(
+        admin.email,
+        'MASTER_LOGIN_FAILED',
+        'master_admin',
+        admin.id,
+        {},
+        ip,
+        'warning'
+      );
       throw invalid;
     }
 
@@ -110,7 +124,14 @@ export class MasterAdminService implements OnModuleInit {
     assertStrongPassword(next);
     admin.passwordHash = await argon2.hash(next, { type: argon2.argon2id });
     await this.admins.save(admin);
-    await this.audit(admin.email, 'MASTER_PASSWORD_CHANGED', 'master_admin', admin.id, {}, undefined);
+    await this.audit(
+      admin.email,
+      'MASTER_PASSWORD_CHANGED',
+      'master_admin',
+      admin.id,
+      {},
+      undefined
+    );
   }
 
   // ---------- Dashboard ----------
@@ -126,7 +147,9 @@ export class MasterAdminService implements OnModuleInit {
         COUNT(*) FILTER (WHERE subscription_end_date BETWEEN NOW() AND NOW() + INTERVAL '7 days')::int AS "expiringSoon",
         COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int AS "new30d"
       FROM tenants WHERE deleted_at IS NULL`);
-    const [u] = await this.dataSource.query(`SELECT COUNT(*)::int AS total FROM users WHERE deleted_at IS NULL`);
+    const [u] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS total FROM users WHERE deleted_at IS NULL`
+    );
     const [s] = await this.dataSource.query(`
       SELECT COUNT(*)::int AS "salesCount", COALESCE(SUM(total),0) AS "salesTotal"
       FROM sales WHERE status = 'completed' AND sale_date > NOW() - INTERVAL '30 days'`);
@@ -152,19 +175,38 @@ export class MasterAdminService implements OnModuleInit {
     const tenant = await this.getTenant(id);
     const before = { isActive: tenant.isActive, subscriptionStatus: tenant.subscriptionStatus };
     if (dto.isActive !== undefined) tenant.isActive = dto.isActive;
-    if (dto.subscriptionStatus) tenant.subscriptionStatus = dto.subscriptionStatus as Tenant['subscriptionStatus'];
+    if (dto.subscriptionStatus)
+      tenant.subscriptionStatus = dto.subscriptionStatus as Tenant['subscriptionStatus'];
     const saved = await this.tenants.save(tenant);
-    await this.audit(adminEmail, 'TENANT_STATUS_CHANGED', 'tenant', id, { before, after: dto }, ip, 'warning');
+    await this.audit(
+      adminEmail,
+      'TENANT_STATUS_CHANGED',
+      'tenant',
+      id,
+      { before, after: dto },
+      ip,
+      'warning'
+    );
     return saved;
   }
 
-  async setTenantSubscription(id: string, dto: TenantSubscriptionDto, adminEmail: string, ip: string) {
+  async setTenantSubscription(
+    id: string,
+    dto: TenantSubscriptionDto,
+    adminEmail: string,
+    ip: string
+  ) {
     const tenant = await this.getTenant(id);
     if (dto.planId) tenant.planId = dto.planId;
-    if (dto.subscriptionStartDate) tenant.subscriptionStartDate = new Date(dto.subscriptionStartDate);
+    if (dto.subscriptionStartDate)
+      tenant.subscriptionStartDate = new Date(dto.subscriptionStartDate);
     if (dto.subscriptionEndDate) tenant.subscriptionEndDate = new Date(dto.subscriptionEndDate);
     // تجديد الاشتراك بتاريخ مستقبلي يعيد التفعيل تلقائياً
-    if (tenant.subscriptionEndDate && tenant.subscriptionEndDate > new Date() && tenant.subscriptionStatus === 'expired') {
+    if (
+      tenant.subscriptionEndDate &&
+      tenant.subscriptionEndDate > new Date() &&
+      tenant.subscriptionStatus === 'expired'
+    ) {
       tenant.subscriptionStatus = 'active';
     }
     const saved = await this.tenants.save(tenant);
@@ -176,29 +218,61 @@ export class MasterAdminService implements OnModuleInit {
     await this.getTenant(tenantId);
     const rows = await this.users.find({ where: { tenantId }, order: { createdAt: 'ASC' } });
     return rows.map((u) => ({
-      id: u.id, email: u.email, fullName: u.fullName, isActive: u.isActive,
-      lastLoginAt: u.lastLoginAt, lockedUntil: u.lockedUntil,
+      id: u.id,
+      email: u.email,
+      fullName: u.fullName,
+      isActive: u.isActive,
+      lastLoginAt: u.lastLoginAt,
+      lockedUntil: u.lockedUntil,
     }));
   }
 
-  async resetTenantUserPassword(tenantId: string, userId: string, newPassword: string, adminEmail: string, ip: string) {
+  async resetTenantUserPassword(
+    tenantId: string,
+    userId: string,
+    newPassword: string,
+    adminEmail: string,
+    ip: string
+  ) {
     const user = await this.users.findOne({ where: { id: userId, tenantId } });
     if (!user) throw new NotFoundException('المستخدم غير موجود في هذا التاجر');
     assertStrongPassword(newPassword);
     await this.usersService.setPassword(userId, newPassword);
-    await this.audit(adminEmail, 'TENANT_USER_PASSWORD_RESET', 'user', userId, { tenantId }, ip, 'warning');
+    await this.audit(
+      adminEmail,
+      'TENANT_USER_PASSWORD_RESET',
+      'user',
+      userId,
+      { tenantId },
+      ip,
+      'warning'
+    );
   }
 
   // ---------- Audit ----------
   async audit(
-    adminEmail: string, action: string, entityType: string, entityId: string | undefined,
-    values: any, ip?: string, severity: 'info' | 'warning' | 'error' = 'info'
+    adminEmail: string,
+    action: string,
+    entityType: string,
+    entityId: string | undefined,
+    values: any,
+    ip?: string,
+    severity: 'info' | 'warning' | 'error' = 'info'
   ) {
     try {
       await this.dataSource.query(
         `INSERT INTO audit_logs (user_email, user_ip, action, entity_type, entity_id, new_values, description, severity)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [adminEmail, ip || null, action, entityType, entityId || null, JSON.stringify(values || {}), 'master_admin', severity]
+        [
+          adminEmail,
+          ip || null,
+          action,
+          entityType,
+          entityId || null,
+          JSON.stringify(values || {}),
+          'master_admin',
+          severity,
+        ]
       );
     } catch {
       // التدقيق لا يجب أن يكسر العملية الأساسية

@@ -15,6 +15,8 @@ export function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
   const [form, setForm] = useState({ categoryId: '', description: '', amount: '' });
 
   const load = async () => {
@@ -34,6 +36,21 @@ export function ExpensesPage() {
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+
+  const addCategory = async () => {
+    if (!newCategoryName.trim()) return;
+    setAddingCategory(true);
+    try {
+      const response = await api.post('/expenses/categories', { name: newCategoryName.trim(), nameAr: newCategoryName.trim() });
+      const category = response.data.data;
+      setCategories((previous) => [...previous, category]);
+      setForm((previous) => ({ ...previous, categoryId: category.id }));
+      setNewCategoryName('');
+      toast.success('تمت إضافة فئة المصروف');
+    } finally {
+      setAddingCategory(false);
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,10 +85,13 @@ export function ExpensesPage() {
         <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-3 gap-4">
           <div>
             <Label>الفئة</Label>
-            <select className="border rounded-md h-10 px-3 w-full" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
-              {categories.length === 0 && <option value="">لا توجد فئات — أضف فئة أولاً</option>}
-              {categories.map((c) => <option key={c.id} value={c.id}>{c.nameAr}</option>)}
-            </select>
+            <div className="flex gap-2">
+              <select className="border rounded-md h-10 px-3 w-full" value={form.categoryId} onChange={(e) => setForm({ ...form, categoryId: e.target.value })}>
+                {categories.length === 0 && <option value="">لا توجد فئات — أضف فئة أولاً</option>}
+                {categories.map((c) => <option key={c.id} value={c.id}>{c.nameAr || c.name}</option>)}
+              </select>
+            </div>
+            <div className="flex gap-2 mt-2"><Input placeholder="اسم فئة جديدة" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} /><Button type="button" variant="outline" size="sm" disabled={addingCategory || !newCategoryName.trim()} onClick={addCategory}>إضافة فئة</Button></div>
           </div>
           <div><Label>الوصف</Label><Input required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           <div><Label>المبلغ</Label><Input type="number" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>

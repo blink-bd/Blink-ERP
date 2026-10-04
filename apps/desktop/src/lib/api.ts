@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { toast } from 'react-hot-toast';
 
-const API_URL = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000/api/v1';
+const API_URL = (import.meta as any).env?.VITE_API_URL || '/api/v1';
 
 class ApiClient {
   private client: AxiosInstance;

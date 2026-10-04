@@ -1,4 +1,12 @@
-import { IsArray, IsNumber, IsOptional, IsString, IsUUID, ValidateNested, Min } from 'class-validator';
+import {
+  IsArray,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateNested,
+  Min,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -8,7 +16,8 @@ export class SaleItemInputDto {
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() discountAmount?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() taxRate?: number;
-  @ApiPropertyOptional({ enum: ['retail','wholesale'] }) @IsOptional() @IsString() priceTier?: 'retail' | 'wholesale';
+  @ApiPropertyOptional({ enum: ['retail', 'wholesale'] }) @IsOptional() @IsString() priceTier?:
+    'retail' | 'wholesale';
 }
 
 export class SalePaymentInputDto {

@@ -24,7 +24,7 @@ export class Feature extends BaseEntity {
   @Column({ length: 50, nullable: true })
   module?: string;
 
-  @Column({ name: 'depends_on', type: 'uuid', array: true, default: () => "ARRAY[]::UUID[]" })
+  @Column({ name: 'depends_on', type: 'uuid', array: true, default: () => 'ARRAY[]::UUID[]' })
   dependsOn: string[];
 
   @Column({ name: 'is_default', default: false })

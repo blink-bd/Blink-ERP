@@ -13,9 +13,24 @@ const DANGEROUS_CSS_PATTERNS = [
 ];
 const MAX_CSS_LENGTH = 10000;
 const ALLOWED_FIELDS = [
-  'appName', 'appNameEn', 'logoUrl', 'logoLightUrl', 'logoDarkUrl', 'faviconUrl', 'loginBackgroundUrl',
-  'primaryColor', 'secondaryColor', 'accentColor', 'sidebarColor', 'headerColor',
-  'fontFamily', 'borderRadius', 'invoiceTemplate', 'invoiceShowLogo', 'invoiceFooterText', 'customCss',
+  'appName',
+  'appNameEn',
+  'logoUrl',
+  'logoLightUrl',
+  'logoDarkUrl',
+  'faviconUrl',
+  'loginBackgroundUrl',
+  'primaryColor',
+  'secondaryColor',
+  'accentColor',
+  'sidebarColor',
+  'headerColor',
+  'fontFamily',
+  'borderRadius',
+  'invoiceTemplate',
+  'invoiceShowLogo',
+  'invoiceFooterText',
+  'customCss',
 ];
 
 @Injectable()
@@ -34,12 +49,16 @@ export class BrandingService {
     return branding;
   }
 
-  async updateBranding(tenantId: string, rawUpdates: Partial<TenantBranding>): Promise<TenantBranding> {
+  async updateBranding(
+    tenantId: string,
+    rawUpdates: Partial<TenantBranding>
+  ): Promise<TenantBranding> {
     const branding = await this.getTenantBranding(tenantId);
     // السماح بحقول الهوية فقط (منع تغيير tenantId/id)
     const updates: Partial<TenantBranding> = {};
     for (const key of ALLOWED_FIELDS) {
-      if ((rawUpdates as any)?.[key] !== undefined) (updates as any)[key] = (rawUpdates as any)[key];
+      if ((rawUpdates as any)?.[key] !== undefined)
+        (updates as any)[key] = (rawUpdates as any)[key];
     }
 
     const colorFields: (keyof TenantBranding)[] = [
@@ -62,7 +81,9 @@ export class BrandingService {
         sanitized = sanitized.replace(pattern, '');
       }
       if (sanitized.length > MAX_CSS_LENGTH) {
-        throw new BadRequestException(`Custom CSS exceeds maximum length of ${MAX_CSS_LENGTH} characters`);
+        throw new BadRequestException(
+          `Custom CSS exceeds maximum length of ${MAX_CSS_LENGTH} characters`
+        );
       }
       updates.customCss = sanitized;
     }

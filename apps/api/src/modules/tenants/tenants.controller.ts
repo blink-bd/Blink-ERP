@@ -29,13 +29,24 @@ export class TenantsController {
   @Post()
   async create(@Request() req, @Ip() ip: string, @Body() dto: CreateTenantDto) {
     const result = await this.tenantsService.create(dto);
-    await this.master.audit(req.masterAdmin.email, 'TENANT_CREATED', 'tenant', result.tenant.id,
-      { businessName: dto.businessName, email: dto.email }, ip);
+    await this.master.audit(
+      req.masterAdmin.email,
+      'TENANT_CREATED',
+      'tenant',
+      result.tenant.id,
+      { businessName: dto.businessName, email: dto.email },
+      ip
+    );
     return { success: true, data: result, message: 'تم إنشاء التاجر بنجاح' };
   }
 
   @Put(':id')
-  async update(@Request() req, @Ip() ip: string, @Param('id') id: string, @Body() dto: UpdateTenantDto) {
+  async update(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body() dto: UpdateTenantDto
+  ) {
     const tenant = await this.tenantsService.update(id, dto);
     await this.master.audit(req.masterAdmin.email, 'TENANT_UPDATED', 'tenant', id, dto, ip);
     return { success: true, data: tenant, message: 'تم تحديث بيانات التاجر بنجاح' };

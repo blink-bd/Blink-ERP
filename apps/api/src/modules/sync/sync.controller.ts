@@ -13,7 +13,12 @@ export class SyncController {
 
   @Post('sales')
   async syncSales(@Request() req, @Body() dto: { deviceId: string; operations: any[] }) {
-    const result = await this.syncService.syncSales(req.tenantId, dto.deviceId, req.user.id, dto.operations);
+    const result = await this.syncService.syncSales(
+      req.tenantId,
+      dto.deviceId,
+      req.user.id,
+      dto.operations
+    );
     return { success: true, data: result };
   }
 

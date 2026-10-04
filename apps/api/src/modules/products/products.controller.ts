@@ -48,6 +48,19 @@ export class ProductsController {
     return { success: true, data: result.data, meta: result.meta };
   }
 
+  @Get('check-identifiers')
+  async checkIdentifiers(
+    @Request() req,
+    @Query('sku') sku?: string,
+    @Query('barcode') barcode?: string,
+    @Query('excludeId') excludeId?: string
+  ) {
+    return {
+      success: true,
+      data: await this.productsService.checkIdentifiers(req.tenantId, sku, barcode, excludeId),
+    };
+  }
+
   @Get('search/:code')
   async searchByCode(@Request() req, @Param('code') code: string) {
     const product = await this.productsService.findByBarcodeOrSku(req.tenantId, code);

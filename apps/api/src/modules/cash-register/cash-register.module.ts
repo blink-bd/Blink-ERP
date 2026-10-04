@@ -9,7 +9,9 @@ import { CashRegisterController } from './cash-register.controller';
 
 @Module({
   imports: [
-    FeaturesModule,TypeOrmModule.forFeature([CashRegister, CashRegisterShift, CashTransaction])],
+    FeaturesModule,
+    TypeOrmModule.forFeature([CashRegister, CashRegisterShift, CashTransaction]),
+  ],
   controllers: [CashRegisterController],
   providers: [CashRegisterService],
   exports: [CashRegisterService],

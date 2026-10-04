@@ -19,13 +19,19 @@ export class CategoriesService {
   }
 
   async findById(tenantId: string, id: string): Promise<Category> {
-    const category = await this.categoriesRepository.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
+    const category = await this.categoriesRepository.findOne({
+      where: { id, tenantId, deletedAt: IsNull() },
+    });
     if (!category) throw new NotFoundException('الفئة غير موجودة');
     return category;
   }
 
   async create(tenantId: string, data: Partial<Category>, userId?: string): Promise<Category> {
-    const category = this.categoriesRepository.create({ ...stripProtected(data), tenantId, createdBy: userId });
+    const category = this.categoriesRepository.create({
+      ...stripProtected(data),
+      tenantId,
+      createdBy: userId,
+    });
     return this.categoriesRepository.save(category);
   }
 

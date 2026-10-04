@@ -1,8 +1,15 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
 
 export type InventoryTransactionType =
-  | 'purchase' | 'sale' | 'return_in' | 'return_out'
-  | 'adjustment' | 'transfer_in' | 'transfer_out' | 'opening_balance' | 'damage';
+  | 'purchase'
+  | 'sale'
+  | 'return_in'
+  | 'return_out'
+  | 'adjustment'
+  | 'transfer_in'
+  | 'transfer_out'
+  | 'opening_balance'
+  | 'damage';
 
 @Entity('inventory_transactions')
 export class InventoryTransaction {

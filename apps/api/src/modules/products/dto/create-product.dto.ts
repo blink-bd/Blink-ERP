@@ -73,8 +73,27 @@ export class CreateProductDto {
   @Min(0)
   initialQuantity?: number;
 
-  @ApiPropertyOptional({ description: 'المخزن اللي هتتضاف فيه الكمية الافتتاحية (افتراضي: المخزن الرئيسي)' })
+  @ApiPropertyOptional({
+    description: 'المخزن اللي هتتضاف فيه الكمية الافتتاحية (افتراضي: المخزن الرئيسي)',
+  })
   @IsOptional()
   @IsString()
   warehouseId?: string;
+
+  /** يستخدم عند تعديل كمية الافتتاح، ولا يسمح الخادم بالتعديل بدون تأكيد وسبب. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  confirmOpeningQuantityChange?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  openingQuantityReason?: string;
+
+  /** تأكيد مراجعة أسعار البيع بعد تغيّر سعر التكلفة. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  confirmPriceReview?: boolean;
 }
