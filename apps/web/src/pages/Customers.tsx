@@ -149,6 +149,8 @@ export function CustomersPage() {
       setReturnSale(null);
       if (statementFor) await openStatement(statementFor);
       load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'حدث خطأ أثناء الاسترجاع');
     } finally { setReturning(false); }
   };
 
@@ -238,7 +240,35 @@ export function CustomersPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setReturnSale(null)}>
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-bold">استرجاع من فاتورة {returnSale.saleNumber}</h2><p className="text-xs text-gray-400">حدد الكمية المطلوب استرجاعها لكل صنف</p>
-            <div className="space-y-2 max-h-72 overflow-y-auto">{returnSale.items?.map((it: any) => <div key={it.id} className="flex items-center justify-between border-b pb-2"><div><p className="text-sm">{it.productName}</p><p className="text-xs text-gray-400">الكمية المباعة: {it.quantity} — السعر: {Number(it.unitPrice).toFixed(2)}</p></div><Input type="number" className="w-20" min="0" max={it.quantity} value={returnQtys[it.id] || ''} onChange={(e) => setReturnQtys({ ...returnQtys, [it.id]: e.target.value })} /></div>)}</div>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {returnSale.items?.map((it: any) => {
+                const remaining = it.remainingQuantity !== undefined ? Number(it.remainingQuantity) : Number(it.quantity);
+                const isFullyReturned = remaining <= 0;
+                return (
+                  <div key={it.id} className="flex items-center justify-between border-b pb-2">
+                    <div>
+                      <p className="text-sm font-medium">{it.productName}</p>
+                      <p className="text-xs text-gray-500">
+                        الكمية المباعة: {it.quantity} — المتبقي: {remaining} — السعر: {Number(it.unitPrice).toFixed(2)}
+                      </p>
+                      {isFullyReturned && (
+                        <span className="text-xs text-amber-600 font-medium">تم استرجاع كامل الكمية</span>
+                      )}
+                    </div>
+                    <Input
+                      type="number"
+                      className="w-20"
+                      min="0"
+                      max={remaining}
+                      disabled={isFullyReturned}
+                      placeholder="0"
+                      value={returnQtys[it.id] || ''}
+                      onChange={(e) => setReturnQtys({ ...returnQtys, [it.id]: e.target.value })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
             <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setReturnSale(null)}>إلغاء</Button><Button onClick={submitReturn} disabled={returning}>{returning ? 'جاري التنفيذ...' : 'تأكيد الاسترجاع'}</Button></div>
           </div>
         </div>
