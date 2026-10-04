@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request, Ip } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -38,7 +38,7 @@ export class SuppliersController {
 
   @Put(':id')
   async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
-    const supplier = await this.suppliersService.update(req.tenantId, id, dto);
+    const supplier = await this.suppliersService.update(req.tenantId, id, { ...dto, updatedBy: req.user?.id } as any);
     return { success: true, data: supplier, message: 'تم تحديث بيانات المورد بنجاح' };
   }
 

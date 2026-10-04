@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Product } from './entities/product.entity';
@@ -24,6 +24,49 @@ export class ProductsService {
     private readonly inventoryService: InventoryService,
     private readonly warehousesService: WarehousesService
   ) {}
+
+  private validateSellingPrices(costPrice: number, sellingPrice: number, wholesalePrice?: number) {
+    if (sellingPrice <= costPrice) {
+      throw new BadRequestException('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
+    }
+    if (wholesalePrice !== undefined && wholesalePrice !== null && wholesalePrice <= costPrice) {
+      throw new BadRequestException('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
+    }
+  }
+
+  private async findDuplicateIdentifiers(
+    tenantId: string,
+    sku?: string,
+    barcode?: string,
+    excludeId?: string
+  ) {
+    const duplicates: { sku?: boolean; barcode?: boolean } = {};
+    const query = this.productsRepository
+      .createQueryBuilder('product')
+      .where('product.tenantId = :tenantId', { tenantId })
+      .andWhere('product.deletedAt IS NULL')
+      .andWhere('(product.sku = :sku OR product.barcode = :barcode)', {
+        sku: sku || '__empty_sku__',
+        barcode: barcode || '__empty_barcode__',
+      });
+    if (excludeId) query.andWhere('product.id <> :excludeId', { excludeId });
+    const rows = await query.getMany();
+    for (const row of rows) {
+      if (sku && row.sku === sku) duplicates.sku = true;
+      if (barcode && row.barcode === barcode) duplicates.barcode = true;
+    }
+    return duplicates;
+  }
+
+  async checkIdentifiers(tenantId: string, sku?: string, barcode?: string, excludeId?: string) {
+    const duplicates = await this.findDuplicateIdentifiers(tenantId, sku?.trim(), barcode?.trim(), excludeId);
+    return {
+      skuAvailable: !duplicates.sku,
+      barcodeAvailable: !duplicates.barcode,
+      duplicateSku: !!duplicates.sku,
+      duplicateBarcode: !!duplicates.barcode,
+    };
+  }
 
   async findAll(tenantId: string, options: ListOptions = {}) {
     const page = options.page || 1;
@@ -69,15 +112,29 @@ export class ProductsService {
       for (const r of rows) stockMap.set(r.product_id, Number(r.qty));
     }
 
+    const openingStockMap = new Map<string, number>();
+    if (ids.length) {
+      const rows = await this.productsRepository.manager.query(
+        `SELECT i.product_id, COALESCE(SUM(i.available_quantity), 0) AS qty
+         FROM inventory i
+         JOIN warehouses w ON w.id = i.warehouse_id
+         WHERE i.product_id = ANY($1) AND w.is_main = true AND w.deleted_at IS NULL
+         GROUP BY i.product_id`,
+        [ids]
+      );
+      for (const r of rows) openingStockMap.set(r.product_id, Number(r.qty));
+    }
+
     const withStock = data.map((p) => {
       const availableQuantity = p.trackInventory ? stockMap.get(p.id) || 0 : null;
+      const openingQuantity = p.trackInventory ? openingStockMap.get(p.id) || 0 : null;
       let stockStatus: 'available' | 'low_stock' | 'out_of_stock' | 'not_tracked' = 'not_tracked';
       if (p.trackInventory) {
         if ((availableQuantity || 0) <= 0) stockStatus = 'out_of_stock';
         else if ((availableQuantity || 0) <= p.minStockLevel) stockStatus = 'low_stock';
         else stockStatus = 'available';
       }
-      return { ...p, availableQuantity, stockStatus };
+      return { ...p, availableQuantity, openingQuantity, stockStatus };
     });
 
     return {
@@ -114,19 +171,24 @@ export class ProductsService {
   }
 
   async create(tenantId: string, dto: CreateProductDto, userId?: string): Promise<Product> {
-    if (dto.sku) {
-      const existingSku = await this.productsRepository.findOne({ where: { tenantId, sku: dto.sku } });
-      if (existingSku) throw new ConflictException('رمز المنتج موجود مسبقاً');
-    }
-    if (dto.barcode) {
-      const existingBarcode = await this.productsRepository.findOne({ where: { tenantId, barcode: dto.barcode } });
-      if (existingBarcode) throw new ConflictException('الباركود موجود مسبقاً');
-    }
+    const sku = dto.sku?.trim() || undefined;
+    const barcode = dto.barcode?.trim() || undefined;
+    const duplicates = await this.findDuplicateIdentifiers(tenantId, sku, barcode);
+    if (duplicates.sku && duplicates.barcode) throw new ConflictException('رمز المنتج والباركود موجودان مسبقاً');
+    if (duplicates.sku) throw new ConflictException('رمز المنتج موجود مسبقاً');
+    if (duplicates.barcode) throw new ConflictException('الباركود موجود مسبقاً');
 
-    const { initialQuantity, warehouseId, ...productData } = dto;
+    this.validateSellingPrices(Number(dto.costPrice), Number(dto.sellingPrice), dto.wholesalePrice);
+
+    const {
+      initialQuantity, warehouseId, confirmOpeningQuantityChange, openingQuantityReason,
+      confirmPriceReview, ...productData
+    } = dto;
 
     const product = this.productsRepository.create({
       ...productData,
+      sku,
+      barcode,
       tenantId,
       createdBy: userId,
     });
@@ -155,7 +217,64 @@ export class ProductsService {
 
   async update(tenantId: string, id: string, dto: UpdateProductDto, userId?: string): Promise<Product> {
     const product = await this.findById(tenantId, id);
-    Object.assign(product, dto, { updatedBy: userId });
+    const sku = dto.sku === undefined ? product.sku : dto.sku?.trim() || undefined;
+    const barcode = dto.barcode === undefined ? product.barcode : dto.barcode?.trim() || undefined;
+    const duplicates = await this.findDuplicateIdentifiers(tenantId, sku, barcode, id);
+    if (duplicates.sku && duplicates.barcode) throw new ConflictException('رمز المنتج والباركود موجودان مسبقاً');
+    if (duplicates.sku) throw new ConflictException('رمز المنتج موجود مسبقاً');
+    if (duplicates.barcode) throw new ConflictException('الباركود موجود مسبقاً');
+
+    const costPrice = dto.costPrice === undefined ? Number(product.costPrice) : Number(dto.costPrice);
+    const sellingPrice = dto.sellingPrice === undefined ? Number(product.sellingPrice) : Number(dto.sellingPrice);
+    const wholesalePrice = dto.wholesalePrice === undefined
+      ? (product.wholesalePrice === null || product.wholesalePrice === undefined ? undefined : Number(product.wholesalePrice))
+      : dto.wholesalePrice;
+    const isSystemCostReviewUpdate = (dto as any).needsPriceReview === true
+      && dto.sellingPrice === undefined
+      && dto.wholesalePrice === undefined;
+    if (!isSystemCostReviewUpdate) {
+      this.validateSellingPrices(costPrice, sellingPrice, wholesalePrice);
+    }
+
+    const {
+      initialQuantity, warehouseId, confirmOpeningQuantityChange, openingQuantityReason,
+      confirmPriceReview, ...productData
+    } = dto as any;
+    Object.assign(product, productData, { sku, barcode, updatedBy: userId });
+
+    if (initialQuantity !== undefined && initialQuantity !== null && !Number.isNaN(Number(initialQuantity))) {
+      const nextQuantity = Number(initialQuantity);
+      if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
+        throw new BadRequestException('الكمية الافتتاحية يجب أن تكون صفراً أو أكبر');
+      }
+      const warehouse = warehouseId
+        ? await this.warehousesService.findById(tenantId, warehouseId)
+        : await this.warehousesService.findOrCreateDefault(tenantId, userId);
+      const current = await this.inventoryService.getAvailableQuantity(tenantId, product.id, warehouse.id);
+      if (Math.abs(nextQuantity - current) > 0.0001) {
+        if (!confirmOpeningQuantityChange) {
+          throw new BadRequestException('تغيير الكمية الافتتاحية يحتاج إلى تأكيد');
+        }
+        if (!openingQuantityReason?.trim()) {
+          throw new BadRequestException('اكتب سبب تعديل الكمية الافتتاحية');
+        }
+        await this.inventoryService.adjustInventory({
+          tenantId,
+          productId: product.id,
+          warehouseId: warehouse.id,
+          quantity: nextQuantity - current,
+          unitCost: Number(product.costPrice),
+          type: 'adjustment',
+          notes: `تعديل الكمية الافتتاحية: ${openingQuantityReason.trim()}`,
+          userId,
+        });
+      }
+    }
+
+    if (confirmPriceReview) {
+      product.needsPriceReview = false;
+      product.priceReviewNote = null as any;
+    }
     return this.productsRepository.save(product);
   }
 

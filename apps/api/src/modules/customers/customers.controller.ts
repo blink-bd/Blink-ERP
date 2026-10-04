@@ -21,7 +21,7 @@ export class CustomersController {
   }
 
   @Get('search')
-  async quickSearch(@Request() req, @Query('q') q: string) {
+  async quickSearch(@Request() req, @Query('q') q?: string) {
     return { success: true, data: await this.customersService.search(req.tenantId, q) };
   }
 
@@ -43,7 +43,7 @@ export class CustomersController {
 
   @Put(':id')
   async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
-    const customer = await this.customersService.update(req.tenantId, id, dto);
+    const customer = await this.customersService.update(req.tenantId, id, { ...dto, updatedBy: req.user?.id } as any);
     return { success: true, data: customer, message: 'تم تحديث بيانات العميل بنجاح' };
   }
 

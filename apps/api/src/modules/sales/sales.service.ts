@@ -199,7 +199,14 @@ export class SalesService {
         await this.customersService.adjustBalance(tenantId, dto.customerId, total - paidAmount);
       }
 
-      return this.findById(tenantId, savedSale.id);
+      // لا تستخدم repository خارج transaction هنا؛ الفاتورة غير ملتزمة بعد،
+      // وكان ذلك سبب ظهور رسالة «الفاتورة غير موجودة» بعد الضغط على الدفع.
+      const result = await manager.findOne(Sale, {
+        where: { id: savedSale.id, tenantId },
+        relations: ['items'],
+      });
+      if (!result) throw new NotFoundException('الفاتورة غير موجودة بعد الحفظ');
+      return result;
     });
   }
 

@@ -16,7 +16,6 @@ import { PurchasesPage } from './pages/Purchases';
 import { ExpensesPage } from './pages/Expenses';
 import { CashRegisterPage } from './pages/CashRegister';
 import { ReportsPage } from './pages/Reports';
-import { SettingsPage } from './pages/Settings';
 
 function ProtectedRoute({ children }: { children: JSX.Element }) {
   const { isAuthenticated, isLoading } = useAuth();
@@ -46,7 +45,7 @@ function AppRoutes() {
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/cash-register" element={<CashRegisterPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        {/* إعدادات الهوية البصرية ملك للمدير العام فقط. */}
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

@@ -18,11 +18,7 @@ export class BrandingController {
     return { success: true, data: branding };
   }
 
-  @Put()
-  async update(@Request() req, @Body() dto: Partial<any>) {
-    const branding = await this.brandingService.updateBranding(req.tenantId, dto);
-    return { success: true, data: branding, message: 'تم تحديث الهوية البصرية بنجاح' };
-  }
+  // لا يوجد PUT للتاجر عمداً؛ تغيير الهوية البصرية يتم من المدير العام فقط.
 }
 
 @ApiTags('admin-branding')

@@ -129,7 +129,14 @@ export class PurchasesService {
         await this.suppliersService.adjustBalance(tenantId, dto.supplierId, total - paidAmount);
       }
 
-      return this.findById(tenantId, saved.id);
+      // لا نقرأ عبر repository خارج الـ transaction قبل commit؛ هذا كان يعيد
+      // «أمر الشراء غير موجود» رغم نجاح إدخاله.
+      const result = await manager.findOne(Purchase, {
+        where: { id: saved.id, tenantId },
+        relations: ['items'],
+      });
+      if (!result) throw new NotFoundException('أمر الشراء غير موجود بعد الحفظ');
+      return result;
     });
   }
 }

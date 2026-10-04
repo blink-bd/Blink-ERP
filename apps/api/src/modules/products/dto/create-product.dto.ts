@@ -77,4 +77,21 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   warehouseId?: string;
+
+  /** يستخدم عند تعديل كمية الافتتاح، ولا يسمح الخادم بالتعديل بدون تأكيد وسبب. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  confirmOpeningQuantityChange?: boolean;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  openingQuantityReason?: string;
+
+  /** تأكيد مراجعة أسعار البيع بعد تغيّر سعر التكلفة. */
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBoolean()
+  confirmPriceReview?: boolean;
 }

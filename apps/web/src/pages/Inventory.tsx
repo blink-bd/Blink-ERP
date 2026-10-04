@@ -12,6 +12,13 @@ interface InventoryRow {
   warehouse: { name: string };
 }
 
+const formatQuantity = (value: number | string | null | undefined) => {
+  if (value === null || value === undefined || value === '') return '-';
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '-';
+  return Number.isInteger(number) ? String(number) : number.toLocaleString('ar-EG', { maximumFractionDigits: 4 });
+};
+
 const statusLabel: Record<string, { text: string; cls: string }> = {
   available: { text: 'متوفر', cls: 'bg-green-100 text-green-700' },
   low_stock: { text: 'على وشك النفاذ', cls: 'bg-orange-100 text-orange-700' },
@@ -89,7 +96,7 @@ export function InventoryPage() {
                   <td className="p-3 text-gray-500">{r.product.sku || r.product.barcode || '-'}</td>
                   <td className="p-3 text-gray-500">{r.product.category?.name || '-'}</td>
                   <td className="p-3 text-gray-500">{r.warehouse.name}</td>
-                  <td className="p-3 font-medium">{r.availableQuantity}</td>
+                  <td className="p-3 font-medium">{formatQuantity(r.availableQuantity)}</td>
                   <td className="p-3">{Number(r.stockValue).toFixed(2)}</td>
                   <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${st.cls}`}>{st.text}</span></td>
                 </tr>
