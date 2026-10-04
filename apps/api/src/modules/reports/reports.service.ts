@@ -118,4 +118,46 @@ export class ReportsService {
       netProfitMargin: salesTotal > 0 ? (netProfit / salesTotal) * 100 : 0,
     };
   }
+
+  async purchasesReport(tenantId: string, startDate: string, endDate: string) {
+    const [summary] = await this.dataSource.query(
+      `SELECT
+         COUNT(*)::int AS "purchasesCount",
+         COALESCE(SUM(total), 0) AS "totalPurchases",
+         COALESCE(SUM(paid_amount), 0) AS "totalPaid",
+         COALESCE(SUM(total - paid_amount), 0) AS "totalRemaining"
+       FROM purchases
+       WHERE tenant_id = $1 AND purchase_date BETWEEN $2 AND $3`,
+      [tenantId, startDate, endDate]
+    );
+
+    const bySupplier = await this.dataSource.query(
+      `SELECT s.id AS "supplierId", s.name AS "supplierName",
+              COUNT(p.id)::int AS "purchasesCount", COALESCE(SUM(p.total), 0) AS total
+       FROM purchases p JOIN suppliers s ON s.id = p.supplier_id
+       WHERE p.tenant_id = $1 AND p.purchase_date BETWEEN $2 AND $3
+       GROUP BY s.id, s.name ORDER BY total DESC LIMIT 10`,
+      [tenantId, startDate, endDate]
+    );
+
+    return { period: { startDate, endDate }, summary, bySupplier };
+  }
+
+  async expensesReport(tenantId: string, startDate: string, endDate: string) {
+    const [summary] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS "expensesCount", COALESCE(SUM(amount), 0) AS total
+       FROM expenses WHERE tenant_id = $1 AND status = 'approved' AND expense_date BETWEEN $2 AND $3`,
+      [tenantId, startDate, endDate]
+    );
+
+    const byCategory = await this.dataSource.query(
+      `SELECT ec.name_ar AS category, COUNT(e.id)::int AS count, COALESCE(SUM(e.amount), 0) AS total
+       FROM expenses e JOIN expense_categories ec ON ec.id = e.category_id
+       WHERE e.tenant_id = $1 AND e.status = 'approved' AND e.expense_date BETWEEN $2 AND $3
+       GROUP BY ec.name_ar ORDER BY total DESC`,
+      [tenantId, startDate, endDate]
+    );
+
+    return { period: { startDate, endDate }, summary, byCategory };
+  }
 }

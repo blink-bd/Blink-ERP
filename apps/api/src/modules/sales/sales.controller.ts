@@ -6,6 +6,7 @@ import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreateReturnDto } from './dto/create-return.dto';
 
 @ApiTags('sales')
 @ApiBearerAuth()
@@ -69,5 +70,11 @@ export class SalesController {
   async void(@Request() req, @Param('id') id: string, @Body() dto: { reason: string }) {
     await this.salesService.voidSale(req.tenantId, id, dto.reason, req.user.id);
     return { success: true, message: 'تم إلغاء الفاتورة بنجاح' };
+  }
+
+  @Post(':id/return')
+  async createReturn(@Request() req, @Param('id') id: string, @Body() dto: CreateReturnDto) {
+    const result = await this.salesService.createReturn(req.tenantId, id, dto, req.user.id);
+    return { success: true, data: result, message: 'تم تسجيل الاسترجاع وتحديث المخزون بنجاح' };
   }
 }

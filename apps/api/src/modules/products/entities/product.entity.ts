@@ -80,6 +80,12 @@ export class Product extends TenantBaseEntity {
   @Column({ name: 'variant_attributes', type: 'jsonb', default: {} })
   variantAttributes: Record<string, any>;
 
+  @Column({ name: 'needs_price_review', default: false })
+  needsPriceReview: boolean;
+
+  @Column({ name: 'price_review_note', type: 'text', nullable: true })
+  priceReviewNote?: string;
+
   @ManyToOne(() => Category)
   @JoinColumn({ name: 'category_id' })
   category?: Category;

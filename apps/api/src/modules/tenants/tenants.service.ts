@@ -8,6 +8,8 @@ import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { UsersService } from '@/modules/users/users.service';
 import { FeaturesService } from '@/modules/features/features.service';
 import { WarehousesService } from '@/modules/inventory/warehouses.service';
+import { ExpenseCategory } from '@/modules/expenses/entities/expense-category.entity';
+import { CashRegister } from '@/modules/cash-register/entities/cash-register.entity';
 
 const DEFAULT_PAYMENT_METHODS = [
   { name: 'Cash', nameAr: 'نقدي', code: 'cash', sortOrder: 1 },
@@ -23,6 +25,10 @@ export class TenantsService {
     private readonly tenantsRepository: Repository<Tenant>,
     @InjectRepository(PaymentMethod)
     private readonly paymentMethodsRepository: Repository<PaymentMethod>,
+    @InjectRepository(ExpenseCategory)
+    private readonly expenseCategoriesRepository: Repository<ExpenseCategory>,
+    @InjectRepository(CashRegister)
+    private readonly cashRegistersRepository: Repository<CashRegister>,
     private readonly usersService: UsersService,
     private readonly featuresService: FeaturesService,
     private readonly warehousesService: WarehousesService
@@ -87,6 +93,16 @@ export class TenantsService {
         this.paymentMethodsRepository.create({ ...method, tenantId: savedTenant.id })
       );
     }
+
+    // 3.1 فئة مصروفات افتراضية (عشان صفحة المصروفات تشتغل فورًا)
+    await this.expenseCategoriesRepository.save(
+      this.expenseCategoriesRepository.create({ tenantId: savedTenant.id, name: 'General', nameAr: 'عام' })
+    );
+
+    // 3.2 كاشير افتراضي (عشان صفحة الخزينة تشتغل فورًا)
+    await this.cashRegistersRepository.save(
+      this.cashRegistersRepository.create({ tenantId: savedTenant.id, name: 'الكاشير الرئيسي', code: 'MAIN' })
+    );
 
     // 4. Enable all default features
     const allFeatures = await this.featuresService.findAll();

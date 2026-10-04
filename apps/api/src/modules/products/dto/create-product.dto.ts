@@ -66,4 +66,15 @@ export class CreateProductDto {
   @IsOptional()
   @IsString()
   unit?: string;
+
+  @ApiPropertyOptional({ description: 'كمية افتتاحية تُضاف للمخزون عند إنشاء المنتج' })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  initialQuantity?: number;
+
+  @ApiPropertyOptional({ description: 'المخزن اللي هتتضاف فيه الكمية الافتتاحية (افتراضي: المخزن الرئيسي)' })
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
 }

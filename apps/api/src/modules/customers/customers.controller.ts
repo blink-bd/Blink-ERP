@@ -8,20 +8,31 @@ import { CustomersService } from './customers.service';
 
 @ApiTags('customers')
 @ApiBearerAuth()
-@Controller({ path: 'customers', version: '1' })
 @RequireFeature('customers')
+@Controller({ path: 'customers', version: '1' })
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
   async findAll(@Request() req, @Query('search') search?: string) {
-    return { success: true, data: await this.customersService.findAll(req.tenantId, search) };
+    const result = await this.customersService.findAll(req.tenantId, search);
+    return { success: true, data: result.data, meta: { totalOwed: result.totalOwed } };
+  }
+
+  @Get('search')
+  async quickSearch(@Request() req, @Query('q') q: string) {
+    return { success: true, data: await this.customersService.search(req.tenantId, q) };
   }
 
   @Get(':id')
   async findOne(@Request() req, @Param('id') id: string) {
     return { success: true, data: await this.customersService.findById(req.tenantId, id) };
+  }
+
+  @Get(':id/statement')
+  async statement(@Request() req, @Param('id') id: string) {
+    return { success: true, data: await this.customersService.statement(req.tenantId, id) };
   }
 
   @Post()
@@ -34,6 +45,18 @@ export class CustomersController {
   async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
     const customer = await this.customersService.update(req.tenantId, id, dto);
     return { success: true, data: customer, message: 'تم تحديث بيانات العميل بنجاح' };
+  }
+
+  @Post(':id/payments')
+  async collectPayment(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: { amount: number; methodId: string; notes?: string }
+  ) {
+    const customer = await this.customersService.collectPayment(
+      req.tenantId, id, dto.amount, dto.methodId, dto.notes, req.user.id
+    );
+    return { success: true, data: customer, message: 'تم تسجيل السداد بنجاح' };
   }
 
   @Delete(':id')

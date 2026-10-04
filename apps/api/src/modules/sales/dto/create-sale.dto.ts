@@ -5,9 +5,10 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 export class SaleItemInputDto {
   @ApiProperty() @IsUUID() productId: string;
   @ApiProperty() @IsNumber() @Min(0.0001) quantity: number;
-  @ApiProperty() @IsNumber() @Min(0) unitPrice: number;
+  @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() discountAmount?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() taxRate?: number;
+  @ApiPropertyOptional({ enum: ['retail','wholesale'] }) @IsOptional() @IsString() priceTier?: 'retail' | 'wholesale';
 }
 
 export class SalePaymentInputDto {

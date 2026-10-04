@@ -15,8 +15,13 @@ export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
   @Get()
-  async summary(@Request() req, @Query('warehouseId') warehouseId?: string, @Query('search') search?: string) {
-    const data = await this.inventoryService.getSummary(req.tenantId, { warehouseId, search });
+  async summary(
+    @Request() req,
+    @Query('warehouseId') warehouseId?: string,
+    @Query('search') search?: string,
+    @Query('categoryId') categoryId?: string
+  ) {
+    const data = await this.inventoryService.getSummary(req.tenantId, { warehouseId, search, categoryId });
     return { success: true, data };
   }
 

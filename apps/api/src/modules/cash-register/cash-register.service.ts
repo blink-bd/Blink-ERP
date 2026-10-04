@@ -108,4 +108,65 @@ export class CashRegisterService {
     const register = this.registersRepository.create({ ...stripProtected(data), tenantId });
     return this.registersRepository.save(register);
   }
+
+  /**
+   * ملخص الوردية: مبيعات نقدي/بطاقة/تحويل/آجل + المصروفات + المتبقي بالخزينة.
+   * مطلوب لصفحة "الخزينة" (بند 10 من طلبات التاجر).
+   */
+  async shiftSummary(tenantId: string, shiftId: string) {
+    const shift = await this.shiftsRepository.findOne({ where: { id: shiftId, tenantId } });
+    if (!shift) throw new NotFoundException('الوردية غير موجودة');
+
+    const endDate = shift.closedAt || new Date();
+
+    const [salesByMethod] = await this.shiftsRepository.manager.query(
+      `SELECT
+         COALESCE(SUM(s.total) FILTER (WHERE pm.code = 'cash'), 0) AS cash,
+         COALESCE(SUM(s.total) FILTER (WHERE pm.code = 'card'), 0) AS card,
+         COALESCE(SUM(s.total) FILTER (WHERE pm.code = 'bank_transfer'), 0) AS "bankTransfer",
+         COALESCE(SUM(s.total) FILTER (WHERE s.payment_status IN ('pending','partial')), 0) AS credit
+       FROM sales s
+       LEFT JOIN payments p ON p.sale_id = s.id
+       LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+       WHERE s.tenant_id = $1 AND s.status = 'completed'
+         AND s.sale_date BETWEEN $2 AND $3`,
+      [tenantId, shift.openedAt, endDate]
+    );
+
+    const [cashTxns] = await this.transactionsRepository.manager.query(
+      `SELECT
+         COALESCE(SUM(amount) FILTER (WHERE type = 'cash_in'), 0) AS "cashIn",
+         COALESCE(SUM(amount) FILTER (WHERE type = 'cash_out'), 0) AS "cashOut"
+       FROM cash_transactions WHERE shift_id = $1`,
+      [shiftId]
+    );
+
+    const [expensesRow] = await this.shiftsRepository.manager.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE shift_id = $1`,
+      [shiftId]
+    );
+
+    const cash = Number(salesByMethod.cash);
+    const card = Number(salesByMethod.card);
+    const bankTransfer = Number(salesByMethod.bankTransfer);
+    const credit = Number(salesByMethod.credit);
+    const expensesTotal = Number(expensesRow.total);
+    const cashIn = Number(cashTxns.cashIn);
+    const cashOut = Number(cashTxns.cashOut);
+
+    const expectedCashInDrawer =
+      Number(shift.openingBalance) + cash + cashIn - cashOut - expensesTotal;
+
+    return {
+      shift,
+      sales: { cash, card, bankTransfer, credit, total: cash + card + bankTransfer + credit },
+      expenses: expensesTotal,
+      cashMovements: { cashIn, cashOut },
+      remaining: {
+        cash: expectedCashInDrawer,
+        bankTransfer,
+        credit,
+      },
+    };
+  }
 }

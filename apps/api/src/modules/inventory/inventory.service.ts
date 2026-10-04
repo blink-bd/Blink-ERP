@@ -29,23 +29,36 @@ export class InventoryService {
     private readonly dataSource: DataSource
   ) {}
 
-  async getSummary(tenantId: string, options: { warehouseId?: string; search?: string } = {}) {
+  async getSummary(tenantId: string, options: { warehouseId?: string; search?: string; categoryId?: string } = {}) {
     const query = this.inventoryRepository
       .createQueryBuilder('inv')
       .leftJoinAndSelect('inv.product', 'product')
+      .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('inv.warehouse', 'warehouse')
       .where('inv.tenantId = :tenantId', { tenantId });
 
     if (options.warehouseId) {
       query.andWhere('inv.warehouseId = :warehouseId', { warehouseId: options.warehouseId });
     }
+    if (options.categoryId) {
+      query.andWhere('product.categoryId = :categoryId', { categoryId: options.categoryId });
+    }
     if (options.search) {
-      query.andWhere('(product.name ILIKE :search OR product.sku ILIKE :search)', {
+      query.andWhere('(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)', {
         search: `%${options.search}%`,
       });
     }
 
-    return query.orderBy('product.name', 'ASC').getMany();
+    const rows = await query.orderBy('product.name', 'ASC').getMany();
+
+    return rows.map((r) => ({
+      ...r,
+      stockValue: Number(r.quantity) * Number(r.weightedAvgCost || r.product?.costPrice || 0),
+      status:
+        Number(r.availableQuantity) <= 0 ? 'out_of_stock'
+          : Number(r.availableQuantity) <= (r.product?.minStockLevel || 0) ? 'low_stock'
+          : 'available',
+    }));
   }
 
   async getTransactions(tenantId: string, productId?: string, warehouseId?: string) {

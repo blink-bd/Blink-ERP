@@ -21,6 +21,7 @@ import { CashRegisterModule } from './modules/cash-register/cash-register.module
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { MasterAdminModule } from './modules/master-admin/master-admin.module';
 
 @Module({
@@ -51,6 +52,7 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
 
     // Core: identity, tenancy, access control
     MasterAdminModule,
+    DashboardModule,
     AuthModule,
     TenantsModule,
     UsersModule,

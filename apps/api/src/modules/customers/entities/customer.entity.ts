@@ -27,6 +27,9 @@ export class Customer extends TenantBaseEntity {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
   balance: number;
 
+  @Column({ name: 'previous_balance', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  previousBalance: number;
+
   @Column({ name: 'customer_type', length: 50, default: 'retail' })
   customerType: string;
 

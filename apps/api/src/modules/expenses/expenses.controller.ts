@@ -19,6 +19,11 @@ export class ExpensesController {
     return { success: true, data: await this.expensesService.findAll(req.tenantId, startDate, endDate) };
   }
 
+  @Get('summary')
+  async summary(@Request() req, @Query('period') period?: 'day' | 'month' | 'year') {
+    return { success: true, data: await this.expensesService.summary(req.tenantId, period) };
+  }
+
   @Get('categories')
   async categories(@Request() req) {
     return { success: true, data: await this.expensesService.findCategories(req.tenantId) };

@@ -6,6 +6,9 @@ import { SaleItem } from './entities/sale-item.entity';
 import { Payment } from './entities/payment.entity';
 import { PaymentMethod } from './entities/payment-method.entity';
 import { CreateSaleDto } from './dto/create-sale.dto';
+import { CreateReturnDto } from './dto/create-return.dto';
+import { SaleReturn } from './entities/sale-return.entity';
+import { SaleReturnItem } from './entities/sale-return-item.entity';
 import { ProductsService } from '@/modules/products/products.service';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { CustomersService } from '@/modules/customers/customers.service';
@@ -17,6 +20,8 @@ export class SalesService {
     @InjectRepository(SaleItem) private readonly saleItemsRepository: Repository<SaleItem>,
     @InjectRepository(Payment) private readonly paymentsRepository: Repository<Payment>,
     @InjectRepository(PaymentMethod) private readonly paymentMethodsRepository: Repository<PaymentMethod>,
+    @InjectRepository(SaleReturn) private readonly returnsRepository: Repository<SaleReturn>,
+    @InjectRepository(SaleReturnItem) private readonly returnItemsRepository: Repository<SaleReturnItem>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly productsService: ProductsService,
     private readonly inventoryService: InventoryService,
@@ -73,6 +78,14 @@ export class SalesService {
       for (const itemInput of dto.items) {
         const product = await this.productsService.findById(tenantId, itemInput.productId);
 
+        // تحديد السعر تلقائيًا حسب الفئة (جملة/قطاعي) لو مش متبعت صراحة
+        let unitPrice = itemInput.unitPrice;
+        if (unitPrice === undefined || unitPrice === null) {
+          unitPrice = itemInput.priceTier === 'wholesale' && product.wholesalePrice
+            ? Number(product.wholesalePrice)
+            : Number(product.sellingPrice);
+        }
+
         if (product.trackInventory) {
           const available = await this.inventoryService.getAvailableQuantity(
             tenantId,
@@ -94,7 +107,7 @@ export class SalesService {
         }
 
         const discount = itemInput.discountAmount || 0;
-        const lineSubtotal = itemInput.quantity * itemInput.unitPrice - discount;
+        const lineSubtotal = itemInput.quantity * unitPrice - discount;
         const taxRate = itemInput.taxRate ?? Number(product.taxRate) ?? 0;
         const lineTax = (lineSubtotal * taxRate) / 100;
         const lineTotal = lineSubtotal + lineTax;
@@ -112,7 +125,7 @@ export class SalesService {
           productBarcode: product.barcode,
           quantity: itemInput.quantity,
           unit: product.unit,
-          unitPrice: itemInput.unitPrice,
+          unitPrice,
           discountAmount: discount,
           taxRate,
           taxAmount: lineTax,
@@ -253,5 +266,78 @@ export class SalesService {
 
   async getDefaultPaymentMethods(tenantId: string): Promise<PaymentMethod[]> {
     return this.paymentMethodsRepository.find({ where: { tenantId, isActive: true }, order: { sortOrder: 'ASC' } });
+  }
+
+  /**
+   * استرجاع صنف (أو أكثر) من فاتورة بيع: بيرجّع الكمية للمخزون، وبيعدّل
+   * رصيد العميل (لو الفاتورة كانت آجلة) أو يسجّل مبلغ مسترد (لو كانت متحصّلة).
+   * كل عملية استرجاع بتتحفظ كمرجع دائم في sale_returns وتظهر في كشف حساب العميل.
+   */
+  async createReturn(tenantId: string, saleId: string, dto: CreateReturnDto, userId: string): Promise<SaleReturn> {
+    return this.dataSource.transaction(async (manager) => {
+      const sale = await manager.findOne(Sale, { where: { id: saleId, tenantId }, relations: ['items'] });
+      if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
+
+      let subtotal = 0;
+      let taxAmount = 0;
+      let cogsAdjustment = 0;
+      const itemsToSave: Partial<SaleReturnItem>[] = [];
+
+      for (const input of dto.items) {
+        const saleItem = sale.items.find((i) => i.id === input.saleItemId);
+        if (!saleItem) throw new NotFoundException('صنف الفاتورة غير موجود');
+        if (input.quantity > Number(saleItem.quantity)) {
+          throw new BadRequestException('الكمية المسترجعة أكبر من الكمية المباعة');
+        }
+
+        const unitPrice = Number(saleItem.unitPrice);
+        const lineTotal = unitPrice * input.quantity;
+        const lineTax = (lineTotal * Number(saleItem.taxRate)) / 100;
+        subtotal += lineTotal;
+        taxAmount += lineTax;
+        cogsAdjustment += Number(saleItem.unitCost) * input.quantity;
+
+        itemsToSave.push({
+          tenantId, saleItemId: saleItem.id, productId: saleItem.productId,
+          quantity: input.quantity, unitPrice, taxRate: saleItem.taxRate,
+          taxAmount: lineTax, total: lineTotal + lineTax, unitCost: saleItem.unitCost,
+        });
+
+        // إرجاع الكمية للمخزون
+        await this.inventoryService.adjustInventory({
+          tenantId, productId: saleItem.productId, warehouseId: sale.warehouseId,
+          quantity: input.quantity, type: 'return_in',
+          referenceType: 'sale_return', referenceId: sale.id, userId,
+        });
+      }
+
+      const total = subtotal + taxAmount;
+      const count = await manager.count(SaleReturn, { where: { tenantId } });
+      const returnNumber = `RET-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+
+      const saleReturn = manager.create(SaleReturn, {
+        tenantId, returnNumber, originalSaleId: sale.id, customerId: sale.customerId,
+        warehouseId: sale.warehouseId, returnDate: new Date(),
+        subtotal, taxAmount, total, refundAmount: total, cogsAdjustment,
+        reason: dto.reason, createdBy: userId,
+      });
+      const savedReturn = await manager.save(saleReturn);
+
+      for (const item of itemsToSave) {
+        await manager.save(manager.create(SaleReturnItem, { ...item, returnId: savedReturn.id }));
+      }
+
+      // تعديل رصيد العميل: لو الفاتورة كانت عليها مبلغ مستحق، ننزّله؛ غير كده يُسجَّل كمسترد نقدي
+      if (sale.customerId) {
+        await this.customersService.adjustBalance(tenantId, sale.customerId, -total);
+      }
+
+      // خصم قيمة المرتجع من إجمالي الفاتورة الأصلية حتى يعكس تقرير الأرباح الواقع الفعلي
+      sale.total = Number(sale.total) - total;
+      sale.cogs = Number(sale.cogs) - cogsAdjustment;
+      await manager.save(sale);
+
+      return savedReturn;
+    });
   }
 }

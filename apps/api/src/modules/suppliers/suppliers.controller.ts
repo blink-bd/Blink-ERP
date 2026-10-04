@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Put, Delete, Param, Body, Query, UseGuards, Request, Ip } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -8,20 +8,26 @@ import { SuppliersService } from './suppliers.service';
 
 @ApiTags('suppliers')
 @ApiBearerAuth()
-@Controller({ path: 'suppliers', version: '1' })
 @RequireFeature('suppliers')
+@Controller({ path: 'suppliers', version: '1' })
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
   async findAll(@Request() req, @Query('search') search?: string) {
-    return { success: true, data: await this.suppliersService.findAll(req.tenantId, search) };
+    const result = await this.suppliersService.findAll(req.tenantId, search);
+    return { success: true, data: result.data, meta: { totalOwed: result.totalOwed } };
   }
 
   @Get(':id')
   async findOne(@Request() req, @Param('id') id: string) {
     return { success: true, data: await this.suppliersService.findById(req.tenantId, id) };
+  }
+
+  @Get(':id/statement')
+  async statement(@Request() req, @Param('id') id: string) {
+    return { success: true, data: await this.suppliersService.statement(req.tenantId, id) };
   }
 
   @Post()
@@ -34,6 +40,16 @@ export class SuppliersController {
   async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
     const supplier = await this.suppliersService.update(req.tenantId, id, dto);
     return { success: true, data: supplier, message: 'تم تحديث بيانات المورد بنجاح' };
+  }
+
+  @Post(':id/settle')
+  async settle(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: { amount: number; method: string; notes?: string }
+  ) {
+    const result = await this.suppliersService.settle(req.tenantId, id, dto.amount, dto.method, dto.notes, req.user?.id);
+    return { success: true, data: result, message: 'تم تسجيل السداد بنجاح' };
   }
 
   @Delete(':id')

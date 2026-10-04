@@ -27,6 +27,9 @@ export class Supplier extends TenantBaseEntity {
   @Column({ type: 'decimal', precision: 15, scale: 4, default: 0 })
   balance: number;
 
+  @Column({ name: 'previous_balance', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  previousBalance: number;
+
   @Column({ name: 'tax_number', length: 100, nullable: true })
   taxNumber?: string;
 

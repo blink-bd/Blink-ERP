@@ -38,4 +38,17 @@ export class ExpensesService {
     const category = this.categoriesRepository.create({ ...stripProtected(data), tenantId });
     return this.categoriesRepository.save(category);
   }
+
+  /** إجمالي المصروفات اليومي/الشهري/السنوي حسب فترة مختارة. */
+  async summary(tenantId: string, period: 'day' | 'month' | 'year' = 'day') {
+    const trunc = period === 'year' ? 'year' : period === 'month' ? 'month' : 'day';
+    const [row] = await this.expensesRepository.manager.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*)::int AS count
+       FROM expenses
+       WHERE tenant_id = $1 AND status = 'approved'
+         AND date_trunc($2, expense_date) = date_trunc($2, CURRENT_DATE)`,
+      [tenantId, trunc]
+    );
+    return { period, total: Number(row.total), count: row.count };
+  }
 }

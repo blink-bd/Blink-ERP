@@ -26,6 +26,16 @@ export class ReportsController {
     return { success: true, data };
   }
 
+  @Get('purchases')
+  async purchases(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {
+    return { success: true, data: await this.reportsService.purchasesReport(req.tenantId, startDate, endDate) };
+  }
+
+  @Get('expenses')
+  async expenses(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {
+    return { success: true, data: await this.reportsService.expensesReport(req.tenantId, startDate, endDate) };
+  }
+
   @Get('profit-loss')
   @RequireFeature('advanced_reports')
   async profitLoss(@Request() req, @Query('startDate') startDate: string, @Query('endDate') endDate: string) {

@@ -5,6 +5,7 @@ import { Purchase } from './entities/purchase.entity';
 import { PurchaseItem } from './entities/purchase-item.entity';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { SuppliersService } from '@/modules/suppliers/suppliers.service';
+import { ProductsService } from '@/modules/products/products.service';
 
 interface CreatePurchaseInput {
   supplierId: string;
@@ -21,7 +22,8 @@ export class PurchasesService {
     @InjectRepository(Purchase) private readonly purchasesRepository: Repository<Purchase>,
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly inventoryService: InventoryService,
-    private readonly suppliersService: SuppliersService
+    private readonly suppliersService: SuppliersService,
+    private readonly productsService: ProductsService
   ) {}
 
   private async generatePurchaseNumber(tenantId: string): Promise<string> {
@@ -83,6 +85,18 @@ export class PurchasesService {
           type: 'purchase',
           userId,
         });
+
+        // لو سعر التكلفة في فاتورة الشراء مختلف عن سعر التكلفة المسجّل للمنتج،
+        // حدّث سعر التكلفة تلقائيًا ونبّه التاجر إنه يراجع سعر البيع
+        const product = await this.productsService.findById(tenantId, itemInput.productId);
+        if (Math.abs(Number(product.costPrice) - itemInput.unitCost) > 0.0001) {
+          const oldCost = Number(product.costPrice);
+          await this.productsService.update(tenantId, itemInput.productId, {
+            costPrice: itemInput.unitCost,
+            needsPriceReview: true,
+            priceReviewNote: `تغيّر سعر التكلفة من ${oldCost.toFixed(2)} إلى ${itemInput.unitCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر البيع القطاعي والجملة`,
+          } as any, userId);
+        }
       }
 
       const total = subtotal + taxAmount;

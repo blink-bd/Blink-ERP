@@ -27,8 +27,13 @@ export class CashRegisterController {
 
   @Get('shifts/current')
   async currentShift(@Request() req) {
-    const shift = await this.service.getCurrentShift(req.tenantId, req.user.id);
-    return { success: true, data: shift };
+    // لا وردية مفتوحة = حالة طبيعية أول استخدام، مش خطأ
+    try {
+      const shift = await this.service.getCurrentShift(req.tenantId, req.user.id);
+      return { success: true, data: shift };
+    } catch {
+      return { success: true, data: null };
+    }
   }
 
   @Post('shifts')
@@ -41,6 +46,11 @@ export class CashRegisterController {
       req.user.id
     );
     return { success: true, data: shift, message: 'تم فتح الوردية بنجاح' };
+  }
+
+  @Get('shifts/:id/summary')
+  async shiftSummary(@Request() req, @Param('id') id: string) {
+    return { success: true, data: await this.service.shiftSummary(req.tenantId, id) };
   }
 
   @Post('shifts/:id/close')

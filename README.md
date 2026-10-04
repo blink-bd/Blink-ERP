@@ -66,6 +66,7 @@ cd apps/desktop && npm run tauri dev
 - [نظام إدارة الميزات](./docs/FEATURE_SYSTEM.md)
 - [نظام الهوية التجارية](./docs/BRANDING_SYSTEM.md)
 - [نظام الترجمة](./docs/I18N_SYSTEM.md)
+- **[سجل تعديلات المرحلة 2 — تنفيذ طلبات التاجر الـ11](./docs/CHANGELOG_PHASE2.md)** ⭐ أحدث تحديث
 - [خطة المراحل ومتتبع الحالة](./docs/PROJECT_STATUS.md)
 - [دليل التسطيب الكامل (Desktop)](./docs/INSTALL_GUIDE.md)
 - **[دليل تسطيب Web App خطوة بخطوة (GitHub + Supabase + Render + Cloudflare)](./docs/WEBAPP_SETUP_GUIDE.md)** ⭐ ابدأ من هنا للنشر أونلاين

@@ -10,10 +10,10 @@ import { CategoriesService } from './categories.service';
 import { CategoriesController } from './categories.controller';
 import { BrandsService } from './brands.service';
 import { BrandsController } from './brands.controller';
+import { InventoryModule } from '@/modules/inventory/inventory.module';
 
 @Module({
-  imports: [
-    FeaturesModule,TypeOrmModule.forFeature([Product, Category, Brand])],
+  imports: [FeaturesModule, TypeOrmModule.forFeature([Product, Category, Brand]), InventoryModule],
   controllers: [ProductsController, CategoriesController, BrandsController],
   providers: [ProductsService, CategoriesService, BrandsService],
   exports: [ProductsService, CategoriesService, BrandsService],
