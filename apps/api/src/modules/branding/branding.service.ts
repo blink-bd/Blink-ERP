@@ -31,6 +31,8 @@ const ALLOWED_FIELDS = [
   'invoiceShowLogo',
   'invoiceFooterText',
   'customCss',
+  'footerText',
+  'footerLinkUrl',
 ];
 
 @Injectable()
@@ -73,6 +75,10 @@ export class BrandingService {
       if (value && !HEX_COLOR_REGEX.test(value)) {
         throw new BadRequestException(`Invalid color format for ${field}: ${value}`);
       }
+    }
+
+    if (updates.footerLinkUrl && !/^https?:\/\/.+/i.test(updates.footerLinkUrl)) {
+      throw new BadRequestException('يجب أن يبدأ رابط الفوتر بـ http:// أو https://');
     }
 
     if (updates.customCss) {
