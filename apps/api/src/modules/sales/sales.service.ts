@@ -68,6 +68,31 @@ export class SalesService {
       relations: ['items'],
     });
     if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
+
+    if (sale.items && sale.items.length > 0) {
+      const itemIds = sale.items.map((i) => i.id);
+      const returnItems = await this.returnItemsRepository
+        .createQueryBuilder('ri')
+        .select('ri.saleItemId', 'saleItemId')
+        .addSelect('COALESCE(SUM(ri.quantity), 0)', 'returnedQuantity')
+        .where('ri.tenantId = :tenantId', { tenantId })
+        .andWhere('ri.saleItemId IN (:...itemIds)', { itemIds })
+        .groupBy('ri.saleItemId')
+        .getRawMany();
+
+      const returnedMap = new Map<string, number>();
+      for (const row of returnItems) {
+        returnedMap.set(row.saleItemId, Number(row.returnedQuantity) || 0);
+      }
+
+      for (const item of sale.items) {
+        const returned = returnedMap.get(item.id) || 0;
+        const totalQty = Number(item.quantity) || 0;
+        item.returnedQuantity = returned;
+        item.remainingQuantity = Math.max(0, Number((totalQty - returned).toFixed(4)));
+      }
+    }
+
     return sale;
   }
 
@@ -122,6 +147,20 @@ export class SalesService {
         const lineTotal = lineSubtotal + lineTax;
         const lineCost = itemInput.quantity * Number(product.costPrice);
 
+        if (unitPrice < Number(product.costPrice) || lineSubtotal < lineCost) {
+          throw new BadRequestException({
+            code: 'PRICE_BELOW_COST',
+            message: `لا يمكن بيع الصنف (${product.name}) بأقل من سعر التكلفة`,
+            details: {
+              productId: product.id,
+              costPrice: Number(product.costPrice),
+              unitPrice,
+              lineTotalAfterDiscount: lineSubtotal,
+              lineCost,
+            },
+          });
+        }
+
         subtotal += lineSubtotal;
         taxAmount += lineTax;
         cogs += lineCost;
@@ -156,7 +195,15 @@ export class SalesService {
       }
 
       const discountAmount = dto.discountAmount || 0;
-      const total = subtotal - discountAmount + taxAmount;
+      const netBeforeTax = subtotal - discountAmount;
+      if (netBeforeTax < cogs) {
+        throw new BadRequestException({
+          code: 'INVOICE_BELOW_COST',
+          message: 'لا يمكن إتمام البيع: إجمالي الفاتورة بعد الخصم أقل من إجمالي تكلفة البضاعة',
+          details: { netBeforeTax, totalCost: cogs },
+        });
+      }
+      const total = netBeforeTax + taxAmount;
       const paidAmount = (dto.payments || []).reduce((sum, p) => sum + p.amount, 0);
       const changeAmount = paidAmount > total ? paidAmount - total : 0;
       const paymentStatus = paidAmount >= total ? 'paid' : paidAmount > 0 ? 'partial' : 'pending';
@@ -305,30 +352,84 @@ export class SalesService {
       });
       if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
 
+      if (sale.status === 'cancelled') {
+        throw new BadRequestException('لا يمكن استرجاع فاتورة ملغاة');
+      }
+
+      if (!dto.items || dto.items.length === 0) {
+        throw new BadRequestException('يجب تحديد صنف واحد على الأقل للاسترجاع');
+      }
+
+      // تجميع الكميات المطلوبة لكل صنف لمنع التكرار في نفس الطلب
+      const requestedByItem = new Map<string, number>();
+      for (const input of dto.items) {
+        if (!input.saleItemId) {
+          throw new BadRequestException('معرّف صنف الفاتورة مطلوب');
+        }
+        const qty = Number(input.quantity);
+        if (!Number.isFinite(qty) || qty <= 0) {
+          throw new BadRequestException('الكمية المسترجعة يجب أن تكون أكبر من صفر');
+        }
+        const currentReq = requestedByItem.get(input.saleItemId) || 0;
+        requestedByItem.set(input.saleItemId, currentReq + qty);
+      }
+
+      // جلب جميع الاسترجاعات السابقة لأصناف الفاتورة
+      const itemIds = (sale.items || []).map((i) => i.id);
+      let previousReturns: any[] = [];
+      if (itemIds.length > 0) {
+        previousReturns = await manager
+          .createQueryBuilder(SaleReturnItem, 'ri')
+          .select('ri.saleItemId', 'saleItemId')
+          .addSelect('COALESCE(SUM(ri.quantity), 0)', 'returnedQuantity')
+          .where('ri.tenantId = :tenantId', { tenantId })
+          .andWhere('ri.saleItemId IN (:...itemIds)', { itemIds })
+          .groupBy('ri.saleItemId')
+          .getRawMany();
+      }
+
+      const previousReturnedMap = new Map<string, number>();
+      for (const row of previousReturns) {
+        previousReturnedMap.set(row.saleItemId, Number(row.returnedQuantity) || 0);
+      }
+
       let subtotal = 0;
       let taxAmount = 0;
       let cogsAdjustment = 0;
       const itemsToSave: Partial<SaleReturnItem>[] = [];
 
-      for (const input of dto.items) {
-        const saleItem = sale.items.find((i) => i.id === input.saleItemId);
+      for (const [saleItemId, requestedQty] of requestedByItem.entries()) {
+        const saleItem = (sale.items || []).find((i) => i.id === saleItemId);
         if (!saleItem) throw new NotFoundException('صنف الفاتورة غير موجود');
-        if (input.quantity > Number(saleItem.quantity)) {
-          throw new BadRequestException('الكمية المسترجعة أكبر من الكمية المباعة');
+
+        const originalQty = Number(saleItem.quantity);
+        const alreadyReturned = previousReturnedMap.get(saleItemId) || 0;
+        const remainingQty = Math.max(0, Number((originalQty - alreadyReturned).toFixed(4)));
+
+        if (remainingQty <= 0) {
+          throw new BadRequestException(
+            `تم استرجاع كامل كمية الصنف (${saleItem.productName}) مسبقاً`
+          );
+        }
+
+        if (requestedQty > remainingQty) {
+          throw new BadRequestException(
+            `الكمية المسترجعة للصنف (${saleItem.productName}) أكبر من الكمية المتبقية (${remainingQty})`
+          );
         }
 
         const unitPrice = Number(saleItem.unitPrice);
-        const lineTotal = unitPrice * input.quantity;
-        const lineTax = (lineTotal * Number(saleItem.taxRate)) / 100;
+        const lineTotal = unitPrice * requestedQty;
+        const lineTax = (lineTotal * Number(saleItem.taxRate || 0)) / 100;
         subtotal += lineTotal;
         taxAmount += lineTax;
-        cogsAdjustment += Number(saleItem.unitCost) * input.quantity;
+        cogsAdjustment += Number(saleItem.unitCost || 0) * requestedQty;
 
         itemsToSave.push({
           tenantId,
           saleItemId: saleItem.id,
           productId: saleItem.productId,
-          quantity: input.quantity,
+          quantity: requestedQty,
           unitPrice,
           taxRate: saleItem.taxRate,
           taxAmount: lineTax,
@@ -341,7 +442,7 @@ export class SalesService {
           tenantId,
           productId: saleItem.productId,
           warehouseId: sale.warehouseId,
-          quantity: input.quantity,
+          quantity: requestedQty,
           type: 'return_in',
           referenceType: 'sale_return',
           referenceId: sale.id,
@@ -379,9 +480,24 @@ export class SalesService {
         await this.customersService.adjustBalance(tenantId, sale.customerId, -total);
       }
 
-      // خصم قيمة المرتجع من إجمالي الفاتورة الأصلية حتى يعكس تقرير الأرباح الواقع الفعلي
-      sale.total = Number(sale.total) - total;
-      sale.cogs = Number(sale.cogs) - cogsAdjustment;
+      // خصم قيمة المرتجع من إجمالي الفاتورة الأصلية مع ضمان عدم التحول إلى رقم سالب
+      const newTotal = Number(sale.total) - total;
+      sale.total = Math.max(0, Number(newTotal.toFixed(4)));
+
+      const newCogs = Number(sale.cogs) - cogsAdjustment;
+      sale.cogs = Math.max(0, Number(newCogs.toFixed(4)));
+
+      // فحص إذا تم استرجاع كامل أصناف الفاتورة لتحديث حالتها
+      const allFullyReturned = (sale.items || []).every((it) => {
+        const prev = previousReturnedMap.get(it.id) || 0;
+        const currentReq = requestedByItem.get(it.id) || 0;
+        return prev + currentReq >= Number(it.quantity);
+      });
+
+      if (allFullyReturned) {
+        sale.status = 'returned';
+      }
+
       await manager.save(sale);
 
       return savedReturn;

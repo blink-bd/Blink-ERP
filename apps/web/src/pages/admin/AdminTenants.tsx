@@ -29,6 +29,12 @@ export function AdminTenantsPage() {
     adminFullName: '', adminEmail: '', adminPassword: '',
   });
 
+  const restore = async (file: File) => {
+    const data = new FormData(); data.append('file', file);
+    await adminApi.post('/admin/tenants/restore', data, { headers: { 'Content-Type': 'multipart/form-data' } });
+    toast.success('تمت استعادة التاجر'); load();
+  };
+
   const load = () => {
     setLoading(true);
     adminApi.get('/admin/tenants').then((r) => setTenants(r.data.data)).finally(() => setLoading(false));
@@ -59,6 +65,7 @@ export function AdminTenantsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">التجّار</h1>
+        <label className="inline-flex items-center cursor-pointer border rounded px-3 py-2 text-sm"><span>استعادة نسخة JSON</span><input type="file" accept="application/json,.json" className="hidden" onChange={(e) => e.target.files?.[0] && restore(e.target.files[0])} /></label>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
           {showForm ? 'إلغاء' : 'إضافة تاجر جديد'}
