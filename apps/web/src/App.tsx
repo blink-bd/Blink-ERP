@@ -6,6 +6,7 @@ import { AdminAuthProvider } from './contexts/AdminAuthContext';
 import { FeaturesProvider } from './contexts/FeaturesContext';
 import { BrandingProvider } from './contexts/BrandingContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { POSPage } from './pages/POS';
@@ -67,6 +68,10 @@ function AppRoutes() {
 
 function App() {
   const { i18n } = useTranslation();
+
+  // منع اختصارات أدوات المطوّر التي قد يرسلها قارئ الباركود بالخطأ (F12 أو Ctrl+Shift+I)
+  // أثناء البيع في صفحة نقطة البيع. يعمل في الإنتاج فقط ولا يمس مفتاح Enter.
+  useDevToolsShortcutGuard();
 
   useEffect(() => {
     const dir = i18n.language === 'ar' ? 'rtl' : 'ltr';

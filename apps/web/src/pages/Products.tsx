@@ -237,7 +237,15 @@ export function ProductsPage() {
           </div>
           <div>
             <Label>الباركود</Label>
-            <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+            {/* قارئ الباركود يرسل Enter بعد الرقم المقروء، لذلك نمنع إرسال النموذج
+                تلقائياً حتى لا يُحفظ المنتج قبل اكتمال باقي الحقول. */}
+            <Input
+              value={form.barcode}
+              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') e.preventDefault();
+              }}
+            />
             {!identifierStatus.barcodeAvailable && <p className="text-xs text-red-600 mt-1">الباركود موجود مسبقاً</p>}
           </div>
 
