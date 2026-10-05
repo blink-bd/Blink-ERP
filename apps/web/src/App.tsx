@@ -17,6 +17,7 @@ import { PurchasesPage } from './pages/Purchases';
 import { ExpensesPage } from './pages/Expenses';
 import { CashRegisterPage } from './pages/CashRegister';
 import { ReportsPage } from './pages/Reports';
+import { SettingsPage } from './pages/Settings';
 import { AdminLoginPage } from './pages/admin/AdminLogin';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboardPage } from './pages/admin/AdminDashboard';
@@ -58,7 +59,8 @@ function AppRoutes() {
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/cash-register" element={<CashRegisterPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        {/* إعدادات الهوية البصرية ملك للمدير العام فقط، لذلك لا يوجد مسار للتاجر. */}
+        <Route path="/settings" element={<SettingsPage />} />
+        {/* إعدادات الهوية البصرية ملك للمدير العام فقط وتُدار من لوحة /admin. */}
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
