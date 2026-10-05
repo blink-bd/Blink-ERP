@@ -13,6 +13,7 @@ import {
   Wallet,
   Receipt,
   BarChart3,
+  Settings,
 } from 'lucide-react';
 
 interface NavItem {
@@ -33,6 +34,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/expenses', labelKey: 'expenses', icon: Wallet, feature: 'expenses' },
   { to: '/cash-register', labelKey: 'cashRegister', icon: Receipt, feature: 'cash_register' },
   { to: '/reports', labelKey: 'reports', icon: BarChart3, feature: 'reports' },
+  { to: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
 function NavItemLink({ item }: { item: NavItem }) {
