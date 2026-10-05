@@ -311,8 +311,9 @@ export class MasterAdminService implements OnModuleInit {
     if (await this.tenants.findOne({ where: { id: tenantId }, withDeleted: true })) throw new ForbiddenException('Tenant ID موجود بالفعل');
     for (const row of Object.values(backup.tables).flat() as any[]) if (row.tenant_id && row.tenant_id !== tenantId) throw new ForbiddenException('النسخة تحتوي سجلات لتاجر آخر');
 
-    // ملاحظة: نعمل cast إلى ::text لأن node-postgres يرجّع name[] كنص خام "{a,b,c}" وليس مصفوفة
-    const allowed = await this.dataSource.query(`SELECT table_name::text AS table_name, array_agg(column_name::text ORDER BY ordinal_position) AS columns FROM information_schema.columns WHERE table_schema='public' GROUP BY table_name`);
+        // ملاحظة: نعمل cast إلى ::text لأن node-postgres يرجّع name[] كنص خام "{a,b,c}" وليس مصفوفة
+    // ونستبعد الأعمدة المولّدة تلقائياً (GENERATED ALWAYS) لأن Postgres يرفض إدخال قيم فيها
+    const allowed = await this.dataSource.query(`SELECT table_name::text AS table_name, array_agg(column_name::text ORDER BY ordinal_position) AS columns FROM information_schema.columns WHERE table_schema='public' AND is_generated = 'NEVER' AND (identity_generation IS NULL OR identity_generation <> 'ALWAYS') GROUP BY table_name`);
     const columns = new Map<string, Set<string>>(
       allowed.map((x: any): [string, Set<string>] => [
         String(x.table_name),
