@@ -24,6 +24,20 @@ export function AppLayout() {
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
+        <footer className="border-t bg-white px-6 py-3 text-center text-sm text-gray-500">
+          {branding.footerLinkUrl ? (
+            <a
+              href={branding.footerLinkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-gray-700"
+            >
+              {branding.footerText}
+            </a>
+          ) : (
+            <span>{branding.footerText}</span>
+          )}
+        </footer>
       </div>
     </div>
   );

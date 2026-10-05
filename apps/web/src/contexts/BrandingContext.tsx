@@ -9,6 +9,8 @@ export interface TenantBranding {
   sidebarColor: string;
   headerColor: string;
   logoUrl?: string;
+  footerText: string;
+  footerLinkUrl?: string;
 }
 
 interface BrandingContextValue { branding: TenantBranding; loading: boolean }
@@ -19,6 +21,7 @@ const DEFAULT_BRANDING: TenantBranding = {
   secondaryColor: '#64748B',
   sidebarColor: '#1E293B',
   headerColor: '#FFFFFF',
+  footerText: 'Copyright © 2026 Blink BD',
 };
 
 const BrandingContext = createContext<BrandingContextValue>({ branding: DEFAULT_BRANDING, loading: true });
@@ -63,6 +66,8 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             sidebarColor: data.sidebarColor || DEFAULT_BRANDING.sidebarColor,
             headerColor: data.headerColor || DEFAULT_BRANDING.headerColor,
             logoUrl: data.logoUrl || undefined,
+            footerText: data.footerText || DEFAULT_BRANDING.footerText,
+            footerLinkUrl: data.footerLinkUrl || undefined,
           };
         } catch {
           // استخدام الهوية الافتراضية إذا لم تتوفر هوية التاجر.
