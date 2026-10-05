@@ -77,6 +77,20 @@ export function AdminTenantDetailPage() {
     load();
   };
 
+  const downloadBackup = async () => {
+    const response = await adminApi.get(`/admin/tenants/${id}/backup`);
+    const blob = new Blob([JSON.stringify(response.data.data, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `tenant-${id}-backup.json`; link.click(); URL.revokeObjectURL(link.href);
+    toast.success('تم تنزيل النسخة الاحتياطية');
+  };
+  const deleteTenant = async () => {
+    if (!window.confirm('تحذير: سيتم حذف كل البيانات نهائياً. نزّل نسخة احتياطية أولاً.')) return;
+    const name = window.prompt(`اكتب اسم النشاط للتأكيد: ${tenant.businessName}`);
+    if (name !== tenant.businessName) return toast.error('اسم النشاط غير مطابق');
+    await adminApi.delete(`/admin/tenants/${id}`, { data: { businessName: name } });
+    window.location.href = '/admin/tenants';
+  };
+
   const doResetPassword = async () => {
     if (!resetFor || newPassword.length < 8) { toast.error('كلمة المرور لازم 8 أحرف على الأقل'); return; }
     await adminApi.post(`/admin/tenants/${id}/reset-user-password`, { userId: resetFor, newPassword });
@@ -91,6 +105,7 @@ export function AdminTenantDetailPage() {
       <div>
         <h1 className="text-2xl font-bold">{tenant.businessName}</h1>
         <p className="text-gray-500 text-sm">Tenant ID: {tenant.id}</p>
+        <div className="flex gap-2 mt-3"><Button variant="outline" onClick={downloadBackup}>تنزيل نسخة احتياطية JSON</Button><Button variant="destructive" onClick={deleteTenant}>حذف التاجر نهائياً</Button></div>
       </div>
 
       <div className="bg-white rounded-lg shadow p-5 space-y-4">
