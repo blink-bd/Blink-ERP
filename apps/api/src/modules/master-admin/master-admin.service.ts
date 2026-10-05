@@ -249,6 +249,49 @@ export class MasterAdminService implements OnModuleInit {
     );
   }
 
+  // ---------- Tenant backup, restore and permanent deletion ----------
+  private quoteIdentifier(name: string) { return `"${name.replace(/"/g, '""')}"`; }
+
+  async backupTenant(id: string, adminEmail: string, ip: string) {
+    await this.getTenant(id);
+    const tables = await this.dataSource.query(`SELECT table_name FROM information_schema.columns WHERE table_schema='public' AND column_name='tenant_id' AND table_name <> 'audit_logs' ORDER BY table_name`);
+    const backup: any = { format: 'blink-erp-tenant-backup', version: 1, tenantId: id, exportedAt: new Date().toISOString(), tables: {} };
+    backup.tables.tenants = await this.dataSource.query('SELECT * FROM tenants WHERE id = $1', [id]);
+    for (const { table_name: table } of tables) backup.tables[table] = await this.dataSource.query(`SELECT * FROM ${this.quoteIdentifier(table)} WHERE tenant_id = $1`, [id]);
+    await this.audit(adminEmail, 'TENANT_BACKUP_EXPORTED', 'tenant', id, { tables: Object.keys(backup.tables) }, ip);
+    return backup;
+  }
+
+  async deleteTenant(id: string, businessName: string, adminEmail: string, ip: string) {
+    const tenant = await this.getTenant(id);
+    if (businessName !== tenant.businessName) throw new ForbiddenException('اسم النشاط التجاري غير مطابق');
+    await this.dataSource.transaction(async (manager) => {
+      await manager.query('DELETE FROM tenants WHERE id = $1', [id]);
+      await manager.query(`INSERT INTO audit_logs (user_email,user_ip,action,entity_type,entity_id,new_values,description,severity) VALUES ($1,$2,'TENANT_DELETED','tenant',$3,$4,'master_admin','warning')`, [adminEmail, ip || null, id, JSON.stringify({ businessName })]);
+    });
+  }
+
+  async restoreTenant(backup: any, adminEmail: string, ip: string) {
+    if (!backup || backup.format !== 'blink-erp-tenant-backup' || backup.version !== 1 || !backup.tenantId || !backup.tables?.tenants?.length) throw new ForbiddenException('ملف النسخة الاحتياطية غير صالح');
+    const tenantId = backup.tenantId;
+    if (await this.tenants.findOne({ where: { id: tenantId } })) throw new ForbiddenException('Tenant ID موجود بالفعل');
+    for (const row of Object.values(backup.tables).flat() as any[]) if (row.tenant_id && row.tenant_id !== tenantId) throw new ForbiddenException('النسخة تحتوي سجلات لتاجر آخر');
+    const allowed = await this.dataSource.query(`SELECT table_name, array_agg(column_name ORDER BY ordinal_position) columns FROM information_schema.columns WHERE table_schema='public' GROUP BY table_name`);
+    const columns = new Map(allowed.map((x: any) => [x.table_name, new Set(x.columns)]));
+    const ordered = ['tenants', ...Object.keys(backup.tables).filter((t) => t !== 'tenants').sort()];
+    await this.dataSource.transaction(async (manager) => {
+      for (const table of ordered) {
+        if (!columns.has(table) || !/^[a-zA-Z0-9_]+$/.test(table)) throw new ForbiddenException(`جدول غير مسموح: ${table}`);
+        for (const row of backup.tables[table] || []) {
+          const keys = Object.keys(row).filter((k) => columns.get(table)!.has(k));
+          if (!keys.length) continue;
+          await manager.query(`INSERT INTO ${this.quoteIdentifier(table)} (${keys.map((k) => this.quoteIdentifier(k)).join(',')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(',')})`, keys.map((k) => row[k]));
+        }
+      }
+      await manager.query(`INSERT INTO audit_logs (user_email,user_ip,action,entity_type,entity_id,new_values,description,severity) VALUES ($1,$2,'TENANT_BACKUP_RESTORED','tenant',$3,$4,'master_admin','warning')`, [adminEmail, ip || null, tenantId, JSON.stringify({ tables: ordered })]);
+    });
+  }
+
   // ---------- Audit ----------
   async audit(
     adminEmail: string,
