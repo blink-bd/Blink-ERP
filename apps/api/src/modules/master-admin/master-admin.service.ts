@@ -277,7 +277,9 @@ export class MasterAdminService implements OnModuleInit {
     if (await this.tenants.findOne({ where: { id: tenantId } })) throw new ForbiddenException('Tenant ID موجود بالفعل');
     for (const row of Object.values(backup.tables).flat() as any[]) if (row.tenant_id && row.tenant_id !== tenantId) throw new ForbiddenException('النسخة تحتوي سجلات لتاجر آخر');
     const allowed = await this.dataSource.query(`SELECT table_name, array_agg(column_name ORDER BY ordinal_position) columns FROM information_schema.columns WHERE table_schema='public' GROUP BY table_name`);
-    const columns = new Map(allowed.map((x: any) => [x.table_name, new Set(x.columns)]));
+    const columns = new Map<string, Set<string>>(
+      allowed.map((x: any): [string, Set<string>] => [x.table_name, new Set<string>(x.columns)])
+    );
     const ordered = ['tenants', ...Object.keys(backup.tables).filter((t) => t !== 'tenants').sort()];
     await this.dataSource.transaction(async (manager) => {
       for (const table of ordered) {
