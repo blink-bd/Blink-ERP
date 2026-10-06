@@ -57,7 +57,7 @@ export function AdminTenantsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">التجّار</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -66,7 +66,7 @@ export function AdminTenantsPage() {
       </div>
 
       {showForm && (
-        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-2 gap-4">
+        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><Label>اسم النشاط التجاري</Label>
             <Input required value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} /></div>
           <div><Label>الاسم بالعربي</Label>
@@ -75,21 +75,21 @@ export function AdminTenantsPage() {
             <Input type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           <div><Label>الهاتف</Label>
             <Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
-          <div className="col-span-2 border-t pt-4"><p className="font-medium text-sm text-gray-600 mb-2">حساب مدير المتجر (Admin) الأول</p></div>
+          <div className="sm:col-span-2 border-t pt-4"><p className="font-medium text-sm text-gray-600 mb-2">حساب مدير المتجر (Admin) الأول</p></div>
           <div><Label>اسم المدير</Label>
             <Input required value={form.adminFullName} onChange={(e) => setForm({ ...form, adminFullName: e.target.value })} /></div>
           <div><Label>بريد المدير (للدخول)</Label>
             <Input type="email" required value={form.adminEmail} onChange={(e) => setForm({ ...form, adminEmail: e.target.value })} /></div>
           <div><Label>كلمة مرور مؤقتة</Label>
             <Input type="text" required minLength={8} value={form.adminPassword} onChange={(e) => setForm({ ...form, adminPassword: e.target.value })} /></div>
-          <div className="col-span-2 flex justify-end">
+          <div className="sm:col-span-2 flex justify-end">
             <Button type="submit" disabled={saving}>{saving ? 'جاري الإنشاء...' : 'إنشاء التاجر'}</Button>
           </div>
         </form>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-gray-50"><tr>
             <th className="text-right p-3">الاسم</th><th className="text-right p-3">البريد</th>
             <th className="text-right p-3">الحالة</th><th className="text-right p-3">نهاية الاشتراك</th><th className="p-3"></th>
