@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { useFeature } from '@/contexts/FeaturesContext';
 import toast from 'react-hot-toast';
 import { Trash2, Plus, Minus, FilePlus2, FolderOpen, X } from 'lucide-react';
 
@@ -12,6 +13,7 @@ interface CartLine {
   barcode?: string;
   retailPrice: number;
   wholesalePrice: number | null;
+  halfWholesalePrice: number | null;
   quantity: number;
   taxRate: number;
 }
@@ -21,7 +23,7 @@ interface PosDraft {
   id: string;
   createdAt: string;
   cart: CartLine[];
-  priceTier: 'retail' | 'wholesale';
+  priceTier: 'retail' | 'wholesale' | 'half_wholesale';
   discount: string;
   selectedCustomer: CustomerLite | null;
   customerName: string;
@@ -29,7 +31,7 @@ interface PosDraft {
 }
 interface StoredPosState {
   cart: CartLine[];
-  priceTier: 'retail' | 'wholesale';
+  priceTier: 'retail' | 'wholesale' | 'half_wholesale';
   discount: string;
   selectedCustomer: CustomerLite | null;
   customerName: string;
@@ -45,10 +47,11 @@ const readStoredState = (): Partial<StoredPosState> => {
 
 export function POSPage() {
   const stored = readStoredState();
+  const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
   const [query, setQuery] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [cart, setCart] = useState<CartLine[]>(stored.cart || []);
-  const [priceTier, setPriceTier] = useState<'retail' | 'wholesale'>(stored.priceTier || 'retail');
+  const [priceTier, setPriceTier] = useState<'retail' | 'wholesale' | 'half_wholesale'>(stored.priceTier || 'retail');
   const [discount, setDiscount] = useState(stored.discount || '0');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warehouseId, setWarehouseId] = useState(stored.warehouseId || '');
@@ -99,7 +102,7 @@ export function POSPage() {
     return () => window.clearTimeout(timer);
   }, [customerName]);
 
-  const priceFor = (line: CartLine) => priceTier === 'wholesale' && line.wholesalePrice ? line.wholesalePrice : line.retailPrice;
+  const priceFor = (line: CartLine) => priceTier === 'wholesale' && line.wholesalePrice ? line.wholesalePrice : priceTier === 'half_wholesale' && line.halfWholesalePrice ? line.halfWholesalePrice : line.retailPrice;
   const subtotal = cart.reduce((sum, line) => sum + priceFor(line) * line.quantity, 0);
   const taxTotal = cart.reduce((sum, line) => sum + (priceFor(line) * line.quantity * line.taxRate) / 100, 0);
   const discountNum = Number(discount) || 0;
@@ -116,6 +119,7 @@ export function POSPage() {
         barcode: product.barcode,
         retailPrice: Number(product.sellingPrice),
         wholesalePrice: product.wholesalePrice !== null && product.wholesalePrice !== undefined ? Number(product.wholesalePrice) : null,
+        halfWholesalePrice: product.halfWholesalePrice !== null && product.halfWholesalePrice !== undefined ? Number(product.halfWholesalePrice) : null,
         quantity: 1,
         taxRate: Number(product.taxRate) || 0,
       }];
@@ -221,7 +225,7 @@ export function POSPage() {
             <Input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالاسم أو الرمز أو الباركود..." className="text-lg h-14" autoFocus />
             {productResults.length > 0 && <div className="absolute z-20 bg-white border rounded-md shadow-lg w-full mt-1 max-h-64 overflow-y-auto">{productResults.map((product) => <button type="button" key={product.id} className="block w-full text-right px-4 py-3 hover:bg-gray-100 border-b last:border-0" onClick={() => addProductToCart(product)}><span className="font-medium">{product.name}</span><span className="text-xs text-gray-500 mr-3">{product.sku || product.barcode || ''}</span><span className="text-xs text-primary mr-3">{Number(product.sellingPrice).toFixed(2)}</span></button>)}</div>}
           </form>
-          <div className="flex rounded-lg overflow-hidden border h-14"><button type="button" onClick={() => setPriceTier('retail')} className={`px-4 font-medium ${priceTier === 'retail' ? 'bg-primary text-white' : 'bg-white'}`}>قطاعي</button><button type="button" onClick={() => setPriceTier('wholesale')} className={`px-4 font-medium ${priceTier === 'wholesale' ? 'bg-primary text-white' : 'bg-white'}`}>جملة</button></div>
+          <div className="flex rounded-lg overflow-hidden border h-14"><button type="button" onClick={() => setPriceTier('retail')} className={`px-4 font-medium ${priceTier === 'retail' ? 'bg-primary text-white' : 'bg-white'}`}>قطاعي</button>{halfWholesaleEnabled && <button type="button" onClick={() => setPriceTier('half_wholesale')} className={`px-4 font-medium ${priceTier === 'half_wholesale' ? 'bg-primary text-white' : 'bg-white'}`}>نصف جملة</button>}<button type="button" onClick={() => setPriceTier('wholesale')} className={`px-4 font-medium ${priceTier === 'wholesale' ? 'bg-primary text-white' : 'bg-white'}`}>جملة</button></div>
           <Button variant="outline" onClick={createNewInvoice} title="حفظ الحالية وفتح فاتورة جديدة"><FilePlus2 className="h-4 w-4 ml-2" />فاتورة جديدة</Button>
           <div className="relative"><Button variant="outline" onClick={() => setShowDrafts((value) => !value)}><FolderOpen className="h-4 w-4 ml-2" />المحفوظة ({drafts.length})</Button>{showDrafts && <div className="absolute z-30 left-0 top-11 bg-white border rounded-md shadow-lg w-72 p-2">{drafts.length === 0 ? <p className="text-sm text-gray-400 p-3">لا توجد فواتير محفوظة</p> : drafts.map((draft) => <div key={draft.id} className="flex items-center gap-1 border-b last:border-0"><button className="flex-1 text-right text-sm p-2 hover:bg-gray-100" onClick={() => openDraft(draft)}>فاتورة مؤجلة — {draft.cart.length} أصناف</button><button className="p-2 text-red-500" onClick={() => deleteDraft(draft.id)}><X className="h-4 w-4" /></button></div>)}</div>}</div>
         </div>

@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFeature } from '@/contexts/FeaturesContext';
 import toast from 'react-hot-toast';
 import { Plus, X, Pencil, Trash2 } from 'lucide-react';
 
@@ -13,6 +14,7 @@ interface Product {
   barcode?: string;
   sellingPrice: number;
   wholesalePrice?: number;
+  halfWholesalePrice?: number;
   costPrice: number;
   categoryId?: string;
   category?: { id: string; name: string };
@@ -33,6 +35,7 @@ type ProductForm = {
   costPrice: string;
   sellingPrice: string;
   wholesalePrice: string;
+  halfWholesalePrice: string;
   minStockLevel: string;
   categoryId: string;
   initialQuantity: string;
@@ -48,7 +51,7 @@ const statusLabel: Record<string, { text: string; cls: string }> = {
 };
 
 const emptyForm: ProductForm = {
-  id: '', name: '', sku: '', barcode: '', costPrice: '', sellingPrice: '', wholesalePrice: '',
+  id: '', name: '', sku: '', barcode: '', costPrice: '', sellingPrice: '', wholesalePrice: '', halfWholesalePrice: '',
   minStockLevel: '5', categoryId: '', initialQuantity: '', originalInitialQuantity: '', needsPriceReview: false,
 };
 
@@ -59,7 +62,24 @@ const formatQuantity = (value: number | string | null | undefined) => {
   return Number.isInteger(number) ? String(number) : number.toLocaleString('ar-EG', { maximumFractionDigits: 4 });
 };
 
+const EAN_L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+const EAN_G = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+const EAN_R = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+const EAN_PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+const ean13 = (value: string) => {
+  const base = value.replace(/\\D/g, '').slice(0, 12).padStart(12, '0');
+  const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * (index % 2 ? 3 : 1), 0);
+  return base + String((10 - (sum % 10)) % 10);
+};
+const barcodeSvg = (value: string) => {
+  const code = ean13(value); let bits = '101'; const parity = EAN_PARITY[Number(code[0])];
+  for (let i = 1; i <= 6; i++) bits += (parity[i - 1] === 'L' ? EAN_L : EAN_G)[Number(code[i])];
+  bits += '01010'; for (let i = 7; i <= 12; i++) bits += EAN_R[Number(code[i])]; bits += '101';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="260" height="90" viewBox="0 0 260 90"><rect width="260" height="90" fill="white"/><g fill="black">${bits.split('').map((bit, i) => bit === '1' ? `<rect x="${10 + i * 2}" y="5" width="2" height="62"/>` : '').join('')}</g><text x="130" y="84" text-anchor="middle" font-family="Arial" font-size="14">${code}</text></svg>`;
+};
+
 export function ProductsPage() {
+  const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -119,6 +139,7 @@ export function ProductsPage() {
       id: p.id, name: p.name, sku: p.sku || '', barcode: p.barcode || '',
       costPrice: String(p.costPrice), sellingPrice: String(p.sellingPrice),
       wholesalePrice: p.wholesalePrice !== undefined && p.wholesalePrice !== null ? String(p.wholesalePrice) : '',
+      halfWholesalePrice: p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null ? String(p.halfWholesalePrice) : '',
       minStockLevel: String(p.minStockLevel), categoryId: p.categoryId || '',
       initialQuantity: currentQuantity, originalInitialQuantity: currentQuantity,
       needsPriceReview: !!p.needsPriceReview,
@@ -146,10 +167,12 @@ export function ProductsPage() {
     const cost = Number(form.costPrice) || 0;
     const retail = Number(form.sellingPrice);
     const wholesale = form.wholesalePrice === '' ? undefined : Number(form.wholesalePrice);
+    const halfWholesale = halfWholesaleEnabled && form.halfWholesalePrice !== '' ? Number(form.halfWholesalePrice) : undefined;
     if (!Number.isFinite(retail) || retail <= cost) {
       toast.error('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
       return;
     }
+    if (halfWholesale !== undefined && (!Number.isFinite(halfWholesale) || halfWholesale <= cost)) { toast.error('سعر البيع نصف الجملة يجب أن يكون أكبر من سعر التكلفة'); return; }
     if (wholesale !== undefined && (!Number.isFinite(wholesale) || wholesale <= cost)) {
       toast.error('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
       return;
@@ -185,6 +208,7 @@ export function ProductsPage() {
         costPrice: cost,
         sellingPrice: retail,
         wholesalePrice: wholesale,
+        halfWholesalePrice: halfWholesale,
         minStockLevel: Number(form.minStockLevel) || 0,
         categoryId: form.categoryId || undefined,
       };
@@ -237,7 +261,7 @@ export function ProductsPage() {
           </div>
           <div>
             <Label>الباركود</Label>
-            <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+            <div className="flex gap-2"><Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value.replace(/\D/g, '').slice(0, 12) })} /><Button type="button" variant="outline" onClick={() => setForm({ ...form, barcode: ean13(String(Date.now()).slice(-12)) })}>توليد تلقائي</Button>{form.barcode && <Button type="button" variant="outline" onClick={() => { const w = window.open('', '_blank', 'width=420,height=300'); w?.document.write(`<html dir="rtl"><head><title>طباعة باركود</title><style>@page{size:50mm 30mm;margin:0}body{text-align:center;font-family:Arial;margin:3mm}svg{max-width:100%;height:auto}</style></head><body><strong>${form.name}</strong>${barcodeSvg(form.barcode)}<script>window.onload=()=>window.print()</script></body></html>`); w?.document.close(); }}>طباعة الملصق</Button>}</div>
             {!identifierStatus.barcodeAvailable && <p className="text-xs text-red-600 mt-1">الباركود موجود مسبقاً</p>}
           </div>
 
@@ -262,6 +286,7 @@ export function ProductsPage() {
 
           <div><Label>سعر البيع القطاعي</Label>
             <Input type="number" step="0.01" min="0.01" required value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })} /></div>
+          {halfWholesaleEnabled && <div><Label>سعر البيع نصف الجملة (اختياري)</Label><Input type="number" step="0.01" value={form.halfWholesalePrice} onChange={(e) => setForm({ ...form, halfWholesalePrice: e.target.value })} /></div>}
           <div><Label>سعر البيع بالجملة (اختياري)</Label>
             <Input type="number" step="0.01" min="0" value={form.wholesalePrice} onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })} /></div>
           <div><Label>{form.id ? 'الكمية الافتتاحية / الحالية' : 'الكمية الافتتاحية (اختياري)'}</Label>
