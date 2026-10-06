@@ -149,6 +149,8 @@ export function CustomersPage() {
       setReturnSale(null);
       if (statementFor) await openStatement(statementFor);
       load();
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'حدث خطأ أثناء الاسترجاع');
     } finally { setReturning(false); }
   };
 
@@ -162,9 +164,9 @@ export function CustomersPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">العملاء</h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={exportPdf}><FileText className="h-4 w-4 ml-2" />تصدير PDF</Button>
           <Button onClick={showForm ? () => setShowForm(false) : openCreate}>
             {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -179,13 +181,13 @@ export function CustomersPage() {
       </div>
 
       {showForm && (
-        <form onSubmit={submitCustomer} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-4 gap-4">
+        <form onSubmit={submitCustomer} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div><Label>اسم العميل</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div><Label>الهاتف</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
           <div><Label>البريد الإلكتروني</Label><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></div>
           <div><Label>الرصيد الافتتاحي</Label><Input type="number" min="0" step="0.01" value={form.previousBalance} onChange={(e) => setForm({ ...form, previousBalance: e.target.value })} /></div>
-          {form.id && <p className="col-span-4 text-xs text-gray-500">تعديل الرصيد بعد التسجيل الأول يحتاج تأكيداً وسبباً، وسيظهر كسطر مستقل في كشف الحساب.</p>}
-          <div className="col-span-4 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'جاري الحفظ...' : form.id ? 'حفظ التعديلات' : 'حفظ العميل'}</Button></div>
+          {form.id && <p className="sm:col-span-2 lg:col-span-4 text-xs text-gray-500">تعديل الرصيد بعد التسجيل الأول يحتاج تأكيداً وسبباً، وسيظهر كسطر مستقل في كشف الحساب.</p>}
+          <div className="sm:col-span-2 lg:col-span-4 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'جاري الحفظ...' : form.id ? 'حفظ التعديلات' : 'حفظ العميل'}</Button></div>
         </form>
       )}
 
@@ -193,8 +195,8 @@ export function CustomersPage() {
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="بحث بالاسم أو الهاتف..." />
       </form>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-gray-50"><tr>
             <th className="text-right p-3">الاسم</th><th className="text-right p-3">الهاتف</th><th className="text-right p-3">البريد</th><th className="text-right p-3">الرصيد المستحق</th><th className="p-3"></th>
           </tr></thead>
@@ -220,7 +222,7 @@ export function CustomersPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setStatementFor(null)}>
           <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[85vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4"><h2 className="text-xl font-bold">كشف حساب: {statementFor.name}</h2><Button size="icon" variant="ghost" onClick={() => setStatementFor(null)}><X className="h-4 w-4" /></Button></div>
-            <table className="w-full text-sm mb-4">
+            <table className="w-full min-w-[640px] text-sm mb-4">
               <thead><tr className="border-b"><th className="text-right p-2">التاريخ</th><th className="text-right p-2">البيان</th><th className="text-right p-2">مدين</th><th className="text-right p-2">دائن</th><th className="text-right p-2">الرصيد</th><th className="p-2"></th></tr></thead>
               <tbody>{statement.entries.map((entry: any, i: number) => <tr key={i} className="border-b">
                 <td className="p-2">{new Date(entry.date).toLocaleDateString('ar')}</td><td className="p-2">{entry.description} {entry.referenceNumber}</td>
@@ -238,7 +240,35 @@ export function CustomersPage() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setReturnSale(null)}>
           <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
             <h2 className="text-lg font-bold">استرجاع من فاتورة {returnSale.saleNumber}</h2><p className="text-xs text-gray-400">حدد الكمية المطلوب استرجاعها لكل صنف</p>
-            <div className="space-y-2 max-h-72 overflow-y-auto">{returnSale.items?.map((it: any) => <div key={it.id} className="flex items-center justify-between border-b pb-2"><div><p className="text-sm">{it.productName}</p><p className="text-xs text-gray-400">الكمية المباعة: {it.quantity} — السعر: {Number(it.unitPrice).toFixed(2)}</p></div><Input type="number" className="w-20" min="0" max={it.quantity} value={returnQtys[it.id] || ''} onChange={(e) => setReturnQtys({ ...returnQtys, [it.id]: e.target.value })} /></div>)}</div>
+            <div className="space-y-2 max-h-72 overflow-y-auto">
+              {returnSale.items?.map((it: any) => {
+                const remaining = it.remainingQuantity !== undefined ? Number(it.remainingQuantity) : Number(it.quantity);
+                const isFullyReturned = remaining <= 0;
+                return (
+                  <div key={it.id} className="flex items-center justify-between border-b pb-2">
+                    <div>
+                      <p className="text-sm font-medium">{it.productName}</p>
+                      <p className="text-xs text-gray-500">
+                        الكمية المباعة: {it.quantity} — المتبقي: {remaining} — السعر: {Number(it.unitPrice).toFixed(2)}
+                      </p>
+                      {isFullyReturned && (
+                        <span className="text-xs text-amber-600 font-medium">تم استرجاع كامل الكمية</span>
+                      )}
+                    </div>
+                    <Input
+                      type="number"
+                      className="w-20"
+                      min="0"
+                      max={remaining}
+                      disabled={isFullyReturned}
+                      placeholder="0"
+                      value={returnQtys[it.id] || ''}
+                      onChange={(e) => setReturnQtys({ ...returnQtys, [it.id]: e.target.value })}
+                    />
+                  </div>
+                );
+              })}
+            </div>
             <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setReturnSale(null)}>إلغاء</Button><Button onClick={submitReturn} disabled={returning}>{returning ? 'جاري التنفيذ...' : 'تأكيد الاسترجاع'}</Button></div>
           </div>
         </div>

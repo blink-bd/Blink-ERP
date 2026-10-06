@@ -230,9 +230,9 @@ export function POSPage() {
   };
 
   return (
-    <div className="grid grid-cols-3 gap-6 h-full">
-      <div className="col-span-2 flex flex-col">
-        <div className="flex gap-3 mb-4 items-center">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+      <div className="flex flex-col lg:col-span-2">
+        <div className="flex flex-wrap gap-3 mb-4 items-center">
           <form onSubmit={handleSearch} className="flex-1 relative">
             <Input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالاسم أو الرمز أو الباركود..." className="text-lg h-14" autoFocus />
             {productResults.length > 0 && <div className="absolute z-20 bg-white border rounded-md shadow-lg w-full mt-1 max-h-64 overflow-y-auto">{productResults.map((product) => <button type="button" key={product.id} className="block w-full text-right px-4 py-3 hover:bg-gray-100 border-b last:border-0" onClick={() => addProductToCart(product)}><span className="font-medium">{product.name}</span><span className="text-xs text-gray-500 mr-3">{product.sku || product.barcode || ''}</span><span className="text-xs text-primary mr-3">{Number(product.sellingPrice).toFixed(2)}</span></button>)}</div>}
@@ -251,7 +251,7 @@ export function POSPage() {
           <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="هاتف العميل" />
         </div>
 
-        <div className="bg-white rounded-lg shadow flex-1 overflow-y-auto"><table className="w-full text-sm"><thead className="bg-gray-50 sticky top-0"><tr><th className="text-right p-3">المنتج</th><th className="text-right p-3">الرمز</th><th className="text-center p-3">الكمية</th><th className="text-right p-3">السعر</th><th className="text-right p-3">الإجمالي</th><th className="p-3"></th></tr></thead><tbody>
+        <div className="bg-white rounded-lg shadow flex-1 overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead className="bg-gray-50 sticky top-0"><tr><th className="text-right p-3">المنتج</th><th className="text-right p-3">الرمز</th><th className="text-center p-3">الكمية</th><th className="text-right p-3">السعر</th><th className="text-right p-3">الإجمالي</th><th className="p-3"></th></tr></thead><tbody>
           {cart.length === 0 && <tr><td colSpan={6} className="text-center text-gray-400 py-12">السلة فارغة — ابدأ بالبحث عن منتج</td></tr>}
           {cart.map((line) => <tr key={line.productId} className="border-t"><td className="p-3">{line.name}</td><td className="p-3 text-gray-500">{line.sku || line.barcode || '-'}</td><td className="p-3"><div className="flex items-center justify-center gap-2"><Button size="icon" variant="outline" onClick={() => updateQuantity(line.productId, -1)}><Minus className="h-3 w-3" /></Button><span className="w-8 text-center">{line.quantity}</span><Button size="icon" variant="outline" onClick={() => updateQuantity(line.productId, 1)}><Plus className="h-3 w-3" /></Button></div></td><td className="p-3">{priceFor(line).toFixed(2)}</td><td className="p-3 font-medium">{(priceFor(line) * line.quantity).toFixed(2)}</td><td className="p-3"><Button size="icon" variant="ghost" onClick={() => removeLine(line.productId)}><Trash2 className="h-4 w-4 text-red-500" /></Button></td></tr>)}
         </tbody></table></div>

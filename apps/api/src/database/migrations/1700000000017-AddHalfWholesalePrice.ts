@@ -7,9 +7,14 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * باسم half_wholesale_pricing (شوف features.seed.ts).
  *
  * آمنة للتشغيل على بيئة الإنتاج: IF NOT EXISTS على كل خطوة حتى تقدر تتكرر
- * بدون ما تكسر قاعدة بيانات فيها بيانات فعلاً.
+ * بدون ما تكسر قاعدة بيانات فيها بيانات فعلاً. الاسم الصريح name= أدناه
+ * بيتطابق مع اسم الكلاس عشان أي قاعدة بيانات كانت اتّرحّلت فعلاً بنسخة
+ * مبسّطة سابقة من نفس الملف (نفس اسم الكلاس) تفضل متوافقة ومتسجّلة صح في
+ * جدول migrations، ومتعملش re-run أو تعارض.
  */
 export class AddHalfWholesalePrice1700000000017 implements MigrationInterface {
+  name = 'AddHalfWholesalePrice1700000000017';
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE products

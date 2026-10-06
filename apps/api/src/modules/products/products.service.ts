@@ -43,15 +43,11 @@ export class ProductsService {
     if (sellingPrice <= costPrice) {
       throw new BadRequestException('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
     }
+    if (halfWholesalePrice !== undefined && halfWholesalePrice !== null && halfWholesalePrice <= costPrice) {
+      throw new BadRequestException('سعر البيع نصف الجملة يجب أن يكون أكبر من سعر التكلفة');
+    }
     if (wholesalePrice !== undefined && wholesalePrice !== null && wholesalePrice <= costPrice) {
       throw new BadRequestException('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
-    }
-    if (
-      halfWholesalePrice !== undefined &&
-      halfWholesalePrice !== null &&
-      halfWholesalePrice <= costPrice
-    ) {
-      throw new BadRequestException('سعر نصف الجملة يجب أن يكون أكبر من سعر التكلفة');
     }
   }
 

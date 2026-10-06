@@ -1,11 +1,13 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AdminAuthProvider } from './contexts/AdminAuthContext';
 import { FeaturesProvider } from './contexts/FeaturesContext';
 import { BrandingProvider } from './contexts/BrandingContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { POSPage } from './pages/POS';
@@ -17,6 +19,7 @@ import { PurchasesPage } from './pages/Purchases';
 import { ExpensesPage } from './pages/Expenses';
 import { CashRegisterPage } from './pages/CashRegister';
 import { ReportsPage } from './pages/Reports';
+import { SettingsPage } from './pages/Settings';
 import { AdminLoginPage } from './pages/admin/AdminLogin';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboardPage } from './pages/admin/AdminDashboard';
@@ -58,15 +61,33 @@ function AppRoutes() {
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/cash-register" element={<CashRegisterPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        {/* إعدادات الهوية البصرية ملك للمدير العام فقط، لذلك لا يوجد مسار للتاجر. */}
+        <Route path="/settings" element={<SettingsPage />} />
+        {/* إعدادات الهوية البصرية ملك للمدير العام فقط وتُدار من لوحة /admin. */}
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
 
+/**
+ * يلفّ مسارات التطبيق بحاجز أخطاء عام حتى لا تظهر شاشة بيضاء عند أي render error.
+ * key={location.pathname} يعيد ضبط الحاجز تلقائيًا عند الانتقال لصفحة أخرى.
+ */
+function GuardedAppRoutes() {
+  const location = useLocation();
+  return (
+    <AppErrorBoundary key={location.pathname}>
+      <AppRoutes />
+    </AppErrorBoundary>
+  );
+}
+
 function App() {
   const { i18n } = useTranslation();
+
+  // منع اختصارات أدوات المطوّر التي قد يرسلها قارئ الباركود بالخطأ (F12 أو Ctrl+Shift+I)
+  // أثناء البيع في صفحة نقطة البيع. يعمل في الإنتاج فقط ولا يمس مفتاح Enter.
+  useDevToolsShortcutGuard();
 
   useEffect(() => {
     const dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
@@ -81,7 +102,7 @@ function App() {
         <AuthProvider>
           <FeaturesProvider>
             <BrandingProvider>
-              <AppRoutes />
+              <GuardedAppRoutes />
             </BrandingProvider>
           </FeaturesProvider>
         </AuthProvider>
