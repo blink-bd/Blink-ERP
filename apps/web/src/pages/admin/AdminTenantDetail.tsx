@@ -124,7 +124,7 @@ export function AdminTenantDetailPage() {
           <h2 className="text-lg font-bold">هوية التاجر البصرية</h2>
           <p className="text-sm text-gray-500">هذه الإعدادات تظهر في لوحة التاجر، ولا يمكن للتاجر تعديلها.</p>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           <div><Label>اسم النظام / المتجر</Label><Input value={branding.appName || ''} onChange={(e) => setBranding({ ...branding, appName: e.target.value })} /></div>
           <div className="md:col-span-2"><Label>رابط اللوجو</Label><Input placeholder="https://.../logo.png" value={branding.logoUrl || ''} onChange={(e) => setBranding({ ...branding, logoUrl: e.target.value })} /></div>
           <div><Label>اللون الأساسي</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.primaryColor || '#0858A2'} onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })} /><Input value={branding.primaryColor || ''} onChange={(e) => setBranding({ ...branding, primaryColor: e.target.value })} /></div></div>
@@ -138,7 +138,7 @@ export function AdminTenantDetailPage() {
         <Button onClick={saveBranding} disabled={brandingSaving}>{brandingSaving ? 'جاري الحفظ...' : 'حفظ الهوية البصرية'}</Button>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-5 grid grid-cols-3 gap-6">
+      <div className="bg-white rounded-lg shadow p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div>
           <p className="text-sm text-gray-500 mb-2">تفعيل الحساب</p>
           <Button variant={tenant.isActive ? 'destructive' : 'default'} onClick={toggleActive}>
@@ -180,7 +180,7 @@ export function AdminTenantDetailPage() {
 
       <div>
         <h2 className="text-lg font-bold mb-3">الميزات المفعّلة</h2>
-        <div className="bg-white rounded-lg shadow p-5 grid grid-cols-2 md:grid-cols-3 gap-3">
+        <div className="bg-white rounded-lg shadow p-5 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
           {features.map((f) => (
             <label key={f.id} className={`flex items-center gap-2 p-2 rounded border text-sm ${f.isCore ? 'opacity-50' : ''}`}>
               <input
@@ -198,8 +198,8 @@ export function AdminTenantDetailPage() {
 
       <div>
         <h2 className="text-lg font-bold mb-3">مستخدمو هذا التاجر</h2>
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50"><tr>
               <th className="text-right p-3">الاسم</th><th className="text-right p-3">البريد</th>
               <th className="text-right p-3">آخر دخول</th><th className="p-3"></th>

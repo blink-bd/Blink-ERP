@@ -70,8 +70,8 @@ export function InventoryPage() {
         </select>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-right p-3">المنتج</th>

@@ -218,7 +218,7 @@ export function ProductsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">المنتجات</h1>
         <Button onClick={showForm ? () => setShowForm(false) : openCreate}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -227,7 +227,7 @@ export function ProductsPage() {
       </div>
 
       {showForm && (
-        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-3 gap-4">
+        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div><Label>اسم المنتج</Label>
             <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div>
@@ -279,7 +279,7 @@ export function ProductsPage() {
             {form.id && <p className="text-xs text-gray-500 mt-1">تغييرها يحتاج تأكيداً وسبباً ويُسجل في حركة المخزون.</p>}
           </div>
 
-          <div className="col-span-3 flex justify-end">
+          <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
             <Button type="submit" disabled={saving || !identifierStatus.skuAvailable || !identifierStatus.barcodeAvailable}>{saving ? 'جاري الحفظ...' : form.id ? 'حفظ التعديلات' : 'حفظ المنتج'}</Button>
           </div>
         </form>
@@ -295,8 +295,8 @@ export function ProductsPage() {
         </select>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[800px] text-sm">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-right p-3">المنتج</th>

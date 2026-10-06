@@ -97,7 +97,7 @@ export function PurchasesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">المشتريات</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -164,8 +164,8 @@ export function PurchasesPage() {
         </form>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-right p-3">رقم أمر الشراء</th>
