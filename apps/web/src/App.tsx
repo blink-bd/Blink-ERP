@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AdminAuthProvider } from './contexts/AdminAuthContext';
 import { FeaturesProvider } from './contexts/FeaturesContext';
 import { BrandingProvider } from './contexts/BrandingContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
@@ -68,6 +69,19 @@ function AppRoutes() {
   );
 }
 
+/**
+ * يلفّ مسارات التطبيق بحاجز أخطاء عام حتى لا تظهر شاشة بيضاء عند أي render error.
+ * key={location.pathname} يعيد ضبط الحاجز تلقائيًا عند الانتقال لصفحة أخرى.
+ */
+function GuardedAppRoutes() {
+  const location = useLocation();
+  return (
+    <AppErrorBoundary key={location.pathname}>
+      <AppRoutes />
+    </AppErrorBoundary>
+  );
+}
+
 function App() {
   const { i18n } = useTranslation();
 
@@ -88,7 +102,7 @@ function App() {
         <AuthProvider>
           <FeaturesProvider>
             <BrandingProvider>
-              <AppRoutes />
+              <GuardedAppRoutes />
             </BrandingProvider>
           </FeaturesProvider>
         </AuthProvider>
