@@ -62,6 +62,22 @@ const formatQuantity = (value: number | string | null | undefined) => {
   return Number.isInteger(number) ? String(number) : number.toLocaleString('ar-EG', { maximumFractionDigits: 4 });
 };
 
+const EAN_L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+const EAN_G = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+const EAN_R = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+const EAN_PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+const ean13 = (value: string) => {
+  const base = value.replace(/\\D/g, '').slice(0, 12).padStart(12, '0');
+  const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * (index % 2 ? 3 : 1), 0);
+  return base + String((10 - (sum % 10)) % 10);
+};
+const barcodeSvg = (value: string) => {
+  const code = ean13(value); let bits = '101'; const parity = EAN_PARITY[Number(code[0])];
+  for (let i = 1; i <= 6; i++) bits += (parity[i - 1] === 'L' ? EAN_L : EAN_G)[Number(code[i])];
+  bits += '01010'; for (let i = 7; i <= 12; i++) bits += EAN_R[Number(code[i])]; bits += '101';
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="260" height="90" viewBox="0 0 260 90"><rect width="260" height="90" fill="white"/><g fill="black">${bits.split('').map((bit, i) => bit === '1' ? `<rect x="${10 + i * 2}" y="5" width="2" height="62"/>` : '').join('')}</g><text x="130" y="84" text-anchor="middle" font-family="Arial" font-size="14">${code}</text></svg>`;
+};
+
 export function ProductsPage() {
   const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
   const [products, setProducts] = useState<Product[]>([]);
@@ -245,7 +261,7 @@ export function ProductsPage() {
           </div>
           <div>
             <Label>الباركود</Label>
-            <div className="flex gap-2"><Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} /><Button type="button" variant="outline" onClick={() => setForm({ ...form, barcode: String(Date.now()).slice(-12) })}>توليد تلقائي</Button>{form.barcode && <Button type="button" variant="outline" onClick={() => { const w = window.open('', '_blank'); w?.document.write(`<html dir="rtl"><body style="text-align:center;font-family:Arial"><h3>${form.name}</h3><div style="font-size:32px;letter-spacing:5px">|||| ${form.barcode} ||||</div><p>${form.barcode}</p><script>window.print()</script></body></html>`); w?.document.close(); }}>طباعة</Button>}</div>
+            <div className="flex gap-2"><Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value.replace(/\D/g, '').slice(0, 12) })} /><Button type="button" variant="outline" onClick={() => setForm({ ...form, barcode: ean13(String(Date.now()).slice(-12)) })}>توليد تلقائي</Button>{form.barcode && <Button type="button" variant="outline" onClick={() => { const w = window.open('', '_blank', 'width=420,height=300'); w?.document.write(`<html dir="rtl"><head><title>طباعة باركود</title><style>@page{size:50mm 30mm;margin:0}body{text-align:center;font-family:Arial;margin:3mm}svg{max-width:100%;height:auto}</style></head><body><strong>${form.name}</strong>${barcodeSvg(form.barcode)}<script>window.onload=()=>window.print()</script></body></html>`); w?.document.close(); }}>طباعة الملصق</Button>}</div>
             {!identifierStatus.barcodeAvailable && <p className="text-xs text-red-600 mt-1">الباركود موجود مسبقاً</p>}
           </div>
 
