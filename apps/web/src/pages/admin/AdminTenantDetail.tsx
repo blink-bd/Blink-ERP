@@ -11,7 +11,6 @@ export function AdminTenantDetailPage() {
   const [tenant, setTenant] = useState<any>(null);
   const [features, setFeatures] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
-  const [plans, setPlans] = useState<any[]>([]);
   const [branding, setBranding] = useState<any>({
     appName: '',
     logoUrl: '',
@@ -24,23 +23,28 @@ export function AdminTenantDetailPage() {
   });
   const [brandingSaving, setBrandingSaving] = useState(false);
   const [endDate, setEndDate] = useState('');
+  const [subscriptionAmount, setSubscriptionAmount] = useState('');
+  const [subscriptionCycle, setSubscriptionCycle] = useState('monthly');
+  const [subscriptionNote, setSubscriptionNote] = useState('');
+  const [subscriptionSaving, setSubscriptionSaving] = useState(false);
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
 
   const load = async () => {
-    const [t, f, u, p, b] = await Promise.all([
+    const [t, f, u, b] = await Promise.all([
       adminApi.get(`/admin/tenants/${id}`),
       adminApi.get(`/admin/tenants/${id}/features`),
       adminApi.get(`/admin/tenants/${id}/users`),
-      adminApi.get('/admin/plans'),
       adminApi.get(`/admin/tenants/${id}/branding`),
     ]);
     setTenant(t.data.data);
     setFeatures(f.data.data);
     setUsers(u.data.data);
-    setPlans(p.data.data);
     setBranding((current: any) => ({ ...current, ...b.data.data }));
     setEndDate(t.data.data.subscriptionEndDate ? t.data.data.subscriptionEndDate.slice(0, 10) : '');
+    setSubscriptionAmount(t.data.data.subscriptionAmount != null ? String(t.data.data.subscriptionAmount) : '');
+    setSubscriptionCycle(t.data.data.subscriptionCycle || 'monthly');
+    setSubscriptionNote(t.data.data.subscriptionNote || '');
   };
   useEffect(() => { load(); }, [id]);
 
@@ -56,12 +60,31 @@ export function AdminTenantDetailPage() {
     load();
   };
 
-  const saveSubscription = async (planId?: string) => {
+  const saveSubscription = async () => {
     await adminApi.put(`/admin/tenants/${id}/subscription`, {
-      planId, subscriptionEndDate: endDate || undefined,
+      subscriptionEndDate: endDate || undefined,
     });
     toast.success('تم تحديث الاشتراك');
     load();
+  };
+
+  const saveSale = async () => {
+    if (subscriptionAmount && Number(subscriptionAmount) < 0) {
+      toast.error('المبلغ غير صحيح');
+      return;
+    }
+    setSubscriptionSaving(true);
+    try {
+      await adminApi.put(`/admin/tenants/${id}/subscription`, {
+        subscriptionAmount: subscriptionAmount ? Number(subscriptionAmount) : undefined,
+        subscriptionCycle,
+        subscriptionNote,
+      });
+      toast.success('تم حفظ بيانات البيع للتاجر');
+      load();
+    } finally {
+      setSubscriptionSaving(false);
+    }
   };
 
   const saveBranding = async () => {
@@ -167,15 +190,46 @@ export function AdminTenantDetailPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow p-5">
-        <p className="font-medium mb-3">الخطة</p>
-        <div className="flex gap-2 flex-wrap">
-          {plans.map((p) => (
-            <Button key={p.id} variant="outline" size="sm" onClick={() => saveSubscription(p.id)}>
-              {p.nameAr} {p.priceMonthly ? `(${p.priceMonthly}/شهر)` : '(مجاني)'}
-            </Button>
-          ))}
+      <div className="bg-white rounded-lg shadow p-5 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">البيع للتاجر</h2>
+          <p className="text-sm text-gray-500">حدد بنفسك المبلغ اللي بيعته للتاجر (شهري أو سنوي)، واكتب ملحوظة توضح المبلغ ده بتاع إيه.</p>
         </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label>المبلغ</Label>
+            <Input
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="مثال: 500"
+              value={subscriptionAmount}
+              onChange={(e) => setSubscriptionAmount(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label>الدورة</Label>
+            <select
+              className="border rounded-md h-10 px-3 w-full"
+              value={subscriptionCycle}
+              onChange={(e) => setSubscriptionCycle(e.target.value)}
+            >
+              <option value="monthly">شهري</option>
+              <option value="yearly">سنوي</option>
+            </select>
+          </div>
+          <div className="md:col-span-1">
+            <Label>ملحوظات (المبلغ ده بتاع إيه)</Label>
+            <Input
+              placeholder="مثال: اشتراك شهري + ميزة الفوترة الإلكترونية"
+              value={subscriptionNote}
+              onChange={(e) => setSubscriptionNote(e.target.value)}
+            />
+          </div>
+        </div>
+        <Button onClick={saveSale} disabled={subscriptionSaving}>
+          {subscriptionSaving ? 'جاري الحفظ...' : 'حفظ البيع للتاجر'}
+        </Button>
       </div>
 
       <div>
