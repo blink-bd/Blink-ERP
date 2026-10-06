@@ -201,6 +201,10 @@ export class MasterAdminService implements OnModuleInit {
     if (dto.subscriptionStartDate)
       tenant.subscriptionStartDate = new Date(dto.subscriptionStartDate);
     if (dto.subscriptionEndDate) tenant.subscriptionEndDate = new Date(dto.subscriptionEndDate);
+    if (dto.subscriptionAmount !== undefined) tenant.subscriptionAmount = dto.subscriptionAmount;
+    if (dto.subscriptionCycle)
+      tenant.subscriptionCycle = dto.subscriptionCycle as Tenant['subscriptionCycle'];
+    if (dto.subscriptionNote !== undefined) tenant.subscriptionNote = dto.subscriptionNote;
     // تجديد الاشتراك بتاريخ مستقبلي يعيد التفعيل تلقائياً
     if (
       tenant.subscriptionEndDate &&
