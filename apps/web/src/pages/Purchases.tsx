@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
-import { Plus, X, Trash2 } from 'lucide-react';
+import { Plus, X, Trash2, Printer } from 'lucide-react';
 
 interface Purchase {
   id: string;
@@ -55,6 +55,25 @@ export function PurchasesPage() {
 
   const total = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unitCost) || 0), 0);
 
+  const printPurchase = async (id: string) => {
+    try {
+      const response = await api.get(`/purchases/${id}`);
+      const purchase = response.data.data;
+      const supplier = suppliers.find((s) => s.id === purchase.supplierId);
+      const rows = (purchase.items || []).map((item: any) => {
+        const product = products.find((p) => p.id === item.productId);
+        return `<tr><td>${product?.name || item.productId}</td><td>${Number(item.quantity)}</td><td>${Number(item.unitCost).toFixed(2)}</td><td>${Number(item.total).toFixed(2)}</td></tr>`;
+      }).join('');
+      const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة شراء ${purchase.purchaseNumber}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #aaa;padding:8px;text-align:right}th{background:#eee}.totals{margin-top:16px;font-weight:bold}</style></head><body><h2>فاتورة مشتريات رقم ${purchase.purchaseNumber}</h2><p>التاريخ: ${new Date(purchase.purchaseDate).toLocaleString('ar')}</p><p>المورد: ${supplier?.name || '-'}</p>${purchase.supplierInvoiceNumber ? `<p>رقم فاتورة المورد: ${purchase.supplierInvoiceNumber}</p>` : ''}<table><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><p>المجموع الفرعي: ${Number(purchase.subtotal).toFixed(2)}</p><p>الضريبة: ${Number(purchase.taxAmount).toFixed(2)}</p><p>الإجمالي: ${Number(purchase.total).toFixed(2)}</p><p>المدفوع: ${Number(purchase.paidAmount).toFixed(2)}</p></div><script>window.print()</script></body></html>`;
+      const win = window.open('', '_blank');
+      if (!win) { toast.error('يرجى السماح بالنوافذ المنبثقة للطباعة'); return; }
+      win.document.write(html);
+      win.document.close();
+    } catch {
+      toast.error('تعذر تحميل فاتورة المشتريات للطباعة');
+    }
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!supplierId || !warehouseId) { toast.error('اختر المورد والمخزن'); return; }
@@ -78,7 +97,7 @@ export function PurchasesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">المشتريات</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -145,25 +164,27 @@ export function PurchasesPage() {
         </form>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-right p-3">رقم أمر الشراء</th>
               <th className="text-right p-3">التاريخ</th>
               <th className="text-right p-3">الإجمالي</th>
               <th className="text-right p-3">حالة الدفع</th>
+              <th className="text-right p-3">طباعة</th>
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={4} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
-            {!loading && purchases.length === 0 && <tr><td colSpan={4} className="text-center py-8 text-gray-400">لا توجد أوامر شراء بعد</td></tr>}
+            {loading && <tr><td colSpan={5} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
+            {!loading && purchases.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-gray-400">لا توجد أوامر شراء بعد</td></tr>}
             {purchases.map((p) => (
               <tr key={p.id} className="border-t">
                 <td className="p-3">{p.purchaseNumber}</td>
                 <td className="p-3 text-gray-500">{new Date(p.purchaseDate).toLocaleDateString('ar')}</td>
                 <td className="p-3 font-medium">{Number(p.total).toFixed(2)}</td>
                 <td className="p-3">{p.paymentStatus}</td>
+                <td className="p-3"><Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}><Printer className="h-4 w-4 ml-1" />طباعة</Button></td>
               </tr>
             ))}
           </tbody>

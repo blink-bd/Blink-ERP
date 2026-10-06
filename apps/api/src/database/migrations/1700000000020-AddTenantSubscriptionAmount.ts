@@ -4,7 +4,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * المدير العام مش هيختار "خطة" جاهزة للتاجر، هو هيكتب بنفسه مبلغ البيع
  * (شهري أو سنوي) وملحوظة توضح المبلغ ده بتاع إيه، بدل الاعتماد على خطط ثابتة.
  */
-export class AddTenantSubscriptionAmount1700000000017 implements MigrationInterface {
+export class AddTenantSubscriptionAmount1700000000020 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE tenants

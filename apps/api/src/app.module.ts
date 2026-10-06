@@ -21,6 +21,7 @@ import { CashRegisterModule } from './modules/cash-register/cash-register.module
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SyncModule } from './modules/sync/sync.module';
+import { BackupModule } from './modules/backup/backup.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { MasterAdminModule } from './modules/master-admin/master-admin.module';
 
@@ -76,6 +77,7 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
     // Intelligence & offline
     ReportsModule,
     SyncModule,
+    BackupModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
