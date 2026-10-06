@@ -54,4 +54,7 @@ export class SaleItem {
   @ManyToOne(() => Sale, (sale) => sale.items)
   @JoinColumn({ name: 'sale_id' })
   sale: Sale;
+
+  returnedQuantity?: number;
+  remainingQuantity?: number;
 }

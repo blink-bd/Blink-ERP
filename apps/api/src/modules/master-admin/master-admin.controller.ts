@@ -1,6 +1,10 @@
 import {
   Body,
+  ForbiddenException,
   Controller,
+  Delete,
+  UploadedFile,
+  UseInterceptors,
   Get,
   Ip,
   Param,
@@ -13,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { MasterAdminService } from './master-admin.service';
 import { MasterAdminGuard } from './master-admin.guard';
 import {
@@ -97,6 +102,25 @@ export class MasterAdminController {
   ) {
     const data = await this.service.setTenantSubscription(id, dto, req.masterAdmin.email, ip);
     return { success: true, data, message: 'تم تحديث الاشتراك' };
+  }
+
+  @Get('tenants/:id/backup')
+  async backup(@Request() req, @Ip() ip: string, @Param('id') id: string) {
+    return { success: true, data: await this.service.backupTenant(id, req.masterAdmin.email, ip) };
+  }
+
+  @Delete('tenants/:id')
+  async deleteTenant(@Request() req, @Ip() ip: string, @Param('id') id: string, @Body() body: { businessName: string }) {
+    await this.service.deleteTenant(id, body.businessName, req.masterAdmin.email, ip);
+    return { success: true, message: 'تم حذف التاجر نهائياً' };
+  }
+
+  @Post('tenants/restore')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  async restore(@UploadedFile() file: { buffer: Buffer }, @Request() req, @Ip() ip: string) {
+    if (!file) throw new ForbiddenException('ملف النسخة الاحتياطية مطلوب');
+    await this.service.restoreTenant(JSON.parse(file.buffer.toString('utf8')), req.masterAdmin.email, ip);
+    return { success: true, message: 'تمت استعادة التاجر بنجاح' };
   }
 
   @Get('tenants/:id/users')

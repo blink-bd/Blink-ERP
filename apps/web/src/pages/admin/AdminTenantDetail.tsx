@@ -12,7 +12,16 @@ export function AdminTenantDetailPage() {
   const [features, setFeatures] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
-  const [branding, setBranding] = useState<any>({ appName: '', logoUrl: '', primaryColor: '#0858A2', secondaryColor: '#64748B', sidebarColor: '#1E293B', headerColor: '#FFFFFF' });
+  const [branding, setBranding] = useState<any>({
+    appName: '',
+    logoUrl: '',
+    primaryColor: '#0858A2',
+    secondaryColor: '#64748B',
+    sidebarColor: '#1E293B',
+    headerColor: '#FFFFFF',
+    footerText: 'Copyright © 2026 Blink BD',
+    footerLinkUrl: '',
+  });
   const [brandingSaving, setBrandingSaving] = useState(false);
   const [endDate, setEndDate] = useState('');
   const [resetFor, setResetFor] = useState<string | null>(null);
@@ -65,6 +74,8 @@ export function AdminTenantDetailPage() {
         secondaryColor: branding.secondaryColor,
         sidebarColor: branding.sidebarColor,
         headerColor: branding.headerColor,
+        footerText: branding.footerText,
+        footerLinkUrl: branding.footerLinkUrl || undefined,
       });
       toast.success('تم حفظ هوية التاجر البصرية');
     } finally {
@@ -75,6 +86,20 @@ export function AdminTenantDetailPage() {
   const toggleFeature = async (featureId: string, isEnabled: boolean) => {
     await adminApi.put(`/admin/tenants/${id}/features`, { features: [{ featureId, isEnabled }] });
     load();
+  };
+
+  const downloadBackup = async () => {
+    const response = await adminApi.get(`/admin/tenants/${id}/backup`);
+    const blob = new Blob([JSON.stringify(response.data.data, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `tenant-${id}-backup.json`; link.click(); URL.revokeObjectURL(link.href);
+    toast.success('تم تنزيل النسخة الاحتياطية');
+  };
+  const deleteTenant = async () => {
+    if (!window.confirm('تحذير: سيتم حذف كل البيانات نهائياً. نزّل نسخة احتياطية أولاً.')) return;
+    const name = window.prompt(`اكتب اسم النشاط للتأكيد: ${tenant.businessName}`);
+    if (name !== tenant.businessName) return toast.error('اسم النشاط غير مطابق');
+    await adminApi.delete(`/admin/tenants/${id}`, { data: { businessName: name } });
+    window.location.href = '/admin/tenants';
   };
 
   const doResetPassword = async () => {
@@ -91,6 +116,7 @@ export function AdminTenantDetailPage() {
       <div>
         <h1 className="text-2xl font-bold">{tenant.businessName}</h1>
         <p className="text-gray-500 text-sm">Tenant ID: {tenant.id}</p>
+        <div className="flex gap-2 mt-3"><Button variant="outline" onClick={downloadBackup}>تنزيل نسخة احتياطية JSON</Button><Button variant="destructive" onClick={deleteTenant}>حذف التاجر نهائياً</Button></div>
       </div>
 
       <div className="bg-white rounded-lg shadow p-5 space-y-4">
@@ -105,6 +131,8 @@ export function AdminTenantDetailPage() {
           <div><Label>اللون الثانوي</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.secondaryColor || '#64748B'} onChange={(e) => setBranding({ ...branding, secondaryColor: e.target.value })} /><Input value={branding.secondaryColor || ''} onChange={(e) => setBranding({ ...branding, secondaryColor: e.target.value })} /></div></div>
           <div><Label>لون القائمة الجانبية</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.sidebarColor || '#1E293B'} onChange={(e) => setBranding({ ...branding, sidebarColor: e.target.value })} /><Input value={branding.sidebarColor || ''} onChange={(e) => setBranding({ ...branding, sidebarColor: e.target.value })} /></div></div>
           <div><Label>لون الشريط العلوي</Label><div className="flex gap-2"><Input type="color" className="w-12 p-1" value={branding.headerColor || '#FFFFFF'} onChange={(e) => setBranding({ ...branding, headerColor: e.target.value })} /><Input value={branding.headerColor || ''} onChange={(e) => setBranding({ ...branding, headerColor: e.target.value })} /></div></div>
+          <div><Label>نص الفوتر (حقوق النشر)</Label><Input value={branding.footerText || ''} onChange={(e) => setBranding({ ...branding, footerText: e.target.value })} /></div>
+          <div className="md:col-span-2"><Label>رابط الفوتر (اختياري)</Label><Input placeholder="https://..." value={branding.footerLinkUrl || ''} onChange={(e) => setBranding({ ...branding, footerLinkUrl: e.target.value })} /></div>
         </div>
         {branding.logoUrl && <img src={branding.logoUrl} alt="معاينة اللوجو" className="h-16 max-w-48 object-contain border rounded p-2" />}
         <Button onClick={saveBranding} disabled={brandingSaving}>{brandingSaving ? 'جاري الحفظ...' : 'حفظ الهوية البصرية'}</Button>
