@@ -111,15 +111,16 @@ export class SalesService {
       for (const itemInput of dto.items) {
         const product = await this.productsService.findById(tenantId, itemInput.productId);
 
-        // تحديد السعر تلقائيًا حسب الفئة (جملة/قطاعي) لو مش متبعت صراحة
+        // تحديد السعر تلقائيًا حسب الفئة (جملة/نصف جملة/قطاعي) لو مش متبعت صراحة
         let unitPrice = itemInput.unitPrice;
         if (unitPrice === undefined || unitPrice === null) {
-          unitPrice =
-            itemInput.priceTier === 'wholesale' && product.wholesalePrice
-              ? Number(product.wholesalePrice)
-              : itemInput.priceTier === 'half_wholesale' && product.halfWholesalePrice
-                ? Number(product.halfWholesalePrice)
-              : Number(product.sellingPrice);
+          if (itemInput.priceTier === 'wholesale' && product.wholesalePrice) {
+            unitPrice = Number(product.wholesalePrice);
+          } else if (itemInput.priceTier === 'half_wholesale' && product.halfWholesalePrice) {
+            unitPrice = Number(product.halfWholesalePrice);
+          } else {
+            unitPrice = Number(product.sellingPrice);
+          }
         }
 
         if (product.trackInventory) {

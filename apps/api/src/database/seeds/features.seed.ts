@@ -138,8 +138,10 @@ export async function seedFeatures(dataSource: DataSource): Promise<void> {
     },
     {
       code: 'half_wholesale_pricing',
-      name: 'Half Wholesale Pricing',
+      name: 'Half-Wholesale Pricing',
       nameAr: 'تسعير نصف الجملة',
+      description: 'Adds a third price tier (half-wholesale) to products and POS.',
+      descriptionAr: 'إضافة مستوى سعر ثالث (نصف جملة) بجانب القطاعي والجملة في المنتجات ونقطة البيع.',
       category: 'sales',
       isDefault: false,
       requiresPlan: true,

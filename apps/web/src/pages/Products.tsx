@@ -4,7 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
-import { Plus, X, Pencil, Trash2 } from 'lucide-react';
+import { Plus, X, Pencil, Trash2, Barcode as BarcodeIcon, Printer } from 'lucide-react';
+import { useFeature } from '@/contexts/FeaturesContext';
+import { printBarcodeLabel } from '@/lib/barcode';
 
 interface Product {
   id: string;
@@ -13,6 +15,7 @@ interface Product {
   barcode?: string;
   sellingPrice: number;
   wholesalePrice?: number;
+  halfWholesalePrice?: number;
   costPrice: number;
   categoryId?: string;
   category?: { id: string; name: string };
@@ -33,6 +36,7 @@ type ProductForm = {
   costPrice: string;
   sellingPrice: string;
   wholesalePrice: string;
+  halfWholesalePrice: string;
   minStockLevel: string;
   categoryId: string;
   initialQuantity: string;
@@ -49,6 +53,7 @@ const statusLabel: Record<string, { text: string; cls: string }> = {
 
 const emptyForm: ProductForm = {
   id: '', name: '', sku: '', barcode: '', costPrice: '', sellingPrice: '', wholesalePrice: '',
+  halfWholesalePrice: '',
   minStockLevel: '5', categoryId: '', initialQuantity: '', originalInitialQuantity: '', needsPriceReview: false,
 };
 
@@ -60,6 +65,9 @@ const formatQuantity = (value: number | string | null | undefined) => {
 };
 
 export function ProductsPage() {
+  const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
+  const barcodePrintingEnabled = useFeature('barcode_printing');
+
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -71,6 +79,7 @@ export function ProductsPage() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [addingCategory, setAddingCategory] = useState(false);
   const [identifierStatus, setIdentifierStatus] = useState({ skuAvailable: true, barcodeAvailable: true });
+  const [generatingBarcode, setGeneratingBarcode] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -119,6 +128,7 @@ export function ProductsPage() {
       id: p.id, name: p.name, sku: p.sku || '', barcode: p.barcode || '',
       costPrice: String(p.costPrice), sellingPrice: String(p.sellingPrice),
       wholesalePrice: p.wholesalePrice !== undefined && p.wholesalePrice !== null ? String(p.wholesalePrice) : '',
+      halfWholesalePrice: p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null ? String(p.halfWholesalePrice) : '',
       minStockLevel: String(p.minStockLevel), categoryId: p.categoryId || '',
       initialQuantity: currentQuantity, originalInitialQuantity: currentQuantity,
       needsPriceReview: !!p.needsPriceReview,
@@ -141,17 +151,44 @@ export function ProductsPage() {
     }
   };
 
+  const generateBarcode = async () => {
+    setGeneratingBarcode(true);
+    try {
+      const response = await api.get('/products/generate-barcode');
+      const barcode = response.data.data.barcode as string;
+      setForm((previous) => ({ ...previous, barcode }));
+      toast.success('تم توليد باركود جديد وغير مكرر');
+    } finally {
+      setGeneratingBarcode(false);
+    }
+  };
+
+  const printLabel = () => {
+    if (!form.barcode.trim()) {
+      toast.error('يجب إدخال أو توليد باركود أولاً');
+      return;
+    }
+    printBarcodeLabel({ name: form.name.trim() || 'منتج', barcode: form.barcode.trim() });
+  };
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cost = Number(form.costPrice) || 0;
     const retail = Number(form.sellingPrice);
     const wholesale = form.wholesalePrice === '' ? undefined : Number(form.wholesalePrice);
+    const halfWholesale = !halfWholesaleEnabled || form.halfWholesalePrice === ''
+      ? undefined
+      : Number(form.halfWholesalePrice);
     if (!Number.isFinite(retail) || retail <= cost) {
       toast.error('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
       return;
     }
     if (wholesale !== undefined && (!Number.isFinite(wholesale) || wholesale <= cost)) {
       toast.error('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
+      return;
+    }
+    if (halfWholesale !== undefined && (!Number.isFinite(halfWholesale) || halfWholesale <= cost)) {
+      toast.error('سعر نصف الجملة يجب أن يكون أكبر من سعر التكلفة');
       return;
     }
     if (!identifierStatus.skuAvailable || !identifierStatus.barcodeAvailable) {
@@ -185,6 +222,7 @@ export function ProductsPage() {
         costPrice: cost,
         sellingPrice: retail,
         wholesalePrice: wholesale,
+        halfWholesalePrice: halfWholesale,
         minStockLevel: Number(form.minStockLevel) || 0,
         categoryId: form.categoryId || undefined,
       };
@@ -239,15 +277,25 @@ export function ProductsPage() {
             <Label>الباركود</Label>
             {/* قارئ الباركود يرسل Enter تلقائياً بعد قراءة الرقم، لذلك نمنع الإرسال التلقائي للنموذج هنا فقط
                 مع إبقاء إدخال الباركود وحفظ المنتج عبر زر الحفظ يعملان بشكل طبيعي */}
-            <Input
-              value={form.barcode}
-              onChange={(e) => setForm({ ...form, barcode: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                }
-              }}
-            />
+            <div className="flex gap-2">
+              <Input
+                value={form.barcode}
+                onChange={(e) => setForm({ ...form, barcode: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                  }
+                }}
+              />
+              <Button type="button" variant="outline" size="icon" title="توليد تلقائي" disabled={generatingBarcode} onClick={generateBarcode}>
+                <BarcodeIcon className="h-4 w-4" />
+              </Button>
+              {barcodePrintingEnabled && form.barcode.trim() && (
+                <Button type="button" variant="outline" size="icon" title="طباعة الملصق" onClick={printLabel}>
+                  <Printer className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
             {!identifierStatus.barcodeAvailable && <p className="text-xs text-red-600 mt-1">الباركود موجود مسبقاً</p>}
           </div>
 
@@ -272,6 +320,11 @@ export function ProductsPage() {
 
           <div><Label>سعر البيع القطاعي</Label>
             <Input type="number" step="0.01" min="0.01" required value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })} /></div>
+          {halfWholesaleEnabled && (
+            <div><Label>سعر نصف الجملة (اختياري)</Label>
+              <Input type="number" step="0.01" min="0" value={form.halfWholesalePrice} onChange={(e) => setForm({ ...form, halfWholesalePrice: e.target.value })} />
+            </div>
+          )}
           <div><Label>سعر البيع بالجملة (اختياري)</Label>
             <Input type="number" step="0.01" min="0" value={form.wholesalePrice} onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })} /></div>
           <div><Label>{form.id ? 'الكمية الافتتاحية / الحالية' : 'الكمية الافتتاحية (اختياري)'}</Label>
@@ -305,6 +358,7 @@ export function ProductsPage() {
               <th className="text-right p-3">الصنف</th>
               <th className="text-right p-3">التكلفة</th>
               <th className="text-right p-3">قطاعي</th>
+              {halfWholesaleEnabled && <th className="text-right p-3">نصف جملة</th>}
               <th className="text-right p-3">جملة</th>
               <th className="text-right p-3">المتاح</th>
               <th className="text-right p-3">الحالة</th>
@@ -312,8 +366,8 @@ export function ProductsPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={10} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
-            {!loading && products.length === 0 && <tr><td colSpan={10} className="text-center py-8 text-gray-400">لا توجد منتجات</td></tr>}
+            {loading && <tr><td colSpan={halfWholesaleEnabled ? 11 : 10} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
+            {!loading && products.length === 0 && <tr><td colSpan={halfWholesaleEnabled ? 11 : 10} className="text-center py-8 text-gray-400">لا توجد منتجات</td></tr>}
             {products.map((p) => {
               const st = statusLabel[p.stockStatus] || statusLabel.not_tracked;
               return (
@@ -324,11 +378,15 @@ export function ProductsPage() {
                   <td className="p-3 text-gray-500">{p.category?.name || '-'}</td>
                   <td className="p-3">{Number(p.costPrice).toFixed(2)}</td>
                   <td className="p-3 font-medium">{Number(p.sellingPrice).toFixed(2)}</td>
+                  {halfWholesaleEnabled && <td className="p-3 text-gray-500">{p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null ? Number(p.halfWholesalePrice).toFixed(2) : '-'}</td>}
                   <td className="p-3 text-gray-500">{p.wholesalePrice !== undefined && p.wholesalePrice !== null ? Number(p.wholesalePrice).toFixed(2) : '-'}</td>
                   <td className="p-3">{formatQuantity(p.availableQuantity)}</td>
                   <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${st.cls}`}>{st.text}</span></td>
                   <td className="p-3 flex gap-1">
                     <Button size="icon" variant="ghost" onClick={() => openEdit(p)} title="تعديل"><Pencil className="h-4 w-4" /></Button>
+                    {barcodePrintingEnabled && p.barcode && (
+                      <Button size="icon" variant="ghost" onClick={() => printBarcodeLabel({ name: p.name, barcode: p.barcode! })} title="طباعة الملصق"><Printer className="h-4 w-4" /></Button>
+                    )}
                     <Button size="icon" variant="ghost" onClick={() => removeProduct(p)} title="حذف"><Trash2 className="h-4 w-4 text-red-500" /></Button>
                   </td>
                 </tr>
