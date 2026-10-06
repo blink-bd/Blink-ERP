@@ -12,20 +12,20 @@ export function AdminLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50" dir="rtl">
-      <header className="bg-slate-900 px-6 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-6">
+      <header className="bg-slate-900 px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3 sm:gap-6">
           <span className="text-white font-bold">لوحة المدير العام</span>
-          <nav className="flex gap-2">
+          <nav className="flex flex-wrap gap-2">
             <NavLink end to="/admin" className={link}>الرئيسية</NavLink>
             <NavLink to="/admin/tenants" className={link}>التجّار</NavLink>
           </nav>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-300">{admin.fullName}</span>
+        <div className="flex items-center gap-2 sm:gap-4">
+          <span className="hidden text-sm text-gray-300 sm:inline">{admin.fullName}</span>
           <Button size="sm" variant="outline" onClick={logout}>خروج</Button>
         </div>
       </header>
-      <main className="p-6 max-w-6xl mx-auto"><Outlet /></main>
+      <main className="p-4 sm:p-6 max-w-6xl mx-auto"><Outlet /></main>
     </div>
   );
 }

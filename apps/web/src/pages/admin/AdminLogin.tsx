@@ -26,7 +26,7 @@ export function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-900" dir="rtl">
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 p-4" dir="rtl">
       <form onSubmit={submit} className="w-full max-w-md bg-white rounded-lg shadow-xl p-8 space-y-5">
         <div className="text-center">
           <h1 className="text-2xl font-bold">لوحة المدير العام</h1>
