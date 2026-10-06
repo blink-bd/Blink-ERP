@@ -30,9 +30,12 @@ export class ProductsService {
     private readonly warehousesService: WarehousesService
   ) {}
 
-  private validateSellingPrices(costPrice: number, sellingPrice: number, wholesalePrice?: number) {
+  private validateSellingPrices(costPrice: number, sellingPrice: number, wholesalePrice?: number, halfWholesalePrice?: number) {
     if (sellingPrice <= costPrice) {
       throw new BadRequestException('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
+    }
+    if (halfWholesalePrice !== undefined && halfWholesalePrice !== null && halfWholesalePrice <= costPrice) {
+      throw new BadRequestException('سعر البيع نصف الجملة يجب أن يكون أكبر من سعر التكلفة');
     }
     if (wholesalePrice !== undefined && wholesalePrice !== null && wholesalePrice <= costPrice) {
       throw new BadRequestException('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
@@ -192,7 +195,7 @@ export class ProductsService {
     if (duplicates.sku) throw new ConflictException('رمز المنتج موجود مسبقاً');
     if (duplicates.barcode) throw new ConflictException('الباركود موجود مسبقاً');
 
-    this.validateSellingPrices(Number(dto.costPrice), Number(dto.sellingPrice), dto.wholesalePrice);
+    this.validateSellingPrices(Number(dto.costPrice), Number(dto.sellingPrice), dto.wholesalePrice, dto.halfWholesalePrice);
 
     const initialQuantity = dto.initialQuantity;
     const warehouseId = dto.warehouseId;
@@ -252,6 +255,7 @@ export class ProductsService {
       dto.costPrice === undefined ? Number(product.costPrice) : Number(dto.costPrice);
     const sellingPrice =
       dto.sellingPrice === undefined ? Number(product.sellingPrice) : Number(dto.sellingPrice);
+    const halfWholesalePrice = dto.halfWholesalePrice === undefined ? (product.halfWholesalePrice == null ? undefined : Number(product.halfWholesalePrice)) : dto.halfWholesalePrice;
     const wholesalePrice =
       dto.wholesalePrice === undefined
         ? product.wholesalePrice === null || product.wholesalePrice === undefined
@@ -263,7 +267,7 @@ export class ProductsService {
       dto.sellingPrice === undefined &&
       dto.wholesalePrice === undefined;
     if (!isSystemCostReviewUpdate) {
-      this.validateSellingPrices(costPrice, sellingPrice, wholesalePrice);
+      this.validateSellingPrices(costPrice, sellingPrice, wholesalePrice, halfWholesalePrice);
     }
 
     const {

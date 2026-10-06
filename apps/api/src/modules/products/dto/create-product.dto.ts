@@ -47,6 +47,11 @@ export class CreateProductDto {
   @IsNumber()
   wholesalePrice?: number;
 
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsNumber()
+  halfWholesalePrice?: number;
+
   @ApiPropertyOptional({ example: 15 })
   @IsOptional()
   @IsNumber()

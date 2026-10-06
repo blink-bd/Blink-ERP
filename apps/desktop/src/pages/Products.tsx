@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useFeature } from '@/contexts/FeaturesContext';
 import toast from 'react-hot-toast';
 import { Plus, X, Pencil, Trash2 } from 'lucide-react';
 
@@ -13,6 +14,7 @@ interface Product {
   barcode?: string;
   sellingPrice: number;
   wholesalePrice?: number;
+  halfWholesalePrice?: number;
   costPrice: number;
   categoryId?: string;
   category?: { id: string; name: string };
@@ -33,6 +35,7 @@ type ProductForm = {
   costPrice: string;
   sellingPrice: string;
   wholesalePrice: string;
+  halfWholesalePrice: string;
   minStockLevel: string;
   categoryId: string;
   initialQuantity: string;
@@ -48,7 +51,7 @@ const statusLabel: Record<string, { text: string; cls: string }> = {
 };
 
 const emptyForm: ProductForm = {
-  id: '', name: '', sku: '', barcode: '', costPrice: '', sellingPrice: '', wholesalePrice: '',
+  id: '', name: '', sku: '', barcode: '', costPrice: '', sellingPrice: '', wholesalePrice: '', halfWholesalePrice: '',
   minStockLevel: '5', categoryId: '', initialQuantity: '', originalInitialQuantity: '', needsPriceReview: false,
 };
 
@@ -60,6 +63,7 @@ const formatQuantity = (value: number | string | null | undefined) => {
 };
 
 export function ProductsPage() {
+  const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
   const [search, setSearch] = useState('');
@@ -119,6 +123,7 @@ export function ProductsPage() {
       id: p.id, name: p.name, sku: p.sku || '', barcode: p.barcode || '',
       costPrice: String(p.costPrice), sellingPrice: String(p.sellingPrice),
       wholesalePrice: p.wholesalePrice !== undefined && p.wholesalePrice !== null ? String(p.wholesalePrice) : '',
+      halfWholesalePrice: p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null ? String(p.halfWholesalePrice) : '',
       minStockLevel: String(p.minStockLevel), categoryId: p.categoryId || '',
       initialQuantity: currentQuantity, originalInitialQuantity: currentQuantity,
       needsPriceReview: !!p.needsPriceReview,
@@ -146,10 +151,12 @@ export function ProductsPage() {
     const cost = Number(form.costPrice) || 0;
     const retail = Number(form.sellingPrice);
     const wholesale = form.wholesalePrice === '' ? undefined : Number(form.wholesalePrice);
+    const halfWholesale = halfWholesaleEnabled && form.halfWholesalePrice !== '' ? Number(form.halfWholesalePrice) : undefined;
     if (!Number.isFinite(retail) || retail <= cost) {
       toast.error('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
       return;
     }
+    if (halfWholesale !== undefined && (!Number.isFinite(halfWholesale) || halfWholesale <= cost)) { toast.error('سعر البيع نصف الجملة يجب أن يكون أكبر من سعر التكلفة'); return; }
     if (wholesale !== undefined && (!Number.isFinite(wholesale) || wholesale <= cost)) {
       toast.error('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
       return;
@@ -185,6 +192,7 @@ export function ProductsPage() {
         costPrice: cost,
         sellingPrice: retail,
         wholesalePrice: wholesale,
+        halfWholesalePrice: halfWholesale,
         minStockLevel: Number(form.minStockLevel) || 0,
         categoryId: form.categoryId || undefined,
       };
@@ -237,7 +245,7 @@ export function ProductsPage() {
           </div>
           <div>
             <Label>الباركود</Label>
-            <Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} />
+            <div className="flex gap-2"><Input value={form.barcode} onChange={(e) => setForm({ ...form, barcode: e.target.value })} /><Button type="button" variant="outline" onClick={() => setForm({ ...form, barcode: String(Date.now()).slice(-12) })}>توليد تلقائي</Button>{form.barcode && <Button type="button" variant="outline" onClick={() => { const w = window.open('', '_blank'); w?.document.write(`<html dir="rtl"><body style="text-align:center;font-family:Arial"><h3>${form.name}</h3><div style="font-size:32px;letter-spacing:5px">|||| ${form.barcode} ||||</div><p>${form.barcode}</p><script>window.print()</script></body></html>`); w?.document.close(); }}>طباعة</Button>}</div>
             {!identifierStatus.barcodeAvailable && <p className="text-xs text-red-600 mt-1">الباركود موجود مسبقاً</p>}
           </div>
 
@@ -262,6 +270,7 @@ export function ProductsPage() {
 
           <div><Label>سعر البيع القطاعي</Label>
             <Input type="number" step="0.01" min="0.01" required value={form.sellingPrice} onChange={(e) => setForm({ ...form, sellingPrice: e.target.value })} /></div>
+          {halfWholesaleEnabled && <div><Label>سعر البيع نصف الجملة (اختياري)</Label><Input type="number" step="0.01" value={form.halfWholesalePrice} onChange={(e) => setForm({ ...form, halfWholesalePrice: e.target.value })} /></div>}
           <div><Label>سعر البيع بالجملة (اختياري)</Label>
             <Input type="number" step="0.01" min="0" value={form.wholesalePrice} onChange={(e) => setForm({ ...form, wholesalePrice: e.target.value })} /></div>
           <div><Label>{form.id ? 'الكمية الافتتاحية / الحالية' : 'الكمية الافتتاحية (اختياري)'}</Label>

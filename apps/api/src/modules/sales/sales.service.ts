@@ -92,6 +92,8 @@ export class SalesService {
           unitPrice =
             itemInput.priceTier === 'wholesale' && product.wholesalePrice
               ? Number(product.wholesalePrice)
+              : itemInput.priceTier === 'half_wholesale' && product.halfWholesalePrice
+                ? Number(product.halfWholesalePrice)
               : Number(product.sellingPrice);
         }
 

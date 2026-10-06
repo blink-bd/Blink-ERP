@@ -137,6 +137,14 @@ export async function seedFeatures(dataSource: DataSource): Promise<void> {
       requiresPlan: true,
     },
     {
+      code: 'half_wholesale_pricing',
+      name: 'Half Wholesale Pricing',
+      nameAr: 'تسعير نصف الجملة',
+      category: 'sales',
+      isDefault: false,
+      requiresPlan: true,
+    },
+    {
       code: 'barcode_printing',
       name: 'Barcode Printing',
       nameAr: 'طباعة الباركود',

@@ -35,6 +35,9 @@ export class Product extends TenantBaseEntity {
   @Column({ name: 'wholesale_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   wholesalePrice?: number;
 
+  @Column({ name: 'half_wholesale_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  halfWholesalePrice?: number;
+
   @Column({ name: 'distributor_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   distributorPrice?: number;
 
