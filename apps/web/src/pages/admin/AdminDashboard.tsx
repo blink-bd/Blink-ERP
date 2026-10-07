@@ -23,7 +23,7 @@ export function AdminDashboardPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold">نظرة عامة</h1>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <Card label="إجمالي التجّار" value={t.total} />
         <Card label="نشطون" value={t.active} tone="text-green-600" />
         <Card label="موقوفون" value={t.suspended} tone="text-orange-600" />

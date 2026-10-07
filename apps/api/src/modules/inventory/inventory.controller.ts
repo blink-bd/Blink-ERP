@@ -2,15 +2,19 @@ import { Controller, Get, Post, Body, Query, UseGuards, Request } from '@nestjs/
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InventoryService } from './inventory.service';
+import { AdjustInventoryDto, TransferInventoryDto } from './dto/inventory-movement.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
+@RequirePermission('inventory.view')
 @Controller({ path: 'inventory', version: '1' })
 @RequireFeature('inventory')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class InventoryController {
   constructor(private readonly inventoryService: InventoryService) {}
 
@@ -40,10 +44,8 @@ export class InventoryController {
   }
 
   @Post('adjust')
-  async adjust(
-    @Request() req,
-    @Body() dto: { productId: string; warehouseId: string; quantity: number; reason: string }
-  ) {
+  @RequirePermission('inventory.adjust')
+  async adjust(@Request() req, @Body() dto: AdjustInventoryDto) {
     const transaction = await this.inventoryService.adjustManual(
       req.tenantId,
       dto.productId,
@@ -56,11 +58,8 @@ export class InventoryController {
   }
 
   @Post('transfer')
-  async transfer(
-    @Request() req,
-    @Body()
-    dto: { productId: string; fromWarehouseId: string; toWarehouseId: string; quantity: number }
-  ) {
+  @RequirePermission('inventory.transfer')
+  async transfer(@Request() req, @Body() dto: TransferInventoryDto) {
     const result = await this.inventoryService.transfer(
       req.tenantId,
       dto.productId,

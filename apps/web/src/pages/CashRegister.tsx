@@ -83,7 +83,7 @@ export function CashRegisterPage() {
           </div>
 
           {summary && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات نقدي</p><p className="text-xl font-bold">{summary.sales.cash.toFixed(2)}</p></div>
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات بطاقة</p><p className="text-xl font-bold">{summary.sales.card.toFixed(2)}</p></div>
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات تحويل</p><p className="text-xl font-bold">{summary.sales.bankTransfer.toFixed(2)}</p></div>

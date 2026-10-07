@@ -84,6 +84,7 @@ export class TenantsService {
       email: dto.adminUser.email,
       password: dto.adminUser.password,
       fullName: dto.adminUser.fullName,
+      assignOwnerRole: true,
     });
 
     // 2. Default warehouse

@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { EntityManager, Repository, IsNull } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { InventoryService } from '@/modules/inventory/inventory.service';
@@ -79,8 +79,8 @@ export class ProductsService {
   }
 
   async findAll(tenantId: string, options: ListOptions = {}) {
-    const page = options.page || 1;
-    const limit = options.limit || 20;
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
 
     const query = this.productsRepository
       .createQueryBuilder('product')
@@ -119,8 +119,8 @@ export class ProductsService {
     if (ids.length) {
       const rows = await this.productsRepository.manager.query(
         `SELECT product_id, COALESCE(SUM(available_quantity), 0) AS qty
-         FROM inventory WHERE product_id = ANY($1) GROUP BY product_id`,
-        [ids]
+         FROM inventory WHERE tenant_id = $2 AND product_id = ANY($1) GROUP BY product_id`,
+        [ids, tenantId]
       );
       for (const r of rows) stockMap.set(r.product_id, Number(r.qty));
     }
@@ -131,9 +131,10 @@ export class ProductsService {
         `SELECT i.product_id, COALESCE(SUM(i.available_quantity), 0) AS qty
          FROM inventory i
          JOIN warehouses w ON w.id = i.warehouse_id
-         WHERE i.product_id = ANY($1) AND w.is_main = true AND w.deleted_at IS NULL
+         WHERE i.tenant_id = $2 AND w.tenant_id = $2 AND i.product_id = ANY($1)
+           AND w.is_main = true AND w.deleted_at IS NULL
          GROUP BY i.product_id`,
-        [ids]
+        [ids, tenantId]
       );
       for (const r of rows) openingStockMap.set(r.product_id, Number(r.qty));
     }
@@ -237,9 +238,14 @@ export class ProductsService {
     tenantId: string,
     id: string,
     dto: UpdateProductDto,
-    userId?: string
+    userId?: string,
+    manager?: EntityManager
   ): Promise<Product> {
-    const product = await this.findById(tenantId, id);
+    const repository = manager ? manager.getRepository(Product) : this.productsRepository;
+    const product = manager
+      ? await repository.findOne({ where: { id, tenantId, deletedAt: IsNull() } })
+      : await this.findById(tenantId, id);
+    if (!product) throw new NotFoundException('المنتج غير موجود');
     const sku = dto.sku === undefined ? product.sku : dto.sku?.trim() || undefined;
     const barcode = dto.barcode === undefined ? product.barcode : dto.barcode?.trim() || undefined;
     const duplicates = await this.findDuplicateIdentifiers(tenantId, sku, barcode, id);
@@ -317,7 +323,7 @@ export class ProductsService {
       product.needsPriceReview = false;
       product.priceReviewNote = null as any;
     }
-    return this.productsRepository.save(product);
+    return repository.save(product);
   }
 
   async delete(tenantId: string, id: string): Promise<void> {

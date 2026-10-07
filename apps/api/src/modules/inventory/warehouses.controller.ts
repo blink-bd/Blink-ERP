@@ -2,12 +2,15 @@ import { Controller, Get, Post, Put, Param, Body, UseGuards, Request } from '@ne
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { WarehousesService } from './warehouses.service';
 
 @ApiTags('warehouses')
 @ApiBearerAuth()
+@RequirePermission('warehouses.view')
 @Controller({ path: 'warehouses', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
 export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 
@@ -17,12 +20,14 @@ export class WarehousesController {
   }
 
   @Post()
+  @RequirePermission('warehouses.manage')
   async create(@Request() req, @Body() dto: any) {
     const warehouse = await this.warehousesService.create(req.tenantId, dto, req.user?.id);
     return { success: true, data: warehouse, message: 'تم إضافة المخزن بنجاح' };
   }
 
   @Put(':id')
+  @RequirePermission('warehouses.manage')
   async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
     const warehouse = await this.warehousesService.update(req.tenantId, id, dto);
     return { success: true, data: warehouse, message: 'تم تحديث المخزن بنجاح' };

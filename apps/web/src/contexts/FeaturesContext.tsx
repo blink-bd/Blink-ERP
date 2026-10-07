@@ -36,13 +36,9 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const codes: string[] = res.data.data.map((f: any) => f.code);
       setFeatures(new Set(codes));
     } catch {
-      // Fallback to the standard feature set if the call fails (e.g. offline first load)
-      setFeatures(
-        new Set([
-          'dashboard', 'pos', 'sales', 'products', 'inventory', 'customers',
-          'suppliers', 'purchases', 'returns', 'cash_register', 'expenses', 'reports',
-        ])
-      );
+      // Fail closed: an unavailable feature response must never make the UI
+      // claim that disabled capabilities are available.
+      setFeatures(new Set());
     } finally {
       setLoading(false);
     }

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { EntityManager, Repository, IsNull } from 'typeorm';
 import { stripProtected } from '@/common/utils/sanitize';
 import { Customer } from './entities/customer.entity';
 
@@ -32,8 +32,9 @@ export class CustomersService {
     return builder.orderBy('c.name', 'ASC').limit(10).getMany();
   }
 
-  async findById(tenantId: string, id: string): Promise<Customer> {
-    const customer = await this.repo.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
+  async findById(tenantId: string, id: string, manager?: EntityManager): Promise<Customer> {
+    const repository = manager ? manager.getRepository(Customer) : this.repo;
+    const customer = await repository.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
     if (!customer) throw new NotFoundException('العميل غير موجود');
     return customer;
   }
@@ -85,10 +86,31 @@ export class CustomersService {
     return this.repo.save(customer);
   }
 
-  async adjustBalance(tenantId: string, id: string, delta: number): Promise<Customer> {
-    const customer = await this.findById(tenantId, id);
-    customer.balance = Number(customer.balance) + delta;
-    return this.repo.save(customer);
+  async adjustBalance(
+    tenantId: string,
+    id: string,
+    delta: number,
+    manager?: EntityManager
+  ): Promise<Customer> {
+    const repository = manager ? manager.getRepository(Customer) : this.repo;
+    if (manager) {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `customer:${tenantId}:${id}`,
+      ]);
+    }
+    const customer = manager
+      ? await repository.findOne({
+          where: { id, tenantId, deletedAt: IsNull() },
+          lock: { mode: 'pessimistic_write' },
+        })
+      : await this.findById(tenantId, id);
+    if (!customer) throw new NotFoundException('العميل غير موجود');
+    const nextBalance = Number(customer.balance) + delta;
+    if (nextBalance < -0.0001) {
+      throw new BadRequestException('لا يمكن أن يصبح رصيد العميل سالبًا');
+    }
+    customer.balance = Math.max(0, nextBalance);
+    return repository.save(customer);
   }
 
   async delete(tenantId: string, id: string): Promise<void> {
@@ -108,7 +130,8 @@ export class CustomersService {
     );
     const payments = await this.repo.manager.query(
       `SELECT p.id, p.reference_number AS "referenceNumber", p.payment_date AS date, p.amount, pm.name_ar AS method
-       FROM payments p JOIN payment_methods pm ON pm.id = p.payment_method_id
+       FROM payments p JOIN payment_methods pm
+         ON pm.id = p.payment_method_id AND pm.tenant_id = $1
        WHERE p.tenant_id = $1 AND p.customer_id = $2
        ORDER BY p.payment_date ASC`,
       [tenantId, customerId]
@@ -192,22 +215,49 @@ export class CustomersService {
     notes: string | undefined,
     userId: string
   ) {
-    if (amount <= 0) throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
-    const customer = await this.findById(tenantId, customerId);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
+    }
 
-    const count = await this.repo.manager.query(
-      `SELECT COUNT(*)::int AS c FROM payments WHERE tenant_id = $1`,
-      [tenantId]
-    );
-    const paymentNumber = `PAY-${new Date().getFullYear()}-${String(count[0].c + 1).padStart(4, '0')}`;
+    return this.repo.manager.transaction(async (manager) => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `customer:${tenantId}:${customerId}`,
+      ]);
+      const customerRepo = manager.getRepository(Customer);
+      const customer = await customerRepo.findOne({
+        where: { id: customerId, tenantId, deletedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!customer) throw new NotFoundException('العميل غير موجود');
+      if (amount > Math.max(0, Number(customer.balance))) {
+        throw new BadRequestException('مبلغ التحصيل أكبر من رصيد العميل المستحق');
+      }
 
-    await this.repo.manager.query(
-      `INSERT INTO payments (tenant_id, payment_number, customer_id, payment_method_id, amount, payment_date, notes, created_by)
-       VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6, $7)`,
-      [tenantId, paymentNumber, customerId, methodId, amount, notes || null, userId]
-    );
+      const [method] = await manager.query(
+        `SELECT id FROM payment_methods WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+        [methodId, tenantId]
+      );
+      if (!method) throw new BadRequestException('طريقة الدفع غير صالحة لهذا التاجر');
 
-    customer.balance = Number(customer.balance) - amount;
-    return this.repo.save(customer);
+      const year = new Date().getFullYear();
+      const [counter] = await manager.query(
+        `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+         VALUES ($1, 'payment', $2, 2)
+         ON CONFLICT (tenant_id, document_type, document_year)
+         DO UPDATE SET next_value = document_counters.next_value + 1
+         RETURNING next_value - 1 AS value`,
+        [tenantId, year]
+      );
+      const paymentNumber = `PAY-${year}-${String(Number(counter.value)).padStart(4, '0')}`;
+
+      await manager.query(
+        `INSERT INTO payments (tenant_id, payment_number, customer_id, payment_method_id, amount, payment_date, notes, created_by)
+         VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, $6, $7)`,
+        [tenantId, paymentNumber, customerId, methodId, amount, notes || null, userId]
+      );
+
+      customer.balance = Number(customer.balance) - amount;
+      return customerRepo.save(customer);
+    });
   }
 }

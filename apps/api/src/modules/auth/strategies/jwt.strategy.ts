@@ -11,6 +11,7 @@ export interface JwtPayload {
   email: string;
   roles: string[];
   permissions: string[];
+  sessionVersion: number;
 }
 
 @Injectable()
@@ -34,13 +35,23 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     assertTenantUsable(user.tenant);
+    if (payload.tenantId !== user.tenantId || payload.sessionVersion !== user.sessionVersion) {
+      throw new UnauthorizedException('جلسة غير صالحة أو منتهية');
+    }
+
+    // Rebuild authorization data from the database on every request. This
+    // prevents a role removal from remaining effective until the JWT expires.
+    const roles = (user.roles || []).map((role) => role.name);
+    const permissions = Array.from(
+      new Set((user.roles || []).flatMap((role) => (role.permissions || []).map((p) => p.name)))
+    );
 
     return {
-      id: payload.sub,
-      tenantId: payload.tenantId,
-      email: payload.email,
-      roles: payload.roles,
-      permissions: payload.permissions,
+      id: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      roles,
+      permissions,
     };
   }
 }

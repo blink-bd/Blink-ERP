@@ -3,6 +3,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { HttpExceptionFilter } from './filters/http-exception.filter';
 import { TransformInterceptor } from './interceptors/transform.interceptor';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
+import { PermissionGuard } from './guards/permission.guard';
 
 @Global()
 @Module({
@@ -19,6 +20,7 @@ import { LoggingInterceptor } from './interceptors/logging.interceptor';
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
     },
+    PermissionGuard,
   ],
   exports: [],
 })

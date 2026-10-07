@@ -36,7 +36,7 @@ export function DashboardPage() {
         <p className="text-gray-400">جاري التحميل...</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <Card label="مبيعات اليوم" value={data.salesToday.totalSales.toFixed(2)} tone="text-primary" sub={`${data.salesToday.invoicesCount} فاتورة`} />
             <Card label="مصروفات اليوم" value={data.expensesToday.total.toFixed(2)} tone="text-red-600" sub={`${data.expensesToday.count} عملية`} />
             <Card label="صافي اليوم" value={(data.salesToday.totalSales - data.expensesToday.total).toFixed(2)} tone="text-green-600" />

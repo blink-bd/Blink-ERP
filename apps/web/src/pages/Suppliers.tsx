@@ -114,7 +114,7 @@ export function SuppliersPage() {
       </div>
       <div className="bg-white rounded-lg shadow px-5 py-3 mb-4 inline-block"><span className="text-sm text-gray-500 ml-2">إجمالي المستحق عليّ لكل الموردين:</span><span className="text-xl font-bold text-orange-600">{Number(totalOwed).toFixed(2)}</span></div>
 
-      {showForm && <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-3 gap-4">
+      {showForm && <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div><Label>اسم المورد</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
         <div><Label>الهاتف</Label><Input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} /></div>
         <div><Label>الرصيد الافتتاحي المستحق له</Label><Input type="number" min="0" step="0.01" value={form.previousBalance} onChange={(e) => setForm({ ...form, previousBalance: e.target.value })} /></div>

@@ -75,14 +75,14 @@ export function ExpensesPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات اليوم</p><p className="text-2xl font-bold text-red-600">{summary.day ? Number(summary.day.total).toFixed(2) : '-'}</p></div>
         <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات الشهر</p><p className="text-2xl font-bold text-red-600">{summary.month ? Number(summary.month.total).toFixed(2) : '-'}</p></div>
         <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات السنة</p><p className="text-2xl font-bold text-red-600">{summary.year ? Number(summary.year.total).toFixed(2) : '-'}</p></div>
       </div>
 
       {showForm && (
-        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-3 gap-4">
+        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <Label>الفئة</Label>
             <div className="flex gap-2">

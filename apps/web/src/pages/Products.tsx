@@ -76,7 +76,7 @@ export function ProductsPage() {
     setLoading(true);
     try {
       const [p, c] = await Promise.all([
-        api.get('/products', { params: { search, categoryId: categoryFilter || undefined, limit: 200 } }),
+        api.get('/products', { params: { search, categoryId: categoryFilter || undefined, limit: 50 } }),
         api.get('/categories'),
       ]);
       setProducts(p.data.data);
@@ -227,7 +227,7 @@ export function ProductsPage() {
       </div>
 
       {showForm && (
-        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-3 gap-4">
+        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div><Label>اسم المنتج</Label>
             <Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>
           <div>

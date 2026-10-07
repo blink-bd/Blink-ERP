@@ -2,15 +2,18 @@ import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { CashRegisterService } from './cash-register.service';
 
 @ApiTags('cash-register')
 @ApiBearerAuth()
+@RequirePermission('cash_register.view')
 @Controller({ path: 'cash-register', version: '1' })
 @RequireFeature('cash_register')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class CashRegisterController {
   constructor(private readonly service: CashRegisterService) {}
 
@@ -20,6 +23,7 @@ export class CashRegisterController {
   }
 
   @Post('registers')
+  @RequirePermission('cash_register.manage')
   async createRegister(@Request() req, @Body() dto: any) {
     const register = await this.service.createRegister(req.tenantId, dto, req.user?.id);
     return { success: true, data: register, message: 'تم إضافة الكاشير بنجاح' };
@@ -37,6 +41,7 @@ export class CashRegisterController {
   }
 
   @Post('shifts')
+  @RequirePermission('cash_register.manage')
   async openShift(
     @Request() req,
     @Body() dto: { cashRegisterId: string; openingBalance: number; notes?: string }
@@ -57,6 +62,7 @@ export class CashRegisterController {
   }
 
   @Post('shifts/:id/close')
+  @RequirePermission('cash_register.manage')
   async closeShift(
     @Request() req,
     @Param('id') id: string,
@@ -73,6 +79,7 @@ export class CashRegisterController {
   }
 
   @Post('transactions')
+  @RequirePermission('cash_register.manage')
   async addTransaction(
     @Request() req,
     @Body()

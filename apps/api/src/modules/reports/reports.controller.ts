@@ -2,15 +2,18 @@ import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { ReportsService } from './reports.service';
 
 @ApiTags('reports')
 @ApiBearerAuth()
+@RequirePermission('reports.view')
 @Controller({ path: 'reports', version: '1' })
 @RequireFeature('reports')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
@@ -56,6 +59,7 @@ export class ReportsController {
 
   @Get('profit-loss')
   @RequireFeature('advanced_reports')
+  @RequirePermission('advanced_reports.view')
   async profitLoss(
     @Request() req,
     @Query('startDate') startDate: string,

@@ -66,7 +66,7 @@ export function AdminTenantsPage() {
       </div>
 
       {showForm && (
-        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-2 gap-4">
+        <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div><Label>اسم النشاط التجاري</Label>
             <Input required value={form.businessName} onChange={(e) => setForm({ ...form, businessName: e.target.value })} /></div>
           <div><Label>الاسم بالعربي</Label>

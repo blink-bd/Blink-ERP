@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { EntityManager, Repository, IsNull } from 'typeorm';
 import { stripProtected } from '@/common/utils/sanitize';
 import { Supplier } from './entities/supplier.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
@@ -25,8 +25,9 @@ export class SuppliersService {
     return { data: suppliers, totalOwed };
   }
 
-  async findById(tenantId: string, id: string): Promise<Supplier> {
-    const supplier = await this.repo.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
+  async findById(tenantId: string, id: string, manager?: EntityManager): Promise<Supplier> {
+    const repository = manager ? manager.getRepository(Supplier) : this.repo;
+    const supplier = await repository.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
     if (!supplier) throw new NotFoundException('المورد غير موجود');
     return supplier;
   }
@@ -78,10 +79,31 @@ export class SuppliersService {
     return this.repo.save(supplier);
   }
 
-  async adjustBalance(tenantId: string, id: string, delta: number): Promise<Supplier> {
-    const supplier = await this.findById(tenantId, id);
-    supplier.balance = Number(supplier.balance) + delta;
-    return this.repo.save(supplier);
+  async adjustBalance(
+    tenantId: string,
+    id: string,
+    delta: number,
+    manager?: EntityManager
+  ): Promise<Supplier> {
+    const repository = manager ? manager.getRepository(Supplier) : this.repo;
+    if (manager) {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `supplier:${tenantId}:${id}`,
+      ]);
+    }
+    const supplier = manager
+      ? await repository.findOne({
+          where: { id, tenantId, deletedAt: IsNull() },
+          lock: { mode: 'pessimistic_write' },
+        })
+      : await this.findById(tenantId, id);
+    if (!supplier) throw new NotFoundException('المورد غير موجود');
+    const nextBalance = Number(supplier.balance) + delta;
+    if (nextBalance < -0.0001) {
+      throw new BadRequestException('لا يمكن أن يصبح رصيد المورد سالبًا');
+    }
+    supplier.balance = Math.max(0, nextBalance);
+    return repository.save(supplier);
   }
 
   async delete(tenantId: string, id: string): Promise<void> {
@@ -98,25 +120,43 @@ export class SuppliersService {
     notes: string | undefined,
     userId: string | undefined
   ): Promise<{ payment: SupplierPayment; supplier: Supplier }> {
-    if (amount <= 0) throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
-    const supplier = await this.findById(tenantId, supplierId);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
+    }
+    if (!method?.trim()) throw new BadRequestException('طريقة السداد مطلوبة');
 
-    const payment = await this.paymentsRepo.save(
-      this.paymentsRepo.create({
-        tenantId,
-        supplierId,
-        amount,
-        method,
-        notes,
-        paymentDate: new Date(),
-        createdBy: userId,
-      })
-    );
+    return this.repo.manager.transaction(async (manager) => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `supplier:${tenantId}:${supplierId}`,
+      ]);
+      const supplierRepo = manager.getRepository(Supplier);
+      const paymentRepo = manager.getRepository(SupplierPayment);
+      const supplier = await supplierRepo.findOne({
+        where: { id: supplierId, tenantId, deletedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!supplier) throw new NotFoundException('المورد غير موجود');
+      if (amount > Math.max(0, Number(supplier.balance))) {
+        throw new BadRequestException('مبلغ السداد أكبر من رصيد المورد المستحق');
+      }
 
-    supplier.balance = Number(supplier.balance) - amount;
-    await this.repo.save(supplier);
+      const payment = await paymentRepo.save(
+        paymentRepo.create({
+          tenantId,
+          supplierId,
+          amount,
+          method: method.trim(),
+          notes,
+          paymentDate: new Date(),
+          createdBy: userId,
+        })
+      );
 
-    return { payment, supplier };
+      supplier.balance = Number(supplier.balance) - amount;
+      await supplierRepo.save(supplier);
+
+      return { payment, supplier };
+    });
   }
 
   /** كشف حساب المورد: المشتريات (مديونية) + السدادات (دائن). */

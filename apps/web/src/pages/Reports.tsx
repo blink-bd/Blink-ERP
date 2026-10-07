@@ -52,7 +52,7 @@ export function ReportsPage() {
 
       {report && tab === 'purchases' && (
         <>
-          <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
             <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">عدد أوامر الشراء</p><p className="text-2xl font-bold">{report.summary.purchasesCount}</p></div>
             <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">إجمالي المشتريات</p><p className="text-2xl font-bold">{Number(report.summary.totalPurchases).toFixed(2)}</p></div>
             <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">متبقي للموردين</p><p className="text-2xl font-bold text-orange-600">{Number(report.summary.totalRemaining).toFixed(2)}</p></div>
@@ -69,7 +69,7 @@ export function ReportsPage() {
 
       {report && tab === 'expenses' && (
         <>
-          <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
             <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">عدد المصروفات</p><p className="text-2xl font-bold">{report.summary.expensesCount}</p></div>
             <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">الإجمالي</p><p className="text-2xl font-bold text-red-600">{Number(report.summary.total).toFixed(2)}</p></div>
           </div>

@@ -132,15 +132,24 @@ export class CashRegisterService {
 
     const [salesByMethod] = await this.shiftsRepository.manager.query(
       `SELECT
-         COALESCE(SUM(s.total) FILTER (WHERE pm.code = 'cash'), 0) AS cash,
-         COALESCE(SUM(s.total) FILTER (WHERE pm.code = 'card'), 0) AS card,
-         COALESCE(SUM(s.total) FILTER (WHERE pm.code = 'bank_transfer'), 0) AS "bankTransfer",
-         COALESCE(SUM(s.total) FILTER (WHERE s.payment_status IN ('pending','partial')), 0) AS credit
-       FROM sales s
-       LEFT JOIN payments p ON p.sale_id = s.id
-       LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
-       WHERE s.tenant_id = $1 AND s.status = 'completed'
-         AND s.sale_date BETWEEN $2 AND $3`,
+         COALESCE(SUM(by_sale.cash), 0) AS cash,
+         COALESCE(SUM(by_sale.card), 0) AS card,
+         COALESCE(SUM(by_sale.bank_transfer), 0) AS "bankTransfer",
+         COALESCE(SUM(by_sale.credit), 0) AS credit
+       FROM (
+         SELECT s.id,
+           COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'cash'), 0) AS cash,
+           COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'card'), 0) AS card,
+           COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'bank_transfer'), 0) AS bank_transfer,
+           CASE WHEN s.payment_status IN ('pending', 'partial')
+             THEN GREATEST(s.total - s.paid_amount, 0) ELSE 0 END AS credit
+         FROM sales s
+         LEFT JOIN payments p ON p.sale_id = s.id AND p.tenant_id = $1
+         LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id AND pm.tenant_id = $1
+         WHERE s.tenant_id = $1 AND s.status = 'completed'
+           AND s.sale_date BETWEEN $2 AND $3
+         GROUP BY s.id, s.total, s.paid_amount, s.payment_status
+       ) AS by_sale`,
       [tenantId, shift.openedAt, endDate]
     );
 
@@ -148,13 +157,13 @@ export class CashRegisterService {
       `SELECT
          COALESCE(SUM(amount) FILTER (WHERE type = 'cash_in'), 0) AS "cashIn",
          COALESCE(SUM(amount) FILTER (WHERE type = 'cash_out'), 0) AS "cashOut"
-       FROM cash_transactions WHERE shift_id = $1`,
-      [shiftId]
+       FROM cash_transactions WHERE shift_id = $1 AND tenant_id = $2`,
+      [shiftId, tenantId]
     );
 
     const [expensesRow] = await this.shiftsRepository.manager.query(
-      `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE shift_id = $1`,
-      [shiftId]
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE shift_id = $1 AND tenant_id = $2`,
+      [shiftId, tenantId]
     );
 
     const cash = Number(salesByMethod.cash);

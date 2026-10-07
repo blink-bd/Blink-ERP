@@ -52,6 +52,7 @@ export class AuthService {
       email: user.email,
       roles,
       permissions,
+      sessionVersion: user.sessionVersion,
     };
 
     const accessToken = this.jwtService.sign(payload, {
@@ -92,7 +93,7 @@ export class AuthService {
       });
 
       const user = await this.usersService.findById(payload.sub);
-      if (!user || !user.isActive) {
+      if (!user || !user.isActive || payload.sessionVersion !== user.sessionVersion) {
         throw new UnauthorizedException('Invalid refresh token');
       }
       assertTenantUsable(user.tenant);
@@ -108,6 +109,7 @@ export class AuthService {
         email: user.email,
         roles,
         permissions,
+        sessionVersion: user.sessionVersion,
       };
 
       const accessToken = this.jwtService.sign(newPayload, {
@@ -119,5 +121,11 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
+  }
+
+  async logout(userId: string): Promise<void> {
+    const user = await this.usersService.findById(userId);
+    if (!user) throw new UnauthorizedException('المستخدم غير موجود');
+    await this.usersService.revokeSessions(userId);
   }
 }

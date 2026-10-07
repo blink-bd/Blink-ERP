@@ -214,8 +214,8 @@ export function POSPage() {
   };
 
   return (
-    <div className="grid grid-cols-3 gap-6 h-full">
-      <div className="col-span-2 flex flex-col">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:h-full">
+      <div className="flex flex-col lg:col-span-2">
         <div className="flex gap-3 mb-4 items-center">
           <form onSubmit={handleSearch} className="flex-1 relative">
             <Input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالاسم أو الرمز أو الباركود..." className="text-lg h-14" autoFocus />
@@ -226,7 +226,7 @@ export function POSPage() {
           <div className="relative"><Button variant="outline" onClick={() => setShowDrafts((value) => !value)}><FolderOpen className="h-4 w-4 ml-2" />المحفوظة ({drafts.length})</Button>{showDrafts && <div className="absolute z-30 left-0 top-11 bg-white border rounded-md shadow-lg w-72 p-2">{drafts.length === 0 ? <p className="text-sm text-gray-400 p-3">لا توجد فواتير محفوظة</p> : drafts.map((draft) => <div key={draft.id} className="flex items-center gap-1 border-b last:border-0"><button className="flex-1 text-right text-sm p-2 hover:bg-gray-100" onClick={() => openDraft(draft)}>فاتورة مؤجلة — {draft.cart.length} أصناف</button><button className="p-2 text-red-500" onClick={() => deleteDraft(draft.id)}><X className="h-4 w-4" /></button></div>)}</div>}</div>
         </div>
 
-        <div className="relative mb-4 grid grid-cols-2 gap-2">
+        <div className="relative mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="relative"><Input value={customerName} onFocus={() => { setCustomerFocused(true); loadCustomers(customerName); }} onChange={(e) => { setSelectedCustomer(null); setCustomerName(e.target.value); }} placeholder="اسم العميل — اكتب أول حرف للبحث" />{customerFocused && customerResults.length > 0 && !selectedCustomer && <div className="absolute z-10 bg-white border rounded-md shadow-lg w-full mt-1 max-h-48 overflow-y-auto">{customerResults.map((customer) => <button type="button" key={customer.id} className="block w-full text-right px-3 py-2 hover:bg-gray-100 text-sm" onClick={() => { setSelectedCustomer(customer); setCustomerName(customer.name); setCustomerPhone(customer.phone || ''); setCustomerResults([]); setCustomerFocused(false); }}>{customer.name} {customer.phone && <span className="text-gray-400">— {customer.phone}</span>}</button>)}<button type="button" className="block w-full text-right px-3 py-2 text-primary border-t" onClick={() => { setCustomerResults([]); setCustomerFocused(false); }}>إضافة كعميل جديد</button></div>}</div>
           <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="هاتف العميل" />
         </div>

@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { EntityManager, Repository, DataSource } from 'typeorm';
 import { Sale } from './entities/sale.entity';
 import { SaleItem } from './entities/sale-item.entity';
 import { Payment } from './entities/payment.entity';
@@ -30,18 +30,38 @@ export class SalesService {
     private readonly customersService: CustomersService
   ) {}
 
-  private async generateSaleNumber(tenantId: string): Promise<string> {
-    const count = await this.salesRepository.count({ where: { tenantId } });
+  private async generateSaleNumber(manager: EntityManager, tenantId: string): Promise<string> {
     const year = new Date().getFullYear();
-    return `INV-${year}-${String(count + 1).padStart(4, '0')}`;
+    const [row] = await manager.query(
+      `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+       VALUES ($1, 'sale', $2, 2)
+       ON CONFLICT (tenant_id, document_type, document_year)
+       DO UPDATE SET next_value = document_counters.next_value + 1
+       RETURNING next_value - 1 AS value`,
+      [tenantId, year]
+    );
+    return `INV-${year}-${String(Number(row.value)).padStart(4, '0')}`;
+  }
+
+  private async generatePaymentNumber(manager: EntityManager, tenantId: string): Promise<string> {
+    const year = new Date().getFullYear();
+    const [row] = await manager.query(
+      `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+       VALUES ($1, 'payment', $2, 2)
+       ON CONFLICT (tenant_id, document_type, document_year)
+       DO UPDATE SET next_value = document_counters.next_value + 1
+       RETURNING next_value - 1 AS value`,
+      [tenantId, year]
+    );
+    return `PAY-${year}-${String(Number(row.value)).padStart(4, '0')}`;
   }
 
   async findAll(
     tenantId: string,
     options: { page?: number; limit?: number; search?: string; status?: string } = {}
   ) {
-    const page = options.page || 1;
-    const limit = options.limit || 20;
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
     const query = this.salesRepository
       .createQueryBuilder('sale')
       .where('sale.tenantId = :tenantId', { tenantId });
@@ -78,6 +98,46 @@ export class SalesService {
    */
   async create(tenantId: string, dto: CreateSaleDto, userId: string): Promise<Sale> {
     return this.dataSource.transaction(async (manager) => {
+      if (!dto.items?.length)
+        throw new BadRequestException('الفاتورة يجب أن تحتوي على صنف واحد على الأقل');
+      if (
+        !Number.isFinite(Number(dto.discountAmount || 0)) ||
+        Number(dto.discountAmount || 0) < 0
+      ) {
+        throw new BadRequestException('الخصم غير صحيح');
+      }
+
+      const [warehouse] = await manager.query(
+        `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [dto.warehouseId, tenantId]
+      );
+      if (!warehouse) throw new NotFoundException('المخزن غير موجود في هذا التاجر');
+
+      if (dto.customerId) {
+        const [customer] = await manager.query(
+          `SELECT id FROM customers WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+          [dto.customerId, tenantId]
+        );
+        if (!customer) throw new NotFoundException('العميل غير موجود في هذا التاجر');
+      }
+
+      const paymentMethods = new Set<string>();
+      for (const payment of dto.payments || []) {
+        if (paymentMethods.has(payment.methodId)) {
+          throw new BadRequestException('لا يمكن تكرار طريقة الدفع نفسها في الفاتورة');
+        }
+        paymentMethods.add(payment.methodId);
+      }
+      if (paymentMethods.size) {
+        const rows = await manager.query(
+          `SELECT id FROM payment_methods WHERE tenant_id = $1 AND is_active = true AND id = ANY($2::uuid[])`,
+          [tenantId, Array.from(paymentMethods)]
+        );
+        if (rows.length !== paymentMethods.size) {
+          throw new BadRequestException('طريقة الدفع غير صالحة لهذا التاجر');
+        }
+      }
+
       let subtotal = 0;
       let taxAmount = 0;
       let cogs = 0;
@@ -87,12 +147,16 @@ export class SalesService {
         const product = await this.productsService.findById(tenantId, itemInput.productId);
 
         // تحديد السعر تلقائيًا حسب الفئة (جملة/قطاعي) لو مش متبعت صراحة
-        let unitPrice = itemInput.unitPrice;
-        if (unitPrice === undefined || unitPrice === null) {
-          unitPrice =
-            itemInput.priceTier === 'wholesale' && product.wholesalePrice
-              ? Number(product.wholesalePrice)
-              : Number(product.sellingPrice);
+        const serverPrice =
+          itemInput.priceTier === 'wholesale' && product.wholesalePrice
+            ? Number(product.wholesalePrice)
+            : Number(product.sellingPrice);
+        const unitPrice = itemInput.unitPrice ?? serverPrice;
+        if (Math.abs(Number(unitPrice) - serverPrice) > 0.0001) {
+          throw new BadRequestException('سعر البيع غير مطابق للسعر المعتمد للمنتج');
+        }
+        if (!Number.isFinite(Number(unitPrice)) || Number(unitPrice) <= 0) {
+          throw new BadRequestException('سعر البيع غير صحيح');
         }
 
         if (product.trackInventory) {
@@ -116,8 +180,15 @@ export class SalesService {
         }
 
         const discount = itemInput.discountAmount || 0;
-        const lineSubtotal = itemInput.quantity * unitPrice - discount;
+        const grossLine = itemInput.quantity * unitPrice;
+        if (!Number.isFinite(discount) || discount < 0 || discount > grossLine) {
+          throw new BadRequestException('خصم الصنف غير صحيح');
+        }
+        const lineSubtotal = grossLine - discount;
         const taxRate = itemInput.taxRate ?? Number(product.taxRate) ?? 0;
+        if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+          throw new BadRequestException('نسبة الضريبة غير صحيحة');
+        }
         const lineTax = (lineSubtotal * taxRate) / 100;
         const lineTotal = lineSubtotal + lineTax;
         const lineCost = itemInput.quantity * Number(product.costPrice);
@@ -144,24 +215,37 @@ export class SalesService {
         });
 
         if (product.trackInventory) {
-          await this.inventoryService.adjustInventory({
-            tenantId,
-            productId: product.id,
-            warehouseId: dto.warehouseId,
-            quantity: -itemInput.quantity,
-            type: 'sale',
-            userId,
-          });
+          await this.inventoryService.adjustInventory(
+            {
+              tenantId,
+              productId: product.id,
+              warehouseId: dto.warehouseId,
+              quantity: -itemInput.quantity,
+              type: 'sale',
+              userId,
+            },
+            manager
+          );
         }
       }
 
       const discountAmount = dto.discountAmount || 0;
       const total = subtotal - discountAmount + taxAmount;
+      if (total < 0) throw new BadRequestException('إجمالي الفاتورة لا يمكن أن يكون سالبًا');
       const paidAmount = (dto.payments || []).reduce((sum, p) => sum + p.amount, 0);
+      if (!Number.isFinite(paidAmount) || paidAmount < 0) {
+        throw new BadRequestException('إجمالي الدفعات غير صحيح');
+      }
+      if (paidAmount > total) {
+        throw new BadRequestException('إجمالي الدفعات لا يمكن أن يتجاوز إجمالي الفاتورة');
+      }
+      if (paidAmount < total && !dto.customerId) {
+        throw new BadRequestException('يجب اختيار عميل عند تسجيل فاتورة آجلة أو جزئية');
+      }
       const changeAmount = paidAmount > total ? paidAmount - total : 0;
       const paymentStatus = paidAmount >= total ? 'paid' : paidAmount > 0 ? 'partial' : 'pending';
 
-      const saleNumber = await this.generateSaleNumber(tenantId);
+      const saleNumber = await this.generateSaleNumber(manager, tenantId);
 
       const sale = manager.create(Sale, {
         tenantId,
@@ -192,7 +276,7 @@ export class SalesService {
         await manager.save(
           manager.create(Payment, {
             tenantId,
-            paymentNumber: `PAY-${savedSale.saleNumber}-${Math.random().toString(36).slice(2, 6)}`,
+            paymentNumber: await this.generatePaymentNumber(manager, tenantId),
             saleId: savedSale.id,
             customerId: dto.customerId,
             paymentMethodId: paymentInput.methodId,
@@ -205,7 +289,12 @@ export class SalesService {
       }
 
       if (dto.customerId && paidAmount < total) {
-        await this.customersService.adjustBalance(tenantId, dto.customerId, total - paidAmount);
+        await this.customersService.adjustBalance(
+          tenantId,
+          dto.customerId,
+          total - paidAmount,
+          manager
+        );
       }
 
       // لا تستخدم repository خارج transaction هنا؛ الفاتورة غير ملتزمة بعد،
@@ -227,57 +316,99 @@ export class SalesService {
     referenceNumber: string | undefined,
     userId: string
   ) {
-    const sale = await this.findById(tenantId, saleId);
-
-    const payment = this.paymentsRepository.create({
-      tenantId,
-      paymentNumber: `PAY-${sale.saleNumber}-${Math.random().toString(36).slice(2, 6)}`,
-      saleId,
-      customerId: sale.customerId,
-      paymentMethodId: methodId,
-      amount,
-      paymentDate: new Date(),
-      referenceNumber,
-      createdBy: userId,
-    });
-    await this.paymentsRepository.save(payment);
-
-    sale.paidAmount = Number(sale.paidAmount) + amount;
-    sale.paymentStatus = sale.paidAmount >= sale.total ? 'paid' : 'partial';
-    await this.salesRepository.save(sale);
-
-    if (sale.customerId) {
-      await this.customersService.adjustBalance(tenantId, sale.customerId, -amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('مبلغ الدفعة يجب أن يكون أكبر من صفر');
     }
 
-    return { payment, sale };
+    return this.dataSource.transaction(async (manager) => {
+      const sale = await manager.findOne(Sale, {
+        where: { id: saleId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
+      if (sale.status !== 'completed')
+        throw new BadRequestException('لا يمكن الدفع على فاتورة غير مكتملة');
+
+      const [method] = await manager.query(
+        `SELECT id FROM payment_methods WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+        [methodId, tenantId]
+      );
+      if (!method) throw new BadRequestException('طريقة الدفع غير صالحة لهذا التاجر');
+
+      const remaining = Math.max(0, Number(sale.total) - Number(sale.paidAmount));
+      if (amount > remaining) {
+        throw new BadRequestException('مبلغ الدفعة أكبر من المبلغ المتبقي');
+      }
+
+      const payment = manager.create(Payment, {
+        tenantId,
+        paymentNumber: await this.generatePaymentNumber(manager, tenantId),
+        saleId,
+        customerId: sale.customerId,
+        paymentMethodId: methodId,
+        amount,
+        paymentDate: new Date(),
+        referenceNumber,
+        createdBy: userId,
+      });
+      await manager.save(payment);
+
+      sale.paidAmount = Number(sale.paidAmount) + amount;
+      sale.paymentStatus = sale.paidAmount >= sale.total ? 'paid' : 'partial';
+      await manager.save(sale);
+
+      if (sale.customerId) {
+        await this.customersService.adjustBalance(tenantId, sale.customerId, -amount, manager);
+      }
+
+      return { payment, sale };
+    });
   }
 
   async voidSale(tenantId: string, id: string, reason: string, userId: string): Promise<void> {
-    const sale = await this.findById(tenantId, id);
-    if (Number(sale.paidAmount) > 0) {
-      throw new BadRequestException('لا يمكن إلغاء فاتورة تم الدفع عليها');
-    }
+    if (!reason?.trim()) throw new BadRequestException('سبب إلغاء الفاتورة مطلوب');
 
-    // Restore stock for tracked items
-    for (const item of sale.items) {
-      await this.inventoryService.adjustInventory({
-        tenantId,
-        productId: item.productId,
-        warehouseId: sale.warehouseId,
-        quantity: item.quantity,
-        type: 'return_in',
-        referenceType: 'sale_void',
-        referenceId: sale.id,
-        userId,
+    await this.dataSource.transaction(async (manager) => {
+      const sale = await manager.findOne(Sale, {
+        where: { id, tenantId },
+        relations: ['items'],
+        lock: { mode: 'pessimistic_write' },
       });
-    }
+      if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
+      if (sale.status !== 'completed') throw new BadRequestException('الفاتورة ليست مكتملة');
+      if (Number(sale.paidAmount) > 0) {
+        throw new BadRequestException('لا يمكن إلغاء فاتورة تم الدفع عليها');
+      }
 
-    sale.status = 'cancelled';
-    sale.voidedAt = new Date();
-    sale.voidedBy = userId;
-    sale.voidReason = reason;
-    await this.salesRepository.save(sale);
+      for (const item of sale.items) {
+        const [product] = await manager.query(
+          `SELECT track_inventory AS "trackInventory"
+           FROM products WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+          [item.productId, tenantId]
+        );
+        if (product?.trackInventory) {
+          await this.inventoryService.adjustInventory(
+            {
+              tenantId,
+              productId: item.productId,
+              warehouseId: sale.warehouseId,
+              quantity: item.quantity,
+              type: 'return_in',
+              referenceType: 'sale_void',
+              referenceId: sale.id,
+              userId,
+            },
+            manager
+          );
+        }
+      }
+
+      sale.status = 'cancelled';
+      sale.voidedAt = new Date();
+      sale.voidedBy = userId;
+      sale.voidReason = reason.trim();
+      await manager.save(sale);
+    });
   }
 
   async getDefaultPaymentMethods(tenantId: string): Promise<PaymentMethod[]> {
@@ -302,8 +433,23 @@ export class SalesService {
       const sale = await manager.findOne(Sale, {
         where: { id: saleId, tenantId },
         relations: ['items'],
+        lock: { mode: 'pessimistic_write' },
       });
       if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
+      if (sale.status !== 'completed' && sale.status !== 'returned') {
+        throw new BadRequestException('لا يمكن إرجاع فاتورة ملغاة');
+      }
+      if (!dto.items?.length) throw new BadRequestException('يجب تحديد صنف واحد على الأقل للمرتجع');
+
+      const returnedRows = await manager.query(
+        `SELECT sale_item_id AS "saleItemId", COALESCE(SUM(quantity), 0) AS quantity
+         FROM sale_return_items WHERE tenant_id = $1 GROUP BY sale_item_id`,
+        [tenantId]
+      );
+      const alreadyReturned = new Map<string, number>(
+        returnedRows.map((row: any) => [row.saleItemId, Number(row.quantity)])
+      );
+      const requestedInReturn = new Map<string, number>();
 
       let subtotal = 0;
       let taxAmount = 0;
@@ -313,9 +459,19 @@ export class SalesService {
       for (const input of dto.items) {
         const saleItem = sale.items.find((i) => i.id === input.saleItemId);
         if (!saleItem) throw new NotFoundException('صنف الفاتورة غير موجود');
-        if (input.quantity > Number(saleItem.quantity)) {
-          throw new BadRequestException('الكمية المسترجعة أكبر من الكمية المباعة');
+        const previous = alreadyReturned.get(saleItem.id) || 0;
+        const requested = (requestedInReturn.get(saleItem.id) || 0) + Number(input.quantity);
+        if (previous + requested > Number(saleItem.quantity)) {
+          throw new BadRequestException('الكمية المسترجعة أكبر من الكمية المتبقية من الصنف');
         }
+        requestedInReturn.set(saleItem.id, requested);
+
+        const [product] = await manager.query(
+          `SELECT track_inventory AS "trackInventory"
+           FROM products WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+          [saleItem.productId, tenantId]
+        );
+        if (!product) throw new NotFoundException('المنتج غير موجود في هذا التاجر');
 
         const unitPrice = Number(saleItem.unitPrice);
         const lineTotal = unitPrice * input.quantity;
@@ -336,22 +492,35 @@ export class SalesService {
           unitCost: saleItem.unitCost,
         });
 
-        // إرجاع الكمية للمخزون
-        await this.inventoryService.adjustInventory({
-          tenantId,
-          productId: saleItem.productId,
-          warehouseId: sale.warehouseId,
-          quantity: input.quantity,
-          type: 'return_in',
-          referenceType: 'sale_return',
-          referenceId: sale.id,
-          userId,
-        });
+        // إرجاع الكمية للمخزون فقط للأصناف التي تتبع مخزونًا.
+        if (product.trackInventory) {
+          await this.inventoryService.adjustInventory(
+            {
+              tenantId,
+              productId: saleItem.productId,
+              warehouseId: sale.warehouseId,
+              quantity: input.quantity,
+              type: 'return_in',
+              referenceType: 'sale_return',
+              referenceId: sale.id,
+              userId,
+            },
+            manager
+          );
+        }
       }
 
       const total = subtotal + taxAmount;
-      const count = await manager.count(SaleReturn, { where: { tenantId } });
-      const returnNumber = `RET-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`;
+      const year = new Date().getFullYear();
+      const [counter] = await manager.query(
+        `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+         VALUES ($1, 'return', $2, 2)
+         ON CONFLICT (tenant_id, document_type, document_year)
+         DO UPDATE SET next_value = document_counters.next_value + 1
+         RETURNING next_value - 1 AS value`,
+        [tenantId, year]
+      );
+      const returnNumber = `RET-${year}-${String(Number(counter.value)).padStart(4, '0')}`;
 
       const saleReturn = manager.create(SaleReturn, {
         tenantId,
@@ -374,14 +543,25 @@ export class SalesService {
         await manager.save(manager.create(SaleReturnItem, { ...item, returnId: savedReturn.id }));
       }
 
-      // تعديل رصيد العميل: لو الفاتورة كانت عليها مبلغ مستحق، ننزّله؛ غير كده يُسجَّل كمسترد نقدي
-      if (sale.customerId) {
-        await this.customersService.adjustBalance(tenantId, sale.customerId, -total);
+      // المرتجع من فاتورة آجلة يقلل الرصيد المستحق. الفاتورة المدفوعة
+      // تحتاج عملية رد مبلغ منفصلة، لذلك لا نخلق رصيدًا سالبًا للعميل تلقائيًا.
+      if (sale.customerId && sale.paymentStatus !== 'paid') {
+        const unpaid = Math.max(0, Number(sale.total) - Number(sale.paidAmount));
+        const balanceReduction = Math.min(total, unpaid);
+        if (balanceReduction > 0) {
+          await this.customersService.adjustBalance(
+            tenantId,
+            sale.customerId,
+            -balanceReduction,
+            manager
+          );
+        }
       }
 
-      // خصم قيمة المرتجع من إجمالي الفاتورة الأصلية حتى يعكس تقرير الأرباح الواقع الفعلي
-      sale.total = Number(sale.total) - total;
-      sale.cogs = Number(sale.cogs) - cogsAdjustment;
+      // خصم قيمة المرتجع من إجمالي الفاتورة الأصلية حتى يعكس تقرير الأرباح الواقع الفعلي.
+      sale.total = Math.max(0, Number(sale.total) - total);
+      sale.cogs = Math.max(0, Number(sale.cogs) - cogsAdjustment);
+      if (sale.total === 0) sale.status = 'returned';
       await manager.save(sale);
 
       return savedReturn;
