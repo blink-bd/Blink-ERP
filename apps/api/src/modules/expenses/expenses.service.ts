@@ -1,5 +1,5 @@
 import { stripProtected } from '@/common/utils/sanitize';
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Expense } from './entities/expense.entity';
@@ -23,9 +23,36 @@ export class ExpensesService {
   }
 
   async create(tenantId: string, data: Partial<Expense>, userId: string): Promise<Expense> {
+    const clean = stripProtected(data);
+    if (!clean.categoryId) throw new BadRequestException('فئة المصروف مطلوبة');
+    if (!Number.isFinite(Number(clean.amount)) || Number(clean.amount) <= 0) {
+      throw new BadRequestException('قيمة المصروف يجب أن تكون أكبر من صفر');
+    }
+
+    const [category] = await this.expensesRepository.manager.query(
+      `SELECT id FROM expense_categories WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+      [clean.categoryId, tenantId]
+    );
+    if (!category) throw new NotFoundException('فئة المصروف غير موجودة لهذا التاجر');
+
+    if (clean.branchId) {
+      const [branch] = await this.expensesRepository.manager.query(
+        `SELECT id FROM branches WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [clean.branchId, tenantId]
+      );
+      if (!branch) throw new NotFoundException('الفرع غير موجود لهذا التاجر');
+    }
+    if (clean.shiftId) {
+      const [shift] = await this.expensesRepository.manager.query(
+        `SELECT id FROM cash_register_shifts WHERE id = $1 AND tenant_id = $2 AND status = 'open'`,
+        [clean.shiftId, tenantId]
+      );
+      if (!shift) throw new NotFoundException('الوردية غير موجودة لهذا التاجر');
+    }
+
     const count = await this.expensesRepository.count({ where: { tenantId } });
     const expense = this.expensesRepository.create({
-      ...stripProtected(data),
+      ...clean,
       tenantId,
       expenseNumber: `EXP-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
       createdBy: userId,

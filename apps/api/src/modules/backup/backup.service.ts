@@ -72,10 +72,9 @@ export class BackupService {
     const tables: Record<string, Record<string, unknown>[]> = {};
 
     // بيانات المستأجر نفسه
-    const tenantRows = await this.dataSource.query(
-      `SELECT * FROM tenants WHERE id = $1`,
-      [tenantId]
-    );
+    const tenantRows = await this.dataSource.query(`SELECT * FROM tenants WHERE id = $1`, [
+      tenantId,
+    ]);
     const tenant = tenantRows[0] ? sanitizeRow(tenantRows[0]) : null;
 
     // كل الجداول المرتبطة بالمستأجر

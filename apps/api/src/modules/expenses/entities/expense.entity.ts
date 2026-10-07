@@ -15,6 +15,9 @@ export class Expense extends BaseEntity {
   @Column({ name: 'branch_id', type: 'uuid', nullable: true })
   branchId?: string;
 
+  @Column({ name: 'shift_id', type: 'uuid', nullable: true })
+  shiftId?: string;
+
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   amount: number;
 

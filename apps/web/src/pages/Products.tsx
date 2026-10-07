@@ -85,7 +85,7 @@ export function ProductsPage() {
     setLoading(true);
     try {
       const [p, c] = await Promise.all([
-        api.get('/products', { params: { search, categoryId: categoryFilter || undefined, limit: 200 } }),
+        api.get('/products', { params: { search, categoryId: categoryFilter || undefined, limit: 50 } }),
         api.get('/categories'),
       ]);
       setProducts(p.data.data);

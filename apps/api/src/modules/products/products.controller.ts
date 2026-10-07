@@ -13,6 +13,8 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { ProductsService } from './products.service';
@@ -21,9 +23,10 @@ import { UpdateProductDto } from './dto/update-product.dto';
 
 @ApiTags('products')
 @ApiBearerAuth()
+@RequirePermission('products.view')
 @Controller({ path: 'products', version: '1' })
 @RequireFeature('products')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
@@ -83,18 +86,21 @@ export class ProductsController {
   }
 
   @Post()
+  @RequirePermission('products.create')
   async create(@Request() req, @Body() dto: CreateProductDto) {
     const product = await this.productsService.create(req.tenantId, dto, req.user?.id);
     return { success: true, data: product, message: 'تم إضافة المنتج بنجاح' };
   }
 
   @Put(':id')
+  @RequirePermission('products.update')
   async update(@Request() req, @Param('id') id: string, @Body() dto: UpdateProductDto) {
     const product = await this.productsService.update(req.tenantId, id, dto, req.user?.id);
     return { success: true, data: product, message: 'تم تحديث المنتج بنجاح' };
   }
 
   @Delete(':id')
+  @RequirePermission('products.delete')
   async remove(@Request() req, @Param('id') id: string) {
     await this.productsService.delete(req.tenantId, id);
     return { success: true, message: 'تم حذف المنتج بنجاح' };

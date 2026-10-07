@@ -107,7 +107,7 @@ export function PurchasesPage() {
 
       {showForm && (
         <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>المورد</Label>
               <select className="border rounded-md h-10 px-3 w-full" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
@@ -147,7 +147,7 @@ export function PurchasesPage() {
             <Button type="button" variant="outline" size="sm" className="mt-2" onClick={addLine}>+ إضافة صنف</Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 items-end border-t pt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end border-t pt-4">
             <div>
               <Label>المبلغ المدفوع الآن (اختياري)</Label>
               <Input type="number" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} placeholder="0 = آجل بالكامل" />

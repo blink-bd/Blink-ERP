@@ -2,12 +2,15 @@ import { Controller, Get, Put, Body, Param, UseGuards, Request } from '@nestjs/c
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { BrandingService } from './branding.service';
 import { MasterAdminGuard } from '@/modules/master-admin/master-admin.guard';
 
 @ApiTags('branding')
+@RequirePermission('branding.view')
 @Controller({ path: 'branding', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
 @ApiBearerAuth()
 export class BrandingController {
   constructor(private readonly brandingService: BrandingService) {}

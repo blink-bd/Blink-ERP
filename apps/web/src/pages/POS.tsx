@@ -4,9 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import toast from 'react-hot-toast';
 import { Trash2, Plus, Minus, FilePlus2, FolderOpen, X } from 'lucide-react';
-import { useFeature } from '@/contexts/FeaturesContext';
-
-type PriceTier = 'retail' | 'half_wholesale' | 'wholesale';
 
 interface CartLine {
   productId: string;
@@ -15,7 +12,6 @@ interface CartLine {
   barcode?: string;
   retailPrice: number;
   wholesalePrice: number | null;
-  halfWholesalePrice: number | null;
   quantity: number;
   taxRate: number;
 }
@@ -25,7 +21,7 @@ interface PosDraft {
   id: string;
   createdAt: string;
   cart: CartLine[];
-  priceTier: PriceTier;
+  priceTier: 'retail' | 'wholesale';
   discount: string;
   selectedCustomer: CustomerLite | null;
   customerName: string;
@@ -33,7 +29,7 @@ interface PosDraft {
 }
 interface StoredPosState {
   cart: CartLine[];
-  priceTier: PriceTier;
+  priceTier: 'retail' | 'wholesale';
   discount: string;
   selectedCustomer: CustomerLite | null;
   customerName: string;
@@ -48,14 +44,11 @@ const readStoredState = (): Partial<StoredPosState> => {
 };
 
 export function POSPage() {
-  const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
   const stored = readStoredState();
   const [query, setQuery] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [cart, setCart] = useState<CartLine[]>(stored.cart || []);
-  const [priceTier, setPriceTier] = useState<PriceTier>(
-    stored.priceTier === 'half_wholesale' && !halfWholesaleEnabled ? 'retail' : stored.priceTier || 'retail'
-  );
+  const [priceTier, setPriceTier] = useState<'retail' | 'wholesale'>(stored.priceTier || 'retail');
   const [discount, setDiscount] = useState(stored.discount || '0');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warehouseId, setWarehouseId] = useState(stored.warehouseId || '');
@@ -106,15 +99,7 @@ export function POSPage() {
     return () => window.clearTimeout(timer);
   }, [customerName]);
 
-  useEffect(() => {
-    if (!halfWholesaleEnabled && priceTier === 'half_wholesale') setPriceTier('retail');
-  }, [halfWholesaleEnabled, priceTier]);
-
-  const priceFor = (line: CartLine) => {
-    if (priceTier === 'wholesale' && line.wholesalePrice) return line.wholesalePrice;
-    if (priceTier === 'half_wholesale' && line.halfWholesalePrice) return line.halfWholesalePrice;
-    return line.retailPrice;
-  };
+  const priceFor = (line: CartLine) => priceTier === 'wholesale' && line.wholesalePrice ? line.wholesalePrice : line.retailPrice;
   const subtotal = cart.reduce((sum, line) => sum + priceFor(line) * line.quantity, 0);
   const taxTotal = cart.reduce((sum, line) => sum + (priceFor(line) * line.quantity * line.taxRate) / 100, 0);
   const discountNum = Number(discount) || 0;
@@ -131,7 +116,6 @@ export function POSPage() {
         barcode: product.barcode,
         retailPrice: Number(product.sellingPrice),
         wholesalePrice: product.wholesalePrice !== null && product.wholesalePrice !== undefined ? Number(product.wholesalePrice) : null,
-        halfWholesalePrice: product.halfWholesalePrice !== null && product.halfWholesalePrice !== undefined ? Number(product.halfWholesalePrice) : null,
         quantity: 1,
         taxRate: Number(product.taxRate) || 0,
       }];
@@ -230,28 +214,24 @@ export function POSPage() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:h-full">
       <div className="flex flex-col lg:col-span-2">
         <div className="flex flex-wrap gap-3 mb-4 items-center">
           <form onSubmit={handleSearch} className="flex-1 relative">
             <Input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالاسم أو الرمز أو الباركود..." className="text-lg h-14" autoFocus />
             {productResults.length > 0 && <div className="absolute z-20 bg-white border rounded-md shadow-lg w-full mt-1 max-h-64 overflow-y-auto">{productResults.map((product) => <button type="button" key={product.id} className="block w-full text-right px-4 py-3 hover:bg-gray-100 border-b last:border-0" onClick={() => addProductToCart(product)}><span className="font-medium">{product.name}</span><span className="text-xs text-gray-500 mr-3">{product.sku || product.barcode || ''}</span><span className="text-xs text-primary mr-3">{Number(product.sellingPrice).toFixed(2)}</span></button>)}</div>}
           </form>
-          <div className="flex rounded-lg overflow-hidden border h-14">
-            <button type="button" onClick={() => setPriceTier('retail')} className={`px-4 font-medium ${priceTier === 'retail' ? 'bg-primary text-white' : 'bg-white'}`}>قطاعي</button>
-            {halfWholesaleEnabled && <button type="button" onClick={() => setPriceTier('half_wholesale')} className={`px-4 font-medium ${priceTier === 'half_wholesale' ? 'bg-primary text-white' : 'bg-white'}`}>نصف جملة</button>}
-            <button type="button" onClick={() => setPriceTier('wholesale')} className={`px-4 font-medium ${priceTier === 'wholesale' ? 'bg-primary text-white' : 'bg-white'}`}>جملة</button>
-          </div>
+          <div className="flex rounded-lg overflow-hidden border h-14"><button type="button" onClick={() => setPriceTier('retail')} className={`px-4 font-medium ${priceTier === 'retail' ? 'bg-primary text-white' : 'bg-white'}`}>قطاعي</button><button type="button" onClick={() => setPriceTier('wholesale')} className={`px-4 font-medium ${priceTier === 'wholesale' ? 'bg-primary text-white' : 'bg-white'}`}>جملة</button></div>
           <Button variant="outline" onClick={createNewInvoice} title="حفظ الحالية وفتح فاتورة جديدة"><FilePlus2 className="h-4 w-4 ml-2" />فاتورة جديدة</Button>
           <div className="relative"><Button variant="outline" onClick={() => setShowDrafts((value) => !value)}><FolderOpen className="h-4 w-4 ml-2" />المحفوظة ({drafts.length})</Button>{showDrafts && <div className="absolute z-30 left-0 top-11 bg-white border rounded-md shadow-lg w-72 p-2">{drafts.length === 0 ? <p className="text-sm text-gray-400 p-3">لا توجد فواتير محفوظة</p> : drafts.map((draft) => <div key={draft.id} className="flex items-center gap-1 border-b last:border-0"><button className="flex-1 text-right text-sm p-2 hover:bg-gray-100" onClick={() => openDraft(draft)}>فاتورة مؤجلة — {draft.cart.length} أصناف</button><button className="p-2 text-red-500" onClick={() => deleteDraft(draft.id)}><X className="h-4 w-4" /></button></div>)}</div>}</div>
         </div>
 
-        <div className="relative mb-4 grid grid-cols-2 gap-2">
+        <div className="relative mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="relative"><Input value={customerName} onFocus={() => { setCustomerFocused(true); loadCustomers(customerName); }} onChange={(e) => { setSelectedCustomer(null); setCustomerName(e.target.value); }} placeholder="اسم العميل — اكتب أول حرف للبحث" />{customerFocused && customerResults.length > 0 && !selectedCustomer && <div className="absolute z-10 bg-white border rounded-md shadow-lg w-full mt-1 max-h-48 overflow-y-auto">{customerResults.map((customer) => <button type="button" key={customer.id} className="block w-full text-right px-3 py-2 hover:bg-gray-100 text-sm" onClick={() => { setSelectedCustomer(customer); setCustomerName(customer.name); setCustomerPhone(customer.phone || ''); setCustomerResults([]); setCustomerFocused(false); }}>{customer.name} {customer.phone && <span className="text-gray-400">— {customer.phone}</span>}</button>)}<button type="button" className="block w-full text-right px-3 py-2 text-primary border-t" onClick={() => { setCustomerResults([]); setCustomerFocused(false); }}>إضافة كعميل جديد</button></div>}</div>
           <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="هاتف العميل" />
         </div>
 
-        <div className="bg-white rounded-lg shadow flex-1 overflow-x-auto"><table className="w-full min-w-[720px] text-sm"><thead className="bg-gray-50 sticky top-0"><tr><th className="text-right p-3">المنتج</th><th className="text-right p-3">الرمز</th><th className="text-center p-3">الكمية</th><th className="text-right p-3">السعر</th><th className="text-right p-3">الإجمالي</th><th className="p-3"></th></tr></thead><tbody>
+        <div className="bg-white rounded-lg shadow flex-1 overflow-y-auto"><table className="w-full text-sm"><thead className="bg-gray-50 sticky top-0"><tr><th className="text-right p-3">المنتج</th><th className="text-right p-3">الرمز</th><th className="text-center p-3">الكمية</th><th className="text-right p-3">السعر</th><th className="text-right p-3">الإجمالي</th><th className="p-3"></th></tr></thead><tbody>
           {cart.length === 0 && <tr><td colSpan={6} className="text-center text-gray-400 py-12">السلة فارغة — ابدأ بالبحث عن منتج</td></tr>}
           {cart.map((line) => <tr key={line.productId} className="border-t"><td className="p-3">{line.name}</td><td className="p-3 text-gray-500">{line.sku || line.barcode || '-'}</td><td className="p-3"><div className="flex items-center justify-center gap-2"><Button size="icon" variant="outline" onClick={() => updateQuantity(line.productId, -1)}><Minus className="h-3 w-3" /></Button><span className="w-8 text-center">{line.quantity}</span><Button size="icon" variant="outline" onClick={() => updateQuantity(line.productId, 1)}><Plus className="h-3 w-3" /></Button></div></td><td className="p-3">{priceFor(line).toFixed(2)}</td><td className="p-3 font-medium">{(priceFor(line) * line.quantity).toFixed(2)}</td><td className="p-3"><Button size="icon" variant="ghost" onClick={() => removeLine(line.productId)}><Trash2 className="h-4 w-4 text-red-500" /></Button></td></tr>)}
         </tbody></table></div>

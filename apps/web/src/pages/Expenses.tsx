@@ -67,7 +67,7 @@ export function ExpensesPage() {
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+      <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">المصروفات</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -75,7 +75,7 @@ export function ExpensesPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات اليوم</p><p className="text-2xl font-bold text-red-600">{summary.day ? Number(summary.day.total).toFixed(2) : '-'}</p></div>
         <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات الشهر</p><p className="text-2xl font-bold text-red-600">{summary.month ? Number(summary.month.total).toFixed(2) : '-'}</p></div>
         <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات السنة</p><p className="text-2xl font-bold text-red-600">{summary.year ? Number(summary.year.total).toFixed(2) : '-'}</p></div>
@@ -95,12 +95,12 @@ export function ExpensesPage() {
           </div>
           <div><Label>الوصف</Label><Input required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           <div><Label>المبلغ</Label><Input type="number" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>
-          <div className="sm:col-span-2 lg:col-span-3 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'جاري الحفظ...' : 'حفظ المصروف'}</Button></div>
+          <div className="col-span-3 flex justify-end"><Button type="submit" disabled={saving}>{saving ? 'جاري الحفظ...' : 'حفظ المصروف'}</Button></div>
         </form>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        <table className="w-full min-w-[640px] text-sm">
+      <div className="bg-white rounded-lg shadow overflow-hidden">
+        <table className="w-full text-sm">
           <thead className="bg-gray-50"><tr><th className="text-right p-3">الرقم</th><th className="text-right p-3">الوصف</th><th className="text-right p-3">التاريخ</th><th className="text-right p-3">المبلغ</th></tr></thead>
           <tbody>
             {loading && <tr><td colSpan={4} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}

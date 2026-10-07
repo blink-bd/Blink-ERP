@@ -12,6 +12,7 @@ import { SaleReturnItem } from './entities/sale-return-item.entity';
 import { ProductsService } from '@/modules/products/products.service';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { CustomersService } from '@/modules/customers/customers.service';
+import { FeaturesService } from '@/modules/features/features.service';
 
 describe('SalesService - createReturn', () => {
   let service: SalesService;
@@ -26,6 +27,7 @@ describe('SalesService - createReturn', () => {
   let mockProductsService: any;
   let mockInventoryService: any;
   let mockCustomersService: any;
+  let mockFeaturesService: any;
 
   const tenantId = 'tenant-123';
   const userId = 'user-123';
@@ -34,6 +36,7 @@ describe('SalesService - createReturn', () => {
   beforeEach(async () => {
     mockManager = {
       findOne: jest.fn(),
+      query: jest.fn().mockResolvedValue([{ trackInventory: true }]),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn((entity, data) => ({ ...data })),
       save: jest.fn((entity) => Promise.resolve({ id: 'return-saved-id', ...entity })),
@@ -89,6 +92,10 @@ describe('SalesService - createReturn', () => {
       adjustBalance: jest.fn().mockResolvedValue(undefined),
     };
 
+    mockFeaturesService = {
+      tenantHasFeature: jest.fn().mockResolvedValue(true),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         SalesService,
@@ -102,6 +109,7 @@ describe('SalesService - createReturn', () => {
         { provide: ProductsService, useValue: mockProductsService },
         { provide: InventoryService, useValue: mockInventoryService },
         { provide: CustomersService, useValue: mockCustomersService },
+        { provide: FeaturesService, useValue: mockFeaturesService },
       ],
     }).compile();
 
@@ -117,6 +125,8 @@ describe('SalesService - createReturn', () => {
     total: 100,
     subtotal: 100,
     cogs: 60,
+    paidAmount: 0,
+    paymentStatus: 'pending',
     status: 'completed',
     items: [
       {
@@ -202,17 +212,25 @@ describe('SalesService - createReturn', () => {
     expect(sale.total).toBe(0);
     expect(sale.cogs).toBe(0);
     expect(sale.status).toBe('returned');
-    expect(mockCustomersService.adjustBalance).toHaveBeenCalledWith(tenantId, 'cust-123', -100);
-    expect(mockInventoryService.adjustInventory).toHaveBeenCalledWith({
+    expect(mockCustomersService.adjustBalance).toHaveBeenCalledWith(
       tenantId,
-      productId: 'prod-1',
-      warehouseId: 'wh-123',
-      quantity: 5,
-      type: 'return_in',
-      referenceType: 'sale_return',
-      referenceId: saleId,
-      userId,
-    });
+      'cust-123',
+      -100,
+      mockManager
+    );
+    expect(mockInventoryService.adjustInventory).toHaveBeenCalledWith(
+      {
+        tenantId,
+        productId: 'prod-1',
+        warehouseId: 'wh-123',
+        quantity: 5,
+        type: 'return_in',
+        referenceType: 'sale_return',
+        referenceId: saleId,
+        userId,
+      },
+      mockManager
+    );
   });
 
   it('يمنع الاسترجاع من فاتورة ملغاة', async () => {

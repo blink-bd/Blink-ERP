@@ -110,7 +110,12 @@ export class MasterAdminController {
   }
 
   @Delete('tenants/:id')
-  async deleteTenant(@Request() req, @Ip() ip: string, @Param('id') id: string, @Body() body: { businessName: string }) {
+  async deleteTenant(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id') id: string,
+    @Body() body: { businessName: string }
+  ) {
     await this.service.deleteTenant(id, body.businessName, req.masterAdmin.email, ip);
     return { success: true, message: 'تم حذف التاجر نهائياً' };
   }
@@ -119,7 +124,13 @@ export class MasterAdminController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
   async restore(@UploadedFile() file: { buffer: Buffer }, @Request() req, @Ip() ip: string) {
     if (!file) throw new ForbiddenException('ملف النسخة الاحتياطية مطلوب');
-    await this.service.restoreTenant(JSON.parse(file.buffer.toString('utf8')), req.masterAdmin.email, ip);
+    let backup: unknown;
+    try {
+      backup = JSON.parse(file.buffer.toString('utf8'));
+    } catch {
+      throw new ForbiddenException('ملف النسخة الاحتياطية ليس JSON صالحاً');
+    }
+    await this.service.restoreTenant(backup, req.masterAdmin.email, ip);
     return { success: true, message: 'تمت استعادة التاجر بنجاح' };
   }
 

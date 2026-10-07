@@ -45,13 +45,9 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const codes: string[] = res.data.data.map((f: any) => f.code);
       setFeatures(new Set(codes));
     } catch {
-      // Fallback to the standard feature set if the call fails (e.g. offline first load)
-      setFeatures(
-        new Set([
-          'dashboard', 'pos', 'sales', 'products', 'inventory', 'customers',
-          'suppliers', 'purchases', 'returns', 'cash_register', 'expenses', 'reports',
-        ])
-      );
+      // Fail closed: an unavailable feature response must never make the UI
+      // claim that disabled capabilities are available.
+      setFeatures(new Set());
     } finally {
       setLoading(false);
     }
@@ -60,7 +56,6 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // إعادة تحميل الميزات فور تسجيل الدخول/الخروج
   useEffect(() => {
     loadFeatures();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
   // إعادة تحميل الميزات عند رجوع المستخدم للتبويب أو استعادة الاتصال —
@@ -79,7 +74,6 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('online', onOnline);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Polling دوري خفيف كـ "شبكة أمان" حتى لو التبويب فاضل مفتوح وما حصلش focus/blur.
@@ -88,7 +82,6 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       if (isAuthenticatedRef.current) loadFeatures();
     }, POLL_INTERVAL_MS);
     return () => window.clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

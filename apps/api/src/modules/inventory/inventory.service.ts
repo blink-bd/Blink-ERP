@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { EntityManager, Repository, DataSource } from 'typeorm';
 import { Inventory } from './entities/inventory.entity';
 import {
   InventoryTransaction,
@@ -58,9 +58,7 @@ export class InventoryService {
     if (options.search) {
       query.andWhere(
         '(product.name ILIKE :search OR product.sku ILIKE :search OR product.barcode ILIKE :search)',
-        {
-          search: `%${options.search}%`,
-        }
+        { search: `%${options.search}%` }
       );
     }
 
@@ -99,71 +97,115 @@ export class InventoryService {
     return query.orderBy('txn.createdAt', 'DESC').limit(200).getMany();
   }
 
-  /**
-   * Core stock-movement primitive used by Sales, Purchases, Adjustments and Transfers.
-   * Uses a DB transaction + optimistic locking (version column) to stay safe under concurrency,
-   * mirroring the update_inventory() SQL function documented in docs/DATABASE.md.
-   */
-  async adjustInventory(input: AdjustInventoryInput): Promise<InventoryTransaction> {
-    return this.dataSource.transaction(async (manager) => {
-      let inventory = await manager.findOne(Inventory, {
-        where: {
-          tenantId: input.tenantId,
-          productId: input.productId,
-          warehouseId: input.warehouseId,
-        },
-        lock: { mode: 'pessimistic_write' },
-      });
+  private async assertTenantReferences(
+    manager: EntityManager,
+    tenantId: string,
+    productId: string,
+    warehouseId: string
+  ): Promise<void> {
+    const [product] = await manager.query(
+      `SELECT id FROM products WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [productId, tenantId]
+    );
+    if (!product) throw new NotFoundException('المنتج غير موجود في هذا التاجر');
 
-      if (!inventory) {
-        inventory = manager.create(Inventory, {
-          tenantId: input.tenantId,
-          productId: input.productId,
-          warehouseId: input.warehouseId,
-          quantity: 0,
-          weightedAvgCost: input.unitCost || 0,
-          lastCost: input.unitCost || 0,
-        });
-      }
+    const [warehouse] = await manager.query(
+      `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [warehouseId, tenantId]
+    );
+    if (!warehouse) throw new NotFoundException('المخزن غير موجود في هذا التاجر');
+  }
 
-      const newQuantity = Number(inventory.quantity) + input.quantity;
-      if (newQuantity < 0) {
-        throw new BadRequestException('الكمية المتاحة غير كافية');
-      }
+  private async adjustWithManager(
+    manager: EntityManager,
+    input: AdjustInventoryInput
+  ): Promise<InventoryTransaction> {
+    if (!Number.isFinite(input.quantity) || input.quantity === 0) {
+      throw new BadRequestException('كمية حركة المخزون غير صحيحة');
+    }
+    if (input.quantity > 0 && input.unitCost !== undefined && input.unitCost < 0) {
+      throw new BadRequestException('تكلفة المخزون لا يمكن أن تكون سالبة');
+    }
 
-      // Recompute weighted average cost only on stock increases with a known cost
-      if (input.quantity > 0 && input.unitCost !== undefined) {
-        const currentQty = Number(inventory.quantity);
-        const currentCost = Number(inventory.weightedAvgCost);
-        inventory.weightedAvgCost =
-          currentQty + input.quantity === 0
-            ? input.unitCost
-            : (currentQty * currentCost + input.quantity * input.unitCost) /
-              (currentQty + input.quantity);
-        inventory.lastCost = input.unitCost;
-      }
+    await this.assertTenantReferences(manager, input.tenantId, input.productId, input.warehouseId);
 
-      inventory.quantity = newQuantity;
-      inventory.version = (inventory.version || 1) + 1;
-      await manager.save(inventory);
+    // Lock the logical stock key even when the row does not exist yet. This
+    // prevents two concurrent first movements from creating inconsistent rows.
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `${input.tenantId}:${input.productId}:${input.warehouseId}`,
+    ]);
 
-      const transaction = manager.create(InventoryTransaction, {
+    let inventory = await manager.findOne(Inventory, {
+      where: {
         tenantId: input.tenantId,
         productId: input.productId,
         warehouseId: input.warehouseId,
-        type: input.type,
-        quantity: input.quantity,
-        unitCost: input.unitCost,
-        balanceAfter: newQuantity,
-        referenceType: input.referenceType,
-        referenceId: input.referenceId,
-        referenceNumber: input.referenceNumber,
-        notes: input.notes,
-        createdBy: input.userId,
-      });
-
-      return manager.save(transaction);
+      },
+      lock: { mode: 'pessimistic_write' },
     });
+
+    if (!inventory) {
+      inventory = manager.create(Inventory, {
+        tenantId: input.tenantId,
+        productId: input.productId,
+        warehouseId: input.warehouseId,
+        quantity: 0,
+        weightedAvgCost: input.unitCost || 0,
+        lastCost: input.unitCost || 0,
+      });
+    }
+
+    const newQuantity = Number(inventory.quantity) + input.quantity;
+    const availableAfter = newQuantity - Number(inventory.reservedQuantity || 0);
+    if (newQuantity < 0 || availableAfter < 0) {
+      throw new BadRequestException('الكمية المتاحة غير كافية');
+    }
+
+    if (input.quantity > 0 && input.unitCost !== undefined) {
+      const currentQty = Number(inventory.quantity);
+      const currentCost = Number(inventory.weightedAvgCost);
+      inventory.weightedAvgCost =
+        currentQty + input.quantity === 0
+          ? input.unitCost
+          : (currentQty * currentCost + input.quantity * input.unitCost) /
+            (currentQty + input.quantity);
+      inventory.lastCost = input.unitCost;
+    }
+
+    inventory.quantity = newQuantity;
+    inventory.version = (inventory.version || 1) + 1;
+    await manager.save(inventory);
+
+    const transaction = manager.create(InventoryTransaction, {
+      tenantId: input.tenantId,
+      productId: input.productId,
+      warehouseId: input.warehouseId,
+      type: input.type,
+      quantity: input.quantity,
+      unitCost: input.unitCost,
+      balanceAfter: newQuantity,
+      referenceType: input.referenceType,
+      referenceId: input.referenceId,
+      referenceNumber: input.referenceNumber,
+      notes: input.notes,
+      createdBy: input.userId,
+    });
+
+    return manager.save(transaction);
+  }
+
+  /**
+   * Uses the caller's transaction when provided. Financial workflows must pass
+   * their EntityManager so stock changes roll back with the sale or purchase.
+   */
+  async adjustInventory(
+    input: AdjustInventoryInput,
+    manager?: EntityManager
+  ): Promise<InventoryTransaction> {
+    if (manager) return this.adjustWithManager(manager, input);
+    return this.dataSource.transaction((transactionManager) =>
+      this.adjustWithManager(transactionManager, input)
+    );
   }
 
   async adjustManual(
@@ -174,13 +216,14 @@ export class InventoryService {
     reason: string,
     userId?: string
   ) {
+    if (!reason?.trim()) throw new BadRequestException('سبب تعديل المخزون مطلوب');
     return this.adjustInventory({
       tenantId,
       productId,
       warehouseId,
       quantity,
       type: 'adjustment',
-      notes: reason,
+      notes: reason.trim(),
       userId,
     });
   }
@@ -191,33 +234,47 @@ export class InventoryService {
     fromWarehouseId: string,
     toWarehouseId: string,
     quantity: number,
-    userId?: string
+    userId?: string,
+    manager?: EntityManager
   ) {
-    const out = await this.adjustInventory({
-      tenantId,
-      productId,
-      warehouseId: fromWarehouseId,
-      quantity: -quantity,
-      type: 'transfer_out',
-      userId,
-    });
-    const inTxn = await this.adjustInventory({
-      tenantId,
-      productId,
-      warehouseId: toWarehouseId,
-      quantity,
-      type: 'transfer_in',
-      userId,
-    });
-    return { out, in: inTxn };
+    if (fromWarehouseId === toWarehouseId) {
+      throw new BadRequestException('مخزن المصدر والوجهة يجب أن يكونا مختلفين');
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new BadRequestException('كمية النقل يجب أن تكون أكبر من صفر');
+    }
+
+    const execute = async (transactionManager: EntityManager) => {
+      const out = await this.adjustWithManager(transactionManager, {
+        tenantId,
+        productId,
+        warehouseId: fromWarehouseId,
+        quantity: -quantity,
+        type: 'transfer_out',
+        userId,
+      });
+      const inTxn = await this.adjustWithManager(transactionManager, {
+        tenantId,
+        productId,
+        warehouseId: toWarehouseId,
+        quantity,
+        type: 'transfer_in',
+        userId,
+      });
+      return { out, in: inTxn };
+    };
+
+    return manager ? execute(manager) : this.dataSource.transaction(execute);
   }
 
   async getAvailableQuantity(
     tenantId: string,
     productId: string,
-    warehouseId: string
+    warehouseId: string,
+    manager?: EntityManager
   ): Promise<number> {
-    const inventory = await this.inventoryRepository.findOne({
+    const repository = manager ? manager.getRepository(Inventory) : this.inventoryRepository;
+    const inventory = await repository.findOne({
       where: { tenantId, productId, warehouseId },
     });
     if (!inventory) return 0;

@@ -61,7 +61,7 @@ locales/
 { "validation": { "required": "{{field}} مطلوب", "email": "{{field}} غير صحيح", "min": "{{field}} يجب أن يكون على الأقل {{min}}" } }
 ```
 
-Full versions of these files ship in `apps/desktop/src/i18n/locales/ar/`.
+Full versions of these files ship in `apps/web/src/i18n/locales/ar/`.
 
 ---
 

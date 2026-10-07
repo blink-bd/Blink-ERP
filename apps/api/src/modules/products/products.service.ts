@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { EntityManager, Repository, IsNull } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { InventoryService } from '@/modules/inventory/inventory.service';
@@ -43,7 +43,11 @@ export class ProductsService {
     if (sellingPrice <= costPrice) {
       throw new BadRequestException('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
     }
-    if (halfWholesalePrice !== undefined && halfWholesalePrice !== null && halfWholesalePrice <= costPrice) {
+    if (
+      halfWholesalePrice !== undefined &&
+      halfWholesalePrice !== null &&
+      halfWholesalePrice <= costPrice
+    ) {
       throw new BadRequestException('سعر البيع نصف الجملة يجب أن يكون أكبر من سعر التكلفة');
     }
     if (wholesalePrice !== undefined && wholesalePrice !== null && wholesalePrice <= costPrice) {
@@ -63,6 +67,28 @@ export class ProductsService {
     );
     if (!allowed) {
       throw new BadRequestException('ميزة تسعير نصف الجملة غير مفعّلة لهذا الحساب');
+    }
+  }
+
+  private async assertTenantReferences(
+    tenantId: string,
+    categoryId?: string | null,
+    brandId?: string | null,
+    manager: EntityManager = this.productsRepository.manager
+  ) {
+    if (categoryId) {
+      const [category] = await manager.query(
+        `SELECT id FROM categories WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [categoryId, tenantId]
+      );
+      if (!category) throw new NotFoundException('الفئة غير موجودة لهذا التاجر');
+    }
+    if (brandId) {
+      const [brand] = await manager.query(
+        `SELECT id FROM brands WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [brandId, tenantId]
+      );
+      if (!brand) throw new NotFoundException('العلامة التجارية غير موجودة لهذا التاجر');
     }
   }
 
@@ -140,13 +166,15 @@ export class ProductsService {
   }
 
   async findAll(tenantId: string, options: ListOptions = {}) {
-    const page = options.page || 1;
-    const limit = options.limit || 20;
+    const page = Math.max(1, Number(options.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
 
     const query = this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.brand', 'brand')
+      .leftJoinAndSelect('product.category', 'category', 'category.tenantId = :tenantId', {
+        tenantId,
+      })
+      .leftJoinAndSelect('product.brand', 'brand', 'brand.tenantId = :tenantId', { tenantId })
       .where('product.tenantId = :tenantId', { tenantId })
       .andWhere('product.deletedAt IS NULL');
 
@@ -180,8 +208,8 @@ export class ProductsService {
     if (ids.length) {
       const rows = await this.productsRepository.manager.query(
         `SELECT product_id, COALESCE(SUM(available_quantity), 0) AS qty
-         FROM inventory WHERE product_id = ANY($1) GROUP BY product_id`,
-        [ids]
+         FROM inventory WHERE tenant_id = $2 AND product_id = ANY($1) GROUP BY product_id`,
+        [ids, tenantId]
       );
       for (const r of rows) stockMap.set(r.product_id, Number(r.qty));
     }
@@ -192,9 +220,10 @@ export class ProductsService {
         `SELECT i.product_id, COALESCE(SUM(i.available_quantity), 0) AS qty
          FROM inventory i
          JOIN warehouses w ON w.id = i.warehouse_id
-         WHERE i.product_id = ANY($1) AND w.is_main = true AND w.deleted_at IS NULL
+         WHERE i.tenant_id = $2 AND w.tenant_id = $2 AND i.product_id = ANY($1)
+           AND w.is_main = true AND w.deleted_at IS NULL
          GROUP BY i.product_id`,
-        [ids]
+        [ids, tenantId]
       );
       for (const r of rows) openingStockMap.set(r.product_id, Number(r.qty));
     }
@@ -253,6 +282,7 @@ export class ProductsService {
     if (duplicates.sku) throw new ConflictException('رمز المنتج موجود مسبقاً');
     if (duplicates.barcode) throw new ConflictException('الباركود موجود مسبقاً');
 
+    await this.assertTenantReferences(tenantId, dto.categoryId, dto.brandId);
     await this.assertHalfWholesaleAllowed(tenantId, dto.halfWholesalePrice);
     this.validateSellingPrices(
       Number(dto.costPrice),
@@ -304,9 +334,14 @@ export class ProductsService {
     tenantId: string,
     id: string,
     dto: UpdateProductDto,
-    userId?: string
+    userId?: string,
+    manager?: EntityManager
   ): Promise<Product> {
-    const product = await this.findById(tenantId, id);
+    const repository = manager ? manager.getRepository(Product) : this.productsRepository;
+    const product = manager
+      ? await repository.findOne({ where: { id, tenantId, deletedAt: IsNull() } })
+      : await this.findById(tenantId, id);
+    if (!product) throw new NotFoundException('المنتج غير موجود');
     const sku = dto.sku === undefined ? product.sku : dto.sku?.trim() || undefined;
     const barcode = dto.barcode === undefined ? product.barcode : dto.barcode?.trim() || undefined;
     const duplicates = await this.findDuplicateIdentifiers(tenantId, sku, barcode, id);
@@ -331,6 +366,7 @@ export class ProductsService {
           ? undefined
           : Number(product.halfWholesalePrice)
         : dto.halfWholesalePrice;
+    await this.assertTenantReferences(tenantId, dto.categoryId, dto.brandId, manager);
     await this.assertHalfWholesaleAllowed(tenantId, dto.halfWholesalePrice);
     const isSystemCostReviewUpdate =
       (dto as any).needsPriceReview === true &&
@@ -392,7 +428,7 @@ export class ProductsService {
       product.needsPriceReview = false;
       product.priceReviewNote = null as any;
     }
-    return this.productsRepository.save(product);
+    return repository.save(product);
   }
 
   async delete(tenantId: string, id: string): Promise<void> {

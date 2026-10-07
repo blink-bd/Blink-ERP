@@ -254,24 +254,51 @@ export class MasterAdminService implements OnModuleInit {
   }
 
   // ---------- Tenant backup, restore and permanent deletion ----------
-  private quoteIdentifier(name: string) { return `"${name.replace(/"/g, '""')}"`; }
+  private quoteIdentifier(name: string) {
+    return `"${name.replace(/"/g, '""')}"`;
+  }
 
   async backupTenant(id: string, adminEmail: string, ip: string) {
     await this.getTenant(id);
-    const tables = await this.dataSource.query(`SELECT table_name FROM information_schema.columns WHERE table_schema='public' AND column_name='tenant_id' AND table_name <> 'audit_logs' ORDER BY table_name`);
-    const backup: any = { format: 'blink-erp-tenant-backup', version: 1, tenantId: id, exportedAt: new Date().toISOString(), tables: {} };
-    backup.tables.tenants = await this.dataSource.query('SELECT * FROM tenants WHERE id = $1', [id]);
-    for (const { table_name: table } of tables) backup.tables[table] = await this.dataSource.query(`SELECT * FROM ${this.quoteIdentifier(table)} WHERE tenant_id = $1`, [id]);
-    await this.audit(adminEmail, 'TENANT_BACKUP_EXPORTED', 'tenant', id, { tables: Object.keys(backup.tables) }, ip);
+    const tables = await this.dataSource.query(
+      `SELECT table_name FROM information_schema.columns WHERE table_schema='public' AND column_name='tenant_id' AND table_name <> 'audit_logs' ORDER BY table_name`
+    );
+    const backup: any = {
+      format: 'blink-erp-tenant-backup',
+      version: 1,
+      tenantId: id,
+      exportedAt: new Date().toISOString(),
+      tables: {},
+    };
+    backup.tables.tenants = await this.dataSource.query('SELECT * FROM tenants WHERE id = $1', [
+      id,
+    ]);
+    for (const { table_name: table } of tables)
+      backup.tables[table] = await this.dataSource.query(
+        `SELECT * FROM ${this.quoteIdentifier(table)} WHERE tenant_id = $1`,
+        [id]
+      );
+    await this.audit(
+      adminEmail,
+      'TENANT_BACKUP_EXPORTED',
+      'tenant',
+      id,
+      { tables: Object.keys(backup.tables) },
+      ip
+    );
     return backup;
   }
 
   async deleteTenant(id: string, businessName: string, adminEmail: string, ip: string) {
     const tenant = await this.getTenant(id);
-    if (businessName !== tenant.businessName) throw new ForbiddenException('اسم النشاط التجاري غير مطابق');
+    if (businessName !== tenant.businessName)
+      throw new ForbiddenException('اسم النشاط التجاري غير مطابق');
     await this.dataSource.transaction(async (manager) => {
       await manager.query('DELETE FROM tenants WHERE id = $1', [id]);
-      await manager.query(`INSERT INTO audit_logs (user_email,user_ip,action,entity_type,entity_id,new_values,description,severity) VALUES ($1,$2,'TENANT_DELETED','tenant',$3,$4,'master_admin','warning')`, [adminEmail, ip || null, id, JSON.stringify({ businessName })]);
+      await manager.query(
+        `INSERT INTO audit_logs (user_email,user_ip,action,entity_type,entity_id,new_values,description,severity) VALUES ($1,$2,'TENANT_DELETED','tenant',$3,$4,'master_admin','warning')`,
+        [adminEmail, ip || null, id, JSON.stringify({ businessName })]
+      );
     });
   }
 
@@ -286,12 +313,16 @@ export class MasterAdminService implements OnModuleInit {
   }
 
   /** ترتيب الجداول بحيث تُدرَج الجداول الأم قبل الأبناء (حسب قيود الـ FK) لتجنب كسر القيود أثناء الاستعادة. */
-  private orderTablesForRestore(tables: string[], fkRows: { child: string; parent: string }[]): string[] {
+  private orderTablesForRestore(
+    tables: string[],
+    fkRows: { child: string; parent: string }[]
+  ): string[] {
     const inSet = new Set(tables);
     const parents = new Map<string, Set<string>>();
     for (const t of tables) parents.set(t, new Set());
     for (const { child, parent } of fkRows) {
-      if (child !== parent && inSet.has(child) && inSet.has(parent)) parents.get(child)!.add(parent);
+      if (child !== parent && inSet.has(child) && inSet.has(parent))
+        parents.get(child)!.add(parent);
     }
     const ordered: string[] = [];
     const done = new Set<string>();
@@ -310,14 +341,26 @@ export class MasterAdminService implements OnModuleInit {
   }
 
   async restoreTenant(backup: any, adminEmail: string, ip: string) {
-    if (!backup || backup.format !== 'blink-erp-tenant-backup' || backup.version !== 1 || !backup.tenantId || !backup.tables?.tenants?.length) throw new ForbiddenException('ملف النسخة الاحتياطية غير صالح');
+    if (
+      !backup ||
+      backup.format !== 'blink-erp-tenant-backup' ||
+      backup.version !== 1 ||
+      !backup.tenantId ||
+      !backup.tables?.tenants?.length
+    )
+      throw new ForbiddenException('ملف النسخة الاحتياطية غير صالح');
     const tenantId = backup.tenantId;
-    if (await this.tenants.findOne({ where: { id: tenantId }, withDeleted: true })) throw new ForbiddenException('Tenant ID موجود بالفعل');
-    for (const row of Object.values(backup.tables).flat() as any[]) if (row.tenant_id && row.tenant_id !== tenantId) throw new ForbiddenException('النسخة تحتوي سجلات لتاجر آخر');
+    if (await this.tenants.findOne({ where: { id: tenantId }, withDeleted: true }))
+      throw new ForbiddenException('Tenant ID موجود بالفعل');
+    for (const row of Object.values(backup.tables).flat() as any[])
+      if (row.tenant_id && row.tenant_id !== tenantId)
+        throw new ForbiddenException('النسخة تحتوي سجلات لتاجر آخر');
 
-        // ملاحظة: نعمل cast إلى ::text لأن node-postgres يرجّع name[] كنص خام "{a,b,c}" وليس مصفوفة
+    // ملاحظة: نعمل cast إلى ::text لأن node-postgres يرجّع name[] كنص خام "{a,b,c}" وليس مصفوفة
     // ونستبعد الأعمدة المولّدة تلقائياً (GENERATED ALWAYS) لأن Postgres يرفض إدخال قيم فيها
-    const allowed = await this.dataSource.query(`SELECT table_name::text AS table_name, array_agg(column_name::text ORDER BY ordinal_position) AS columns FROM information_schema.columns WHERE table_schema='public' AND is_generated = 'NEVER' AND (identity_generation IS NULL OR identity_generation <> 'ALWAYS') GROUP BY table_name`);
+    const allowed = await this.dataSource.query(
+      `SELECT table_name::text AS table_name, array_agg(column_name::text ORDER BY ordinal_position) AS columns FROM information_schema.columns WHERE table_schema='public' AND is_generated = 'NEVER' AND (identity_generation IS NULL OR identity_generation <> 'ALWAYS') GROUP BY table_name`
+    );
     const columns = new Map<string, Set<string>>(
       allowed.map((x: any): [string, Set<string>] => [
         String(x.table_name),
@@ -335,7 +378,8 @@ export class MasterAdminService implements OnModuleInit {
 
     const tableNames = ['tenants', ...Object.keys(backup.tables).filter((t) => t !== 'tenants')];
     for (const table of tableNames) {
-      if (!columns.has(table) || !/^[a-zA-Z0-9_]+$/.test(table)) throw new ForbiddenException(`جدول غير مسموح: ${table}`);
+      if (!columns.has(table) || !/^[a-zA-Z0-9_]+$/.test(table))
+        throw new ForbiddenException(`جدول غير مسموح: ${table}`);
     }
     const ordered = this.orderTablesForRestore(tableNames, fkRows);
 
@@ -346,14 +390,21 @@ export class MasterAdminService implements OnModuleInit {
         for (const row of backup.tables[table] || []) {
           const keys = Object.keys(row).filter((k) => tableColumns.has(k));
           if (!keys.length) continue;
-          await manager.query(`INSERT INTO ${this.quoteIdentifier(table)} (${keys.map((k) => this.quoteIdentifier(k)).join(',')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(',')})`, keys.map((k) => row[k]));
+          await manager.query(
+            `INSERT INTO ${this.quoteIdentifier(table)} (${keys.map((k) => this.quoteIdentifier(k)).join(',')}) VALUES (${keys.map((_, i) => `$${i + 1}`).join(',')})`,
+            keys.map((k) => row[k])
+          );
           insertedRows++;
         }
       }
       // حماية: لو ما اتسجّلش صف التاجر نفسه، الاستعادة تعتبر فاشلة ونرجع كل حاجة
       const [check] = await manager.query('SELECT id FROM tenants WHERE id = $1', [tenantId]);
-      if (!check || !insertedRows) throw new ForbiddenException('فشلت الاستعادة: لم يتم إدراج أي بيانات من الملف');
-      await manager.query(`INSERT INTO audit_logs (user_email,user_ip,action,entity_type,entity_id,new_values,description,severity) VALUES ($1,$2,'TENANT_BACKUP_RESTORED','tenant',$3,$4,'master_admin','warning')`, [adminEmail, ip || null, tenantId, JSON.stringify({ tables: ordered, insertedRows })]);
+      if (!check || !insertedRows)
+        throw new ForbiddenException('فشلت الاستعادة: لم يتم إدراج أي بيانات من الملف');
+      await manager.query(
+        `INSERT INTO audit_logs (user_email,user_ip,action,entity_type,entity_id,new_values,description,severity) VALUES ($1,$2,'TENANT_BACKUP_RESTORED','tenant',$3,$4,'master_admin','warning')`,
+        [adminEmail, ip || null, tenantId, JSON.stringify({ tables: ordered, insertedRows })]
+      );
     });
     return { insertedRows, tables: ordered.length };
   }

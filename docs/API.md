@@ -407,17 +407,6 @@ GET    /admin/tenants/:id/activity
 
 ---
 
-## Synchronization API
-
-```http
-POST /sync/sales
-GET  /sync/status
-```
-
-Sync requests use `deviceId` + `idempotencyKey` for safe retries, and process operations (`create`/`update`/`delete`) against server entities.
-
----
-
 ## Error Codes
 
 ### Authentication Errors
@@ -434,7 +423,7 @@ Sync requests use `deviceId` + `idempotencyKey` for safe retries, and process op
   `SALE_NOT_FOUND`, `CANNOT_DELETE_HAS_TRANSACTIONS`, `SHIFT_ALREADY_OPEN`, `NO_OPEN_SHIFT`, `INVALID_PAYMENT_AMOUNT`
 
 ### System Errors
-- `INTERNAL_SERVER_ERROR`, `DATABASE_ERROR`, `FILE_UPLOAD_ERROR`, `SYNC_ERROR`
+- `INTERNAL_SERVER_ERROR`, `DATABASE_ERROR`, `FILE_UPLOAD_ERROR`
 
 ---
 

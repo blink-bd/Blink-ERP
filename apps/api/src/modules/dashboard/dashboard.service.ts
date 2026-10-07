@@ -27,7 +27,7 @@ export class DashboardService {
       `SELECT p.id, p.name, p.sku, p.min_stock_level AS "minStockLevel",
               COALESCE(SUM(i.available_quantity), 0) AS "availableQuantity"
        FROM products p
-       LEFT JOIN inventory i ON i.product_id = p.id
+       LEFT JOIN inventory i ON i.product_id = p.id AND i.tenant_id = $1
        WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true AND p.is_active = true
        GROUP BY p.id
        HAVING COALESCE(SUM(i.available_quantity), 0) <= p.min_stock_level

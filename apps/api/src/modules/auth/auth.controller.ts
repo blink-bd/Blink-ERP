@@ -40,8 +40,8 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
-  async logout() {
-    // Token revocation list can be added once refresh tokens are persisted (Phase 2 hardening).
+  async logout(@Request() req: any) {
+    await this.authService.logout(req.user.id);
     return { success: true, message: 'تم تسجيل الخروج بنجاح' };
   }
 

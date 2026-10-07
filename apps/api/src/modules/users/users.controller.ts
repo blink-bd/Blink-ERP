@@ -14,6 +14,23 @@ export class UsersController {
   @Get('me')
   async me(@Request() req) {
     const user = await this.usersService.findById(req.user.id);
-    return { success: true, data: user };
+    if (!user) return { success: true, data: null };
+    return {
+      success: true,
+      data: {
+        id: user.id,
+        tenantId: user.tenantId,
+        email: user.email,
+        fullName: user.fullName,
+        phone: user.phone,
+        isActive: user.isActive,
+        roles: (user.roles || []).map((role) => ({
+          id: role.id,
+          name: role.name,
+          nameAr: role.nameAr,
+          permissions: (role.permissions || []).map((permission) => permission.name),
+        })),
+      },
+    };
   }
 }
