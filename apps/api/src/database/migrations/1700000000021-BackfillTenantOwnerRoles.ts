@@ -5,7 +5,7 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * lock out their first administrators. Only users without any role are
  * backfilled; explicitly configured roles are left untouched.
  */
-export class BackfillTenantOwnerRoles1700000000017 implements MigrationInterface {
+export class BackfillTenantOwnerRoles1700000000021 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       INSERT INTO roles (tenant_id, name, name_ar, description, is_system)

@@ -57,6 +57,18 @@ export class Tenant extends BaseEntity {
   })
   subscriptionStatus: 'active' | 'expired' | 'suspended' | 'cancelled';
 
+  /** المبلغ اللي المدير العام بيحدده بنفسه للبيع للتاجر (مش من خطة جاهزة) */
+  @Column({ name: 'subscription_amount', type: 'decimal', precision: 15, scale: 4, nullable: true })
+  subscriptionAmount?: number;
+
+  /** الدورة: شهري أو سنوي */
+  @Column({ name: 'subscription_cycle', length: 20, nullable: true })
+  subscriptionCycle?: 'monthly' | 'yearly';
+
+  /** ملحوظة توضح المبلغ ده بتاع إيه */
+  @Column({ name: 'subscription_note', type: 'text', nullable: true })
+  subscriptionNote?: string;
+
   @Column({ name: 'trial_ends_at', type: 'timestamp', nullable: true })
   trialEndsAt?: Date;
 

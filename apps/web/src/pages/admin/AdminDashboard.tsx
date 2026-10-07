@@ -36,8 +36,8 @@ export function AdminDashboardPage() {
 
       <div>
         <h2 className="text-lg font-bold mb-3">آخر عمليات الإدارة</h2>
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50"><tr>
               <th className="text-right p-3">الوقت</th><th className="text-right p-3">المدير</th>
               <th className="text-right p-3">العملية</th><th className="text-right p-3">IP</th>

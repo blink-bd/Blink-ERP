@@ -11,6 +11,9 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { WarehousesService } from '@/modules/inventory/warehouses.service';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { FeaturesService } from '@/modules/features/features.service';
+
+const HALF_WHOLESALE_FEATURE_CODE = 'half_wholesale_pricing';
 
 interface ListOptions {
   page?: number;
@@ -27,15 +30,65 @@ export class ProductsService {
     @InjectRepository(Product)
     private readonly productsRepository: Repository<Product>,
     private readonly inventoryService: InventoryService,
-    private readonly warehousesService: WarehousesService
+    private readonly warehousesService: WarehousesService,
+    private readonly featuresService: FeaturesService
   ) {}
 
-  private validateSellingPrices(costPrice: number, sellingPrice: number, wholesalePrice?: number) {
+  private validateSellingPrices(
+    costPrice: number,
+    sellingPrice: number,
+    wholesalePrice?: number,
+    halfWholesalePrice?: number
+  ) {
     if (sellingPrice <= costPrice) {
       throw new BadRequestException('سعر البيع القطاعي يجب أن يكون أكبر من سعر التكلفة');
     }
+    if (
+      halfWholesalePrice !== undefined &&
+      halfWholesalePrice !== null &&
+      halfWholesalePrice <= costPrice
+    ) {
+      throw new BadRequestException('سعر البيع نصف الجملة يجب أن يكون أكبر من سعر التكلفة');
+    }
     if (wholesalePrice !== undefined && wholesalePrice !== null && wholesalePrice <= costPrice) {
       throw new BadRequestException('سعر البيع بالجملة يجب أن يكون أكبر من سعر التكلفة');
+    }
+  }
+
+  /**
+   * لو التاجر بعت قيمة لسعر نصف الجملة وهو مش مفعّل له الميزة، نرفض الطلب
+   * بدل ما نتجاهل القيمة بصمت — عشان محدش يقدر يلتف على التفعيل عن طريق الـ API مباشرة.
+   */
+  private async assertHalfWholesaleAllowed(tenantId: string, value?: number | null) {
+    if (value === undefined || value === null) return;
+    const allowed = await this.featuresService.tenantHasFeature(
+      tenantId,
+      HALF_WHOLESALE_FEATURE_CODE
+    );
+    if (!allowed) {
+      throw new BadRequestException('ميزة تسعير نصف الجملة غير مفعّلة لهذا الحساب');
+    }
+  }
+
+  private async assertTenantReferences(
+    tenantId: string,
+    categoryId?: string | null,
+    brandId?: string | null,
+    manager: EntityManager = this.productsRepository.manager
+  ) {
+    if (categoryId) {
+      const [category] = await manager.query(
+        `SELECT id FROM categories WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [categoryId, tenantId]
+      );
+      if (!category) throw new NotFoundException('الفئة غير موجودة لهذا التاجر');
+    }
+    if (brandId) {
+      const [brand] = await manager.query(
+        `SELECT id FROM brands WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [brandId, tenantId]
+      );
+      if (!brand) throw new NotFoundException('العلامة التجارية غير موجودة لهذا التاجر');
     }
   }
 
@@ -78,14 +131,50 @@ export class ProductsService {
     };
   }
 
+  /** تحسب رقم التحقق (checksum) لباركود EAN-13 من أول 12 رقم. */
+  private computeEan13CheckDigit(digits12: string): number {
+    const sum = digits12
+      .split('')
+      .map(Number)
+      .reduce((total, digit, index) => total + digit * (index % 2 === 0 ? 1 : 3), 0);
+    return (10 - (sum % 10)) % 10;
+  }
+
+  /**
+   * يولّد باركود EAN-13 رقمي صالح (checksum صحيح) وغير مكرر داخل بيانات هذا
+   * التاجر. بادئة 200 من المدى المخصص للاستخدام الداخلي في معيار GS1 (In-Store
+   * Use) فمفيش تعارض مع باركودات منتجات حقيقية مسجّلة عالمياً.
+   */
+  async generateUniqueBarcode(tenantId: string): Promise<string> {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const randomPart = Math.floor(Math.random() * 1_000_000_000)
+        .toString()
+        .padStart(9, '0');
+      const digits12 = `200${randomPart}`;
+      const checkDigit = this.computeEan13CheckDigit(digits12);
+      const candidate = `${digits12}${checkDigit}`;
+
+      const existing = await this.productsRepository
+        .createQueryBuilder('product')
+        .where('product.tenantId = :tenantId', { tenantId })
+        .andWhere('product.barcode = :candidate', { candidate })
+        .getOne();
+
+      if (!existing) return candidate;
+    }
+    throw new BadRequestException('تعذّر توليد باركود غير مكرر، حاول مرة أخرى');
+  }
+
   async findAll(tenantId: string, options: ListOptions = {}) {
     const page = Math.max(1, Number(options.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
 
     const query = this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.brand', 'brand')
+      .leftJoinAndSelect('product.category', 'category', 'category.tenantId = :tenantId', {
+        tenantId,
+      })
+      .leftJoinAndSelect('product.brand', 'brand', 'brand.tenantId = :tenantId', { tenantId })
       .where('product.tenantId = :tenantId', { tenantId })
       .andWhere('product.deletedAt IS NULL');
 
@@ -193,7 +282,14 @@ export class ProductsService {
     if (duplicates.sku) throw new ConflictException('رمز المنتج موجود مسبقاً');
     if (duplicates.barcode) throw new ConflictException('الباركود موجود مسبقاً');
 
-    this.validateSellingPrices(Number(dto.costPrice), Number(dto.sellingPrice), dto.wholesalePrice);
+    await this.assertTenantReferences(tenantId, dto.categoryId, dto.brandId);
+    await this.assertHalfWholesaleAllowed(tenantId, dto.halfWholesalePrice);
+    this.validateSellingPrices(
+      Number(dto.costPrice),
+      Number(dto.sellingPrice),
+      dto.wholesalePrice,
+      dto.halfWholesalePrice
+    );
 
     const initialQuantity = dto.initialQuantity;
     const warehouseId = dto.warehouseId;
@@ -264,12 +360,21 @@ export class ProductsService {
           ? undefined
           : Number(product.wholesalePrice)
         : dto.wholesalePrice;
+    const halfWholesalePrice =
+      dto.halfWholesalePrice === undefined
+        ? product.halfWholesalePrice === null || product.halfWholesalePrice === undefined
+          ? undefined
+          : Number(product.halfWholesalePrice)
+        : dto.halfWholesalePrice;
+    await this.assertTenantReferences(tenantId, dto.categoryId, dto.brandId, manager);
+    await this.assertHalfWholesaleAllowed(tenantId, dto.halfWholesalePrice);
     const isSystemCostReviewUpdate =
       (dto as any).needsPriceReview === true &&
       dto.sellingPrice === undefined &&
-      dto.wholesalePrice === undefined;
+      dto.wholesalePrice === undefined &&
+      dto.halfWholesalePrice === undefined;
     if (!isSystemCostReviewUpdate) {
-      this.validateSellingPrices(costPrice, sellingPrice, wholesalePrice);
+      this.validateSellingPrices(costPrice, sellingPrice, wholesalePrice, halfWholesalePrice);
     }
 
     const {

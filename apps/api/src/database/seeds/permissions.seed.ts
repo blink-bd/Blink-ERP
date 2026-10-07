@@ -40,6 +40,7 @@ const resources: Array<{
   { resource: 'branding', actions: ['view', 'update'], category: 'settings' },
   { resource: 'settings', actions: ['view', 'update'], category: 'settings' },
   { resource: 'users', actions: ['view', 'create', 'update', 'delete'], category: 'users' },
+  { resource: 'backup', actions: ['export'], category: 'settings' },
 ];
 
 export async function seedPermissions(dataSource: DataSource): Promise<void> {

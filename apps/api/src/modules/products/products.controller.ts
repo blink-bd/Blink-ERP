@@ -64,6 +64,12 @@ export class ProductsController {
     };
   }
 
+  @Get('generate-barcode')
+  async generateBarcode(@Request() req) {
+    const barcode = await this.productsService.generateUniqueBarcode(req.tenantId);
+    return { success: true, data: { barcode } };
+  }
+
   @Get('search/:code')
   async searchByCode(@Request() req, @Param('code') code: string) {
     const product = await this.productsService.findByBarcodeOrSku(req.tenantId, code);

@@ -1,11 +1,13 @@
 import { lazy, Suspense, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AdminAuthProvider } from './contexts/AdminAuthContext';
 import { FeaturesProvider } from './contexts/FeaturesContext';
 import { BrandingProvider } from './contexts/BrandingContext';
 import { AppLayout } from './components/layout/AppLayout';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 
 const LoginPage = lazy(() => import('./pages/Login').then((module) => ({ default: module.LoginPage })));
 const DashboardPage = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage })));
@@ -18,6 +20,7 @@ const PurchasesPage = lazy(() => import('./pages/Purchases').then((module) => ({
 const ExpensesPage = lazy(() => import('./pages/Expenses').then((module) => ({ default: module.ExpensesPage })));
 const CashRegisterPage = lazy(() => import('./pages/CashRegister').then((module) => ({ default: module.CashRegisterPage })));
 const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
+const SettingsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.SettingsPage })));
 const AdminLoginPage = lazy(() => import('./pages/admin/AdminLogin').then((module) => ({ default: module.AdminLoginPage })));
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout').then((module) => ({ default: module.AdminLayout })));
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboard').then((module) => ({ default: module.AdminDashboardPage })));
@@ -44,14 +47,12 @@ function AppRoutes() {
     <Suspense fallback={<LoadingScreen />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboardPage />} />
           <Route path="tenants" element={<AdminTenantsPage />} />
           <Route path="tenants/:id" element={<AdminTenantDetailPage />} />
         </Route>
-
         <Route
           element={
             <ProtectedRoute>
@@ -69,6 +70,7 @@ function AppRoutes() {
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/cash-register" element={<CashRegisterPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
@@ -76,8 +78,18 @@ function AppRoutes() {
   );
 }
 
+function GuardedAppRoutes() {
+  const location = useLocation();
+  return (
+    <AppErrorBoundary key={location.pathname}>
+      <AppRoutes />
+    </AppErrorBoundary>
+  );
+}
+
 function App() {
   const { i18n } = useTranslation();
+  useDevToolsShortcutGuard();
 
   useEffect(() => {
     const dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
@@ -93,7 +105,7 @@ function App() {
         <AuthProvider>
           <FeaturesProvider>
             <BrandingProvider>
-              <AppRoutes />
+              <GuardedAppRoutes />
             </BrandingProvider>
           </FeaturesProvider>
         </AuthProvider>

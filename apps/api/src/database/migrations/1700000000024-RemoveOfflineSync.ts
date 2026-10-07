@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class RemoveOfflineSync1700000000020 implements MigrationInterface {
+export class RemoveOfflineSync1700000000024 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`DROP TABLE IF EXISTS sync_logs`);
   }

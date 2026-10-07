@@ -32,30 +32,45 @@ export class CashRegisterService {
     notes: string | undefined,
     userId: string
   ): Promise<CashRegisterShift> {
-    const register = await this.registersRepository.findOne({
-      where: { id: cashRegisterId, tenantId },
+    if (!Number.isFinite(openingBalance) || openingBalance < 0) {
+      throw new BadRequestException('الرصيد الافتتاحي غير صحيح');
+    }
+
+    return this.shiftsRepository.manager.transaction(async (manager) => {
+      const register = await manager.findOne(CashRegister, {
+        where: { id: cashRegisterId, tenantId, isActive: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!register) throw new NotFoundException('الكاشير غير موجود');
+      if (register.isOpen)
+        throw new BadRequestException('يوجد وردية مفتوحة بالفعل على هذا الكاشير');
+
+      const year = new Date().getFullYear();
+      const [counter] = await manager.query(
+        `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+         VALUES ($1, 'shift', $2, 2)
+         ON CONFLICT (tenant_id, document_type, document_year)
+         DO UPDATE SET next_value = document_counters.next_value + 1
+         RETURNING next_value - 1 AS value`,
+        [tenantId, year]
+      );
+      const shift = manager.create(CashRegisterShift, {
+        tenantId,
+        shiftNumber: `SHIFT-${year}-${String(Number(counter.value)).padStart(4, '0')}`,
+        cashRegisterId,
+        userId,
+        openedAt: new Date(),
+        openingBalance,
+        openingNotes: notes,
+        status: 'open',
+      });
+      const saved = await manager.save(shift);
+
+      register.isOpen = true;
+      register.currentShiftId = saved.id;
+      await manager.save(register);
+      return saved;
     });
-    if (!register) throw new NotFoundException('الكاشير غير موجود');
-    if (register.isOpen) throw new BadRequestException('يوجد وردية مفتوحة بالفعل على هذا الكاشير');
-
-    const count = await this.shiftsRepository.count({ where: { tenantId } });
-    const shift = this.shiftsRepository.create({
-      tenantId,
-      shiftNumber: `SHIFT-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
-      cashRegisterId,
-      userId,
-      openedAt: new Date(),
-      openingBalance,
-      openingNotes: notes,
-      status: 'open',
-    });
-    const saved = await this.shiftsRepository.save(shift);
-
-    register.isOpen = true;
-    register.currentShiftId = saved.id;
-    await this.registersRepository.save(register);
-
-    return saved;
   }
 
   async closeShift(
@@ -65,26 +80,41 @@ export class CashRegisterService {
     actualCard: number,
     notes: string | undefined
   ): Promise<CashRegisterShift> {
-    const shift = await this.shiftsRepository.findOne({ where: { id: shiftId, tenantId } });
-    if (!shift) throw new NotFoundException('الوردية غير موجودة');
-
-    shift.actualCash = actualCash;
-    shift.actualCard = actualCard;
-    shift.closingNotes = notes;
-    shift.closedAt = new Date();
-    shift.status = 'closed';
-    const saved = await this.shiftsRepository.save(shift);
-
-    const register = await this.registersRepository.findOne({
-      where: { id: shift.cashRegisterId, tenantId },
-    });
-    if (register) {
-      register.isOpen = false;
-      register.currentShiftId = undefined;
-      await this.registersRepository.save(register);
+    if (
+      !Number.isFinite(actualCash) ||
+      actualCash < 0 ||
+      !Number.isFinite(actualCard) ||
+      actualCard < 0
+    ) {
+      throw new BadRequestException('الرصيد الفعلي غير صحيح');
     }
 
-    return saved;
+    return this.shiftsRepository.manager.transaction(async (manager) => {
+      const shift = await manager.findOne(CashRegisterShift, {
+        where: { id: shiftId, tenantId, status: 'open' },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!shift) throw new NotFoundException('الوردية المفتوحة غير موجودة');
+
+      shift.actualCash = actualCash;
+      shift.actualCard = actualCard;
+      shift.closingNotes = notes;
+      shift.closedAt = new Date();
+      shift.status = 'closed';
+      const saved = await manager.save(shift);
+
+      const register = await manager.findOne(CashRegister, {
+        where: { id: shift.cashRegisterId, tenantId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (register) {
+        register.isOpen = false;
+        register.currentShiftId = undefined;
+        await manager.save(register);
+      }
+
+      return saved;
+    });
   }
 
   async addCashTransaction(
@@ -95,15 +125,32 @@ export class CashRegisterService {
     description: string | undefined,
     userId: string
   ): Promise<CashTransaction> {
-    const transaction = this.transactionsRepository.create({
-      tenantId,
-      shiftId,
-      type,
-      amount,
-      description,
-      createdBy: userId,
+    if (!['cash_in', 'cash_out', 'expense'].includes(type)) {
+      throw new BadRequestException('نوع حركة الخزينة غير صحيح');
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('مبلغ حركة الخزينة يجب أن يكون أكبر من صفر');
+    }
+
+    return this.shiftsRepository.manager.transaction(async (manager) => {
+      // لا نثق في shiftId القادم من العميل: يجب أن تكون الوردية مفتوحة
+      // ومملوكة لنفس التاجر قبل إنشاء أي حركة مالية.
+      const shift = await manager.findOne(CashRegisterShift, {
+        where: { id: shiftId, tenantId, status: 'open' },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!shift) throw new NotFoundException('الوردية غير موجودة لهذا التاجر');
+
+      const transaction = manager.create(CashTransaction, {
+        tenantId,
+        shiftId: shift.id,
+        type,
+        amount,
+        description,
+        createdBy: userId,
+      });
+      return manager.save(transaction);
     });
-    return this.transactionsRepository.save(transaction);
   }
 
   async findAllRegisters(tenantId: string): Promise<CashRegister[]> {
@@ -115,8 +162,16 @@ export class CashRegisterService {
     data: Partial<CashRegister>,
     userId?: string
   ): Promise<CashRegister> {
+    const clean = stripProtected(data);
+    if (clean.branchId) {
+      const [branch] = await this.registersRepository.manager.query(
+        `SELECT id FROM branches WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [clean.branchId, tenantId]
+      );
+      if (!branch) throw new NotFoundException('الفرع غير موجود لهذا التاجر');
+    }
     void userId;
-    const register = this.registersRepository.create({ ...stripProtected(data), tenantId });
+    const register = this.registersRepository.create({ ...clean, tenantId });
     return this.registersRepository.save(register);
   }
 

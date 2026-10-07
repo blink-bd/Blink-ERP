@@ -74,7 +74,7 @@ export function CashRegisterPage() {
         </div>
       ) : (
         <div className="space-y-6">
-          <div className="bg-white rounded-lg shadow p-5 flex items-center justify-between">
+          <div className="bg-white rounded-lg shadow p-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="font-bold">وردية مفتوحة: {shift.shiftNumber}</p>
               <p className="text-sm text-gray-500">فُتحت في {new Date(shift.openedAt).toLocaleString('ar')} — رصيد افتتاحي {Number(shift.openingBalance).toFixed(2)}</p>
@@ -89,7 +89,7 @@ export function CashRegisterPage() {
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات تحويل</p><p className="text-xl font-bold">{summary.sales.bankTransfer.toFixed(2)}</p></div>
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات آجل</p><p className="text-xl font-bold text-orange-600">{summary.sales.credit.toFixed(2)}</p></div>
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">المصروفات</p><p className="text-xl font-bold text-red-600">{summary.expenses.toFixed(2)}</p></div>
-              <div className="bg-white rounded-lg shadow p-4 col-span-2 bg-primary/5"><p className="text-sm text-gray-500">المتبقي نقدي بالخزينة</p><p className="text-2xl font-bold text-primary">{summary.remaining.cash.toFixed(2)}</p></div>
+              <div className="bg-white rounded-lg shadow p-4 sm:col-span-2 bg-primary/5"><p className="text-sm text-gray-500">المتبقي نقدي بالخزينة</p><p className="text-2xl font-bold text-primary">{summary.remaining.cash.toFixed(2)}</p></div>
             </div>
           )}
         </div>

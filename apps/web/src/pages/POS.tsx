@@ -216,7 +216,7 @@ export function POSPage() {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:h-full">
       <div className="flex flex-col lg:col-span-2">
-        <div className="flex gap-3 mb-4 items-center">
+        <div className="flex flex-wrap gap-3 mb-4 items-center">
           <form onSubmit={handleSearch} className="flex-1 relative">
             <Input ref={inputRef} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ابحث بالاسم أو الرمز أو الباركود..." className="text-lg h-14" autoFocus />
             {productResults.length > 0 && <div className="absolute z-20 bg-white border rounded-md shadow-lg w-full mt-1 max-h-64 overflow-y-auto">{productResults.map((product) => <button type="button" key={product.id} className="block w-full text-right px-4 py-3 hover:bg-gray-100 border-b last:border-0" onClick={() => addProductToCart(product)}><span className="font-medium">{product.name}</span><span className="text-xs text-gray-500 mr-3">{product.sku || product.barcode || ''}</span><span className="text-xs text-primary mr-3">{Number(product.sellingPrice).toFixed(2)}</span></button>)}</div>}

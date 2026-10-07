@@ -19,8 +19,10 @@ export class SaleItemInputDto {
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) unitPrice?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) @Max(100) taxRate?: number;
-  @ApiPropertyOptional({ enum: ['retail', 'wholesale'] }) @IsOptional() @IsString() priceTier?:
-    'retail' | 'wholesale';
+  @ApiPropertyOptional({ enum: ['retail', 'half_wholesale', 'wholesale'] })
+  @IsOptional()
+  @IsString()
+  priceTier?: 'retail' | 'half_wholesale' | 'wholesale';
 }
 
 export class SalePaymentInputDto {

@@ -126,18 +126,17 @@ export class PurchasesService {
           manager
         );
 
-        // لو سعر التكلفة في فاتورة الشراء مختلف عن سعر التكلفة المسجّل للمنتج،
-        // حدّث سعر التكلفة تلقائيًا ونبّه التاجر إنه يراجع سعر البيع
+        // إذا أصبح سعر الشراء أعلى من تكلفة المنتج المسجلة، فعّل تنبيه المراجعة فقط.
+        // لا نغيّر costPrice تلقائياً؛ يظل قرار تعديل التكلفة وأسعار البيع بيد التاجر.
         const product = await this.productsService.findById(tenantId, itemInput.productId);
-        if (Math.abs(Number(product.costPrice) - itemInput.unitCost) > 0.0001) {
-          const oldCost = Number(product.costPrice);
+        const oldCost = Number(product.costPrice);
+        if (itemInput.unitCost > oldCost + 0.0001) {
           await this.productsService.update(
             tenantId,
             itemInput.productId,
             {
-              costPrice: itemInput.unitCost,
               needsPriceReview: true,
-              priceReviewNote: `تغيّر سعر التكلفة من ${oldCost.toFixed(2)} إلى ${itemInput.unitCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر البيع القطاعي والجملة`,
+              priceReviewNote: `سعر الشراء الجديد ${itemInput.unitCost.toFixed(2)} أعلى من سعر التكلفة المسجل ${oldCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر التكلفة وأسعار البيع`,
             } as any,
             userId,
             manager

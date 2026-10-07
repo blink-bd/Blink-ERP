@@ -36,11 +36,17 @@ export class InventoryService {
     tenantId: string,
     options: { warehouseId?: string; search?: string; categoryId?: string } = {}
   ) {
+    // نستخدم INNER JOIN للمنتج والمخزن حتى لا تُرجع أي سجلات مخزون "يتيمة"
+    // مرتبطة بمنتج أو مخزن محذوف (حذفًا منطقيًا) أو مفقود — كانت هذه السجلات
+    // ترجع بـ product/warehouse = null وتسبب شاشة بيضاء في الواجهة.
+    // (لا نحذف السجلات اليتيمة من قاعدة البيانات؛ فقط لا نعيدها في الملخص.)
     const query = this.inventoryRepository
       .createQueryBuilder('inv')
-      .leftJoinAndSelect('inv.product', 'product')
+      .innerJoinAndSelect('inv.product', 'product', 'product.tenantId = :tenantId', { tenantId })
+      .innerJoinAndSelect('inv.warehouse', 'warehouse', 'warehouse.tenantId = :tenantId', {
+        tenantId,
+      })
       .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('inv.warehouse', 'warehouse')
       .where('inv.tenantId = :tenantId', { tenantId });
 
     if (options.warehouseId) {
@@ -58,16 +64,26 @@ export class InventoryService {
 
     const rows = await query.orderBy('product.name', 'ASC').getMany();
 
-    return rows.map((r) => ({
-      ...r,
-      stockValue: Number(r.quantity) * Number(r.weightedAvgCost || r.product?.costPrice || 0),
-      status:
-        Number(r.availableQuantity) <= 0
-          ? 'out_of_stock'
-          : Number(r.availableQuantity) <= (r.product?.minStockLevel || 0)
-            ? 'low_stock'
-            : 'available',
-    }));
+    const toFiniteNumber = (value: unknown): number => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    return rows.map((r) => {
+      const quantity = toFiniteNumber(r.quantity);
+      const unitCost = toFiniteNumber(r.weightedAvgCost) || toFiniteNumber(r.product?.costPrice);
+      const available = toFiniteNumber(r.availableQuantity);
+      return {
+        ...r,
+        stockValue: quantity * unitCost,
+        status:
+          available <= 0
+            ? 'out_of_stock'
+            : available <= toFiniteNumber(r.product?.minStockLevel)
+              ? 'low_stock'
+              : 'available',
+      };
+    });
   }
 
   async getTransactions(tenantId: string, productId?: string, warehouseId?: string) {

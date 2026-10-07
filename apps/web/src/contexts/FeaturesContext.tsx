@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { useAuth } from './AuthContext';
 import { api } from '@/lib/api';
 
@@ -19,20 +19,29 @@ export const useFeature = (featureCode: string): boolean => {
   return features.has(featureCode);
 };
 
+// بعد ما المدير العام يفعّل/يوقف ميزة لتاجر، لازم واجهة التاجر تلتقط التغيير
+// بدون ما يحتاج يعمل تسجيل خروج/دخول من جديد. فبنعمل reload دوري (polling)
+// كل فترة قصيرة بجانب إعادة التحميل عند رجوع التبويب للـ focus.
+const POLL_INTERVAL_MS = 30 * 1000;
+
 export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuth();
   const [features, setFeatures] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
+  const isAuthenticatedRef = useRef(isAuthenticated);
+  isAuthenticatedRef.current = isAuthenticated;
 
   const loadFeatures = async () => {
-    if (!isAuthenticated) {
+    if (!isAuthenticatedRef.current) {
       setFeatures(new Set());
       setLoading(false);
       return;
     }
     try {
       setLoading(true);
-      const res = await api.get('/tenants/features');
+      // cache bust: query فريدة تمنع أي كاش من المتصفح أو أي طبقة وسيطة
+      // (CDN / service worker) من إرجاع نسخة قديمة من قائمة الميزات.
+      const res = await api.get('/tenants/features', { params: { _: Date.now() } });
       const codes: string[] = res.data.data.map((f: any) => f.code);
       setFeatures(new Set(codes));
     } catch {
@@ -44,9 +53,36 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   };
 
+  // إعادة تحميل الميزات فور تسجيل الدخول/الخروج
   useEffect(() => {
     loadFeatures();
   }, [isAuthenticated]);
+
+  // إعادة تحميل الميزات عند رجوع المستخدم للتبويب أو استعادة الاتصال —
+  // يغطي حالة "فعّلت الميزة من لوحة المدير العام وأنا شغّال بالفعل كتاجر".
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadFeatures();
+    };
+    const onFocus = () => loadFeatures();
+    const onOnline = () => loadFeatures();
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+    };
+  }, []);
+
+  // Polling دوري خفيف كـ "شبكة أمان" حتى لو التبويب فاضل مفتوح وما حصلش focus/blur.
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (isAuthenticatedRef.current) loadFeatures();
+    }, POLL_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, []);
 
   return (
     <FeaturesContext.Provider value={{ features, loading, reload: loadFeatures }}>

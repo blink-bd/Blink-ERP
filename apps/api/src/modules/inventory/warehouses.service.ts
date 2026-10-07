@@ -33,14 +33,27 @@ export class WarehousesService {
     return this.repo.save(warehouse);
   }
 
-  create(tenantId: string, data: Partial<Warehouse>, userId?: string) {
-    const warehouse = this.repo.create({ ...stripProtected(data), tenantId, createdBy: userId });
+  async create(tenantId: string, data: Partial<Warehouse>, userId?: string) {
+    const clean = stripProtected(data);
+    await this.assertBranchReference(tenantId, clean.branchId);
+    const warehouse = this.repo.create({ ...clean, tenantId, createdBy: userId });
     return this.repo.save(warehouse);
   }
 
   async update(tenantId: string, id: string, data: Partial<Warehouse>) {
     const warehouse = await this.findById(tenantId, id);
-    Object.assign(warehouse, stripProtected(data));
+    const clean = stripProtected(data);
+    await this.assertBranchReference(tenantId, clean.branchId);
+    Object.assign(warehouse, clean);
     return this.repo.save(warehouse);
+  }
+
+  private async assertBranchReference(tenantId: string, branchId?: string | null) {
+    if (!branchId) return;
+    const [branch] = await this.repo.manager.query(
+      `SELECT id FROM branches WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [branchId, tenantId]
+    );
+    if (!branch) throw new NotFoundException('الفرع غير موجود لهذا التاجر');
   }
 }
