@@ -1,3 +1,5 @@
+import { assertWarehouseUsable } from '@/modules/inventory/location-limits';
+import { FeaturesService } from '@/modules/features/features.service';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { EntityManager, Repository, DataSource } from 'typeorm';
@@ -23,7 +25,8 @@ export class PurchasesService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly inventoryService: InventoryService,
     private readonly suppliersService: SuppliersService,
-    private readonly productsService: ProductsService
+    private readonly productsService: ProductsService,
+    private readonly featuresService: FeaturesService
   ) {}
 
   private async generatePurchaseNumber(manager: EntityManager, tenantId: string): Promise<string> {
@@ -73,11 +76,7 @@ export class PurchasesService {
         [dto.supplierId, tenantId]
       );
       if (!supplier) throw new NotFoundException('المورد غير موجود في هذا التاجر');
-      const [warehouse] = await manager.query(
-        `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-        [dto.warehouseId, tenantId]
-      );
-      if (!warehouse) throw new NotFoundException('المخزن غير موجود في هذا التاجر');
+      await assertWarehouseUsable(manager, this.featuresService, tenantId, dto.warehouseId);
       if (!Number.isFinite(Number(dto.paidAmount || 0)) || Number(dto.paidAmount || 0) < 0) {
         throw new BadRequestException('مبلغ السداد غير صحيح');
       }

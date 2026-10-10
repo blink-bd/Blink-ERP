@@ -9,7 +9,9 @@ import {
   Query,
   UseGuards,
   Request,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { SupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -36,25 +38,29 @@ export class SuppliersController {
   }
 
   @Get(':id')
-  async findOne(@Request() req, @Param('id') id: string) {
+  async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.suppliersService.findById(req.tenantId, id) };
   }
 
   @Get(':id/statement')
-  async statement(@Request() req, @Param('id') id: string) {
+  async statement(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.suppliersService.statement(req.tenantId, id) };
   }
 
   @Post()
   @RequirePermission('suppliers.create')
-  async create(@Request() req, @Body() dto: any) {
+  async create(@Request() req, @Body() dto: SupplierDto) {
     const supplier = await this.suppliersService.create(req.tenantId, dto, req.user?.id);
     return { success: true, data: supplier, message: 'تم إضافة المورد بنجاح' };
   }
 
   @Put(':id')
   @RequirePermission('suppliers.update')
-  async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+  async update(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSupplierDto
+  ) {
     const supplier = await this.suppliersService.update(req.tenantId, id, {
       ...dto,
       updatedBy: req.user?.id,
@@ -64,7 +70,11 @@ export class SuppliersController {
 
   @Post(':id/settle')
   @RequirePermission('suppliers.settle')
-  async settle(@Request() req, @Param('id') id: string, @Body() dto: SupplierSettlementDto) {
+  async settle(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupplierSettlementDto
+  ) {
     const result = await this.suppliersService.settle(
       req.tenantId,
       id,
@@ -78,7 +88,7 @@ export class SuppliersController {
 
   @Delete(':id')
   @RequirePermission('suppliers.delete')
-  async remove(@Request() req, @Param('id') id: string) {
+  async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.suppliersService.delete(req.tenantId, id);
     return { success: true, message: 'تم حذف المورد بنجاح' };
   }

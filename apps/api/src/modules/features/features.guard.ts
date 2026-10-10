@@ -1,6 +1,8 @@
 import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { FeaturesService } from './features.service';
+import { REQUIRED_FEATURES_KEY } from '@/common/decorators/require-feature.decorator';
+import { getFeatureDefinition } from './features.catalog';
 
 @Injectable()
 export class FeaturesGuard implements CanActivate {
@@ -10,18 +12,35 @@ export class FeaturesGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const requiredFeature =
-      this.reflector.get<string>('requiredFeature', context.getHandler()) ||
-      this.reflector.get<string>('requiredFeature', context.getClass());
+    // نجمع ميزات الكلاس + الـ handler (AND) بدل ما الـ handler يلغي شرط الكلاس
+    const required = Array.from(
+      new Set(
+        (
+          this.reflector.getAll<(string[] | undefined)[]>(REQUIRED_FEATURES_KEY, [
+            context.getClass(),
+            context.getHandler(),
+          ]) || []
+        )
+          .flat()
+          .filter(Boolean) as string[]
+      )
+    );
 
-    if (!requiredFeature) return true;
+    if (!required.length) return true;
 
     const request = context.switchToHttp().getRequest();
-    const tenantId = request.tenantId;
+    const tenantId = request.tenantId || request.user?.tenantId;
+    if (!tenantId) throw new ForbiddenException('Tenant context required');
 
-    const hasFeature = await this.featuresService.tenantHasFeature(tenantId, requiredFeature);
-    if (!hasFeature) {
-      throw new ForbiddenException(`Feature '${requiredFeature}' is not enabled for this tenant`);
+    for (const code of required) {
+      if (!(await this.featuresService.tenantHasFeature(tenantId, code))) {
+        const name = getFeatureDefinition(code)?.nameAr || code;
+        throw new ForbiddenException({
+          code: 'FEATURE_DISABLED',
+          feature: code,
+          message: `ميزة "${name}" غير مفعّلة لحسابك. تواصل مع الإدارة لتفعيلها`,
+        });
+      }
     }
     return true;
   }

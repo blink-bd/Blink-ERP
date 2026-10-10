@@ -1,4 +1,5 @@
 import {
+  IsIn,
   ArrayNotEmpty,
   IsArray,
   IsNumber,
@@ -21,7 +22,7 @@ export class SaleItemInputDto {
   @ApiPropertyOptional() @IsOptional() @IsNumber() @Min(0) @Max(100) taxRate?: number;
   @ApiPropertyOptional({ enum: ['retail', 'half_wholesale', 'wholesale'] })
   @IsOptional()
-  @IsString()
+  @IsIn(['retail', 'half_wholesale', 'wholesale'])
   priceTier?: 'retail' | 'half_wholesale' | 'wholesale';
 }
 

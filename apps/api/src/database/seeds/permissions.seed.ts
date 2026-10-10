@@ -41,6 +41,10 @@ const resources: Array<{
   { resource: 'settings', actions: ['view', 'update'], category: 'settings' },
   { resource: 'users', actions: ['view', 'create', 'update', 'delete'], category: 'users' },
   { resource: 'backup', actions: ['export'], category: 'settings' },
+  { resource: 'roles', actions: ['manage'], category: 'users' },
+  { resource: 'api_keys', actions: ['manage'], category: 'settings' },
+  { resource: 'data', actions: ['import', 'export'], category: 'settings' },
+  { resource: 'audit', actions: ['view'], category: 'settings' },
 ];
 
 export async function seedPermissions(dataSource: DataSource): Promise<void> {

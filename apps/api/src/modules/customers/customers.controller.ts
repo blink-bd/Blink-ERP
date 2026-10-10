@@ -9,7 +9,9 @@ import {
   Query,
   UseGuards,
   Request,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { CustomerDto, UpdateCustomerDto } from './dto/customer.dto';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -41,25 +43,29 @@ export class CustomersController {
   }
 
   @Get(':id')
-  async findOne(@Request() req, @Param('id') id: string) {
+  async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.customersService.findById(req.tenantId, id) };
   }
 
   @Get(':id/statement')
-  async statement(@Request() req, @Param('id') id: string) {
+  async statement(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.customersService.statement(req.tenantId, id) };
   }
 
   @Post()
   @RequirePermission('customers.create')
-  async create(@Request() req, @Body() dto: any) {
+  async create(@Request() req, @Body() dto: CustomerDto) {
     const customer = await this.customersService.create(req.tenantId, dto, req.user?.id);
     return { success: true, data: customer, message: 'تم إضافة العميل بنجاح' };
   }
 
   @Put(':id')
   @RequirePermission('customers.update')
-  async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+  async update(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCustomerDto
+  ) {
     const customer = await this.customersService.update(req.tenantId, id, {
       ...dto,
       updatedBy: req.user?.id,
@@ -69,7 +75,11 @@ export class CustomersController {
 
   @Post(':id/payments')
   @RequirePermission('customers.payment')
-  async collectPayment(@Request() req, @Param('id') id: string, @Body() dto: CustomerPaymentDto) {
+  async collectPayment(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CustomerPaymentDto
+  ) {
     const customer = await this.customersService.collectPayment(
       req.tenantId,
       id,
@@ -83,7 +93,7 @@ export class CustomersController {
 
   @Delete(':id')
   @RequirePermission('customers.delete')
-  async remove(@Request() req, @Param('id') id: string) {
+  async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.customersService.delete(req.tenantId, id);
     return { success: true, message: 'تم حذف العميل بنجاح' };
   }

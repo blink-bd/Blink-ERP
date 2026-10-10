@@ -17,6 +17,7 @@ import { PermissionGuard } from '@/common/guards/permission.guard';
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { BarcodeLabelsDto } from './dto/barcode-labels.dto';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -68,6 +69,19 @@ export class ProductsController {
   async generateBarcode(@Request() req) {
     const barcode = await this.productsService.generateUniqueBarcode(req.tenantId);
     return { success: true, data: { barcode } };
+  }
+
+  /**
+   * بيانات ملصقات الباركود (مقفولة بميزة "طباعة الباركود"). الواجهة بتطبع
+   * من البيانات اللي السيرفر بيرجعها، فلو الميزة مقفولة ماينفعش تتطبع ملصقات.
+   */
+  @Post('barcode-labels')
+  @RequireFeature('barcode_printing')
+  async barcodeLabels(@Request() req, @Body() dto: BarcodeLabelsDto) {
+    return {
+      success: true,
+      data: await this.productsService.barcodeLabels(req.tenantId, dto.items),
+    };
   }
 
   @Get('search/:code')

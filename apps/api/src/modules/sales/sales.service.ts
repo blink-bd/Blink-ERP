@@ -1,3 +1,4 @@
+import { assertWarehouseUsable } from '@/modules/inventory/location-limits';
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { EntityManager, Repository, DataSource } from 'typeorm';
@@ -132,11 +133,7 @@ export class SalesService {
         throw new BadRequestException('الخصم غير صحيح');
       }
 
-      const [warehouse] = await manager.query(
-        `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-        [dto.warehouseId, tenantId]
-      );
-      if (!warehouse) throw new NotFoundException('المخزن غير موجود في هذا التاجر');
+      await assertWarehouseUsable(manager, this.featuresService, tenantId, dto.warehouseId);
 
       if (dto.customerId) {
         const [customer] = await manager.query(

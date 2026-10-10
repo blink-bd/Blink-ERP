@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository, IsNull } from 'typeorm';
+import { EntityManager, Repository, IsNull, In } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { InventoryService } from '@/modules/inventory/inventory.service';
@@ -313,7 +313,7 @@ export class ProductsService {
     // كمية افتتاحية (اختياري) — بتتسجل كحركة مخزون من نوع opening_balance
     if (initialQuantity && initialQuantity > 0) {
       const wh = warehouseId
-        ? await this.warehousesService.findById(tenantId, warehouseId)
+        ? await this.warehousesService.findUsable(tenantId, warehouseId)
         : await this.warehousesService.findOrCreateDefault(tenantId, userId);
       await this.inventoryService.adjustInventory({
         tenantId,
@@ -397,7 +397,7 @@ export class ProductsService {
         throw new BadRequestException('الكمية الافتتاحية يجب أن تكون صفراً أو أكبر');
       }
       const warehouse = warehouseId
-        ? await this.warehousesService.findById(tenantId, warehouseId)
+        ? await this.warehousesService.findUsable(tenantId, warehouseId)
         : await this.warehousesService.findOrCreateDefault(tenantId, userId);
       const current = await this.inventoryService.getAvailableQuantity(
         tenantId,
@@ -434,5 +434,37 @@ export class ProductsService {
   async delete(tenantId: string, id: string): Promise<void> {
     const product = await this.findById(tenantId, id);
     await this.productsRepository.softRemove(product);
+  }
+
+  async barcodeLabels(tenantId: string, items: { productId: string; copies: number }[]) {
+    const ids = Array.from(new Set(items.map((i) => i.productId)));
+    const products = await this.productsRepository.find({
+      where: { tenantId, id: In(ids), deletedAt: IsNull() },
+    });
+    const byId = new Map(products.map((p) => [p.id, p]));
+    const missing = ids.filter((id) => !byId.has(id));
+    if (missing.length) throw new NotFoundException('بعض المنتجات غير موجودة');
+    const noBarcode = products.filter((p) => !p.barcode);
+    if (noBarcode.length) {
+      throw new BadRequestException(
+        `منتجات بدون باركود: ${noBarcode
+          .map((p) => p.name)
+          .slice(0, 5)
+          .join('، ')}`
+      );
+    }
+    const totalCopies = items.reduce((sum, i) => sum + i.copies, 0);
+    if (totalCopies > 2000) throw new BadRequestException('الحد الأقصى 2000 ملصق في المرة الواحدة');
+    return items.map((i) => {
+      const p = byId.get(i.productId)!;
+      return {
+        productId: p.id,
+        name: p.name,
+        sku: p.sku,
+        barcode: p.barcode,
+        sellingPrice: Number(p.sellingPrice),
+        copies: i.copies,
+      };
+    });
   }
 }

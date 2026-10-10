@@ -1,182 +1,39 @@
 import { DataSource } from 'typeorm';
 import { Feature } from '@/modules/features/entities/feature.entity';
 import { Plan } from '@/modules/features/entities/plan.entity';
+import { FEATURE_CATALOG } from '@/modules/features/features.catalog';
 
 export async function seedFeatures(dataSource: DataSource): Promise<void> {
   const featuresRepository = dataSource.getRepository(Feature);
 
-  const features = [
-    // Core (always on)
-    {
-      code: 'dashboard',
-      name: 'Dashboard',
-      nameAr: 'لوحة التحكم',
-      category: 'core',
-      isCore: true,
-      isDefault: true,
-    },
-    {
-      code: 'users',
-      name: 'User Management',
-      nameAr: 'إدارة المستخدمين',
-      category: 'core',
-      isCore: true,
-      isDefault: true,
-    },
-    {
-      code: 'settings',
-      name: 'Settings',
-      nameAr: 'الإعدادات',
-      category: 'core',
-      isCore: true,
-      isDefault: true,
-    },
+  // 1) Upsert كل ميزة من الكتالوج (الاسم والوصف والتصنيف والأعلام تتحدّث في كل نشر)
+  for (const def of FEATURE_CATALOG) {
+    let feature = await featuresRepository.findOne({
+      where: { code: def.code },
+      withDeleted: true,
+    });
+    if (!feature) feature = featuresRepository.create({ code: def.code });
+    Object.assign(feature, {
+      name: def.name,
+      nameAr: def.nameAr,
+      descriptionAr: def.descriptionAr,
+      category: def.category,
+      isCore: !!def.isCore,
+      isDefault: !!def.isDefault,
+      requiresPlan: !!def.requiresPlan,
+      sortOrder: def.sortOrder,
+      isActive: true,
+      deletedAt: null,
+    });
+    await featuresRepository.save(feature);
+  }
 
-    // Standard (default on)
-    {
-      code: 'pos',
-      name: 'Point of Sale',
-      nameAr: 'نقطة البيع',
-      category: 'sales',
-      isDefault: true,
-    },
-    {
-      code: 'sales',
-      name: 'Sales Management',
-      nameAr: 'إدارة المبيعات',
-      category: 'sales',
-      isDefault: true,
-    },
-    {
-      code: 'products',
-      name: 'Product Catalog',
-      nameAr: 'كتالوج المنتجات',
-      category: 'core',
-      isDefault: true,
-    },
-    {
-      code: 'inventory',
-      name: 'Inventory Management',
-      nameAr: 'إدارة المخزون',
-      category: 'inventory',
-      isDefault: true,
-    },
-    {
-      code: 'customers',
-      name: 'Customer Management',
-      nameAr: 'إدارة العملاء',
-      category: 'sales',
-      isDefault: true,
-    },
-    {
-      code: 'suppliers',
-      name: 'Supplier Management',
-      nameAr: 'إدارة الموردين',
-      category: 'purchases',
-      isDefault: true,
-    },
-    {
-      code: 'purchases',
-      name: 'Purchase Management',
-      nameAr: 'إدارة المشتريات',
-      category: 'purchases',
-      isDefault: true,
-    },
-    {
-      code: 'returns',
-      name: 'Returns Management',
-      nameAr: 'إدارة المرتجعات',
-      category: 'sales',
-      isDefault: true,
-    },
-    {
-      code: 'cash_register',
-      name: 'Cash Register',
-      nameAr: 'إدارة الخزينة',
-      category: 'sales',
-      isDefault: true,
-    },
-    {
-      code: 'expenses',
-      name: 'Expense Tracking',
-      nameAr: 'تتبع المصروفات',
-      category: 'accounting',
-      isDefault: true,
-    },
-    {
-      code: 'reports',
-      name: 'Basic Reports',
-      nameAr: 'التقارير الأساسية',
-      category: 'reports',
-      isDefault: true,
-    },
-
-    // Advanced / premium (opt-in)
-    {
-      code: 'advanced_reports',
-      name: 'Advanced Reports',
-      nameAr: 'التقارير المتقدمة',
-      category: 'reports',
-      isDefault: false,
-      requiresPlan: true,
-    },
-    {
-      code: 'branches',
-      name: 'Multi-Branch',
-      nameAr: 'الفروع المتعددة',
-      category: 'advanced',
-      isDefault: false,
-      requiresPlan: true,
-    },
-    {
-      code: 'warehouses',
-      name: 'Multi-Warehouse',
-      nameAr: 'المخازن المتعددة',
-      category: 'advanced',
-      isDefault: false,
-      requiresPlan: true,
-    },
-    {
-      code: 'half_wholesale_pricing',
-      name: 'Half-Wholesale Pricing',
-      nameAr: 'تسعير نصف الجملة',
-      description: 'Adds a third price tier (half-wholesale) to products and POS.',
-      descriptionAr:
-        'إضافة مستوى سعر ثالث (نصف جملة) بجانب القطاعي والجملة في المنتجات ونقطة البيع.',
-      category: 'sales',
-      isDefault: false,
-      requiresPlan: true,
-    },
-    {
-      code: 'barcode_printing',
-      name: 'Barcode Printing',
-      nameAr: 'طباعة الباركود',
-      category: 'tools',
-      isDefault: false,
-      requiresPlan: true,
-    },
-    {
-      code: 'import_export',
-      name: 'Data Import/Export',
-      nameAr: 'استيراد/تصدير البيانات',
-      category: 'tools',
-      isDefault: false,
-    },
-    {
-      code: 'api_access',
-      name: 'API Access',
-      nameAr: 'الوصول عبر API',
-      category: 'integrations',
-      isDefault: false,
-      requiresPlan: true,
-    },
-  ];
-
-  for (const feature of features) {
-    const exists = await featuresRepository.findOne({ where: { code: feature.code } });
-    if (!exists) {
-      await featuresRepository.save(feature);
-    }
+  // 2) ربط الاعتماديات (depends_on مخزنة كـ UUIDs)
+  const all = await featuresRepository.find();
+  const idByCode = new Map(all.map((f) => [f.code, f.id]));
+  for (const def of FEATURE_CATALOG) {
+    const ids = (def.dependsOn || []).map((c) => idByCode.get(c)).filter(Boolean) as string[];
+    await featuresRepository.update({ code: def.code }, { dependsOn: ids });
   }
 
   console.log('✅ Features seeded successfully');

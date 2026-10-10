@@ -75,6 +75,16 @@ export class Tenant extends BaseEntity {
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 
+  /** حدود الحساب (null = بدون حد) — يحددها المدير العام حسب اللي اتباع للتاجر */
+  @Column({ name: 'max_users', type: 'int', nullable: true })
+  maxUsers?: number | null;
+
+  @Column({ name: 'max_branches', type: 'int', nullable: true })
+  maxBranches?: number | null;
+
+  @Column({ name: 'max_warehouses', type: 'int', nullable: true })
+  maxWarehouses?: number | null;
+
   @OneToMany(() => User, (user) => user.tenant)
   users: User[];
 }

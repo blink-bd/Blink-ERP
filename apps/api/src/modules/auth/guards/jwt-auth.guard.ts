@@ -1,11 +1,49 @@
-import { Injectable, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  ExecutionContext,
+  UnauthorizedException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Observable } from 'rxjs';
+import { Reflector } from '@nestjs/core';
+import { ApiKeysService } from '@/modules/api-keys/api-keys.service';
+import { NO_API_KEY } from '@/common/decorators/no-api-key.decorator';
 
+/**
+ * المصادقة: إما JWT لمستخدم مسجّل دخول، أو مفتاح API (X-API-Key أو Bearer blk_live_...)
+ * لو ميزة api_access مفعّلة للتاجر. المفاتيح ممنوعة على أي endpoint عليه @NoApiKey().
+ */
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
-  canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
-    return super.canActivate(context);
+  constructor(
+    private readonly reflector: Reflector,
+    private readonly apiKeys: ApiKeysService
+  ) {
+    super();
+  }
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest();
+    const headerKey = request.headers['x-api-key'];
+    const auth: string | undefined = request.headers.authorization;
+    const bearer = auth?.startsWith('Bearer ') ? auth.substring(7).trim() : undefined;
+    const rawKey =
+      (typeof headerKey === 'string' && headerKey.trim()) ||
+      (ApiKeysService.looksLikeApiKey(bearer) ? bearer : undefined);
+
+    if (rawKey) {
+      const blocked = this.reflector.getAllAndOverride<boolean>(NO_API_KEY, [
+        context.getHandler(),
+        context.getClass(),
+      ]);
+      if (blocked) {
+        throw new ForbiddenException('هذه العملية تتطلب تسجيل دخول مستخدم ولا تقبل مفاتيح API');
+      }
+      request.user = await this.apiKeys.authenticate(rawKey, request.ip);
+      return true;
+    }
+
+    return (await super.canActivate(context)) as boolean;
   }
 
   handleRequest(err: any, user: any) {
