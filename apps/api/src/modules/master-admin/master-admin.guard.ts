@@ -11,8 +11,9 @@ export class MasterAdminGuard implements CanActivate {
     if (!header || !header.startsWith('Bearer ')) {
       throw new UnauthorizedException('مطلوب تسجيل دخول المدير العام');
     }
-    const admin = await this.masterAdminService.authenticate(header.substring(7));
+    const admin = await this.masterAdminService.authenticate(header.substring(7), request.ip || '');
     request.masterAdmin = { id: admin.id, email: admin.email, fullName: admin.fullName };
+    request.masterAdminEntity = admin;
     return true;
   }
 }

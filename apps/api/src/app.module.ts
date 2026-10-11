@@ -23,6 +23,9 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { BackupModule } from './modules/backup/backup.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { MasterAdminModule } from './modules/master-admin/master-admin.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { DataTransferModule } from './modules/data-transfer/data-transfer.module';
 
 @Module({
   imports: [
@@ -43,7 +46,8 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
     ThrottlerModule.forRoot([
       {
         ttl: 60000, // 1 minute
-        limit: 100, // 100 requests per minute
+        // لكل IP. محلات فيها كذا كاشير ورا نفس الراوتر محتاجة حد أعلى من 100
+        limit: Number(process.env.THROTTLE_LIMIT) || 300,
       },
     ]),
 
@@ -51,6 +55,8 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
     CommonModule,
 
     // Core: identity, tenancy, access control
+    AuditModule,
+    ApiKeysModule,
     MasterAdminModule,
     DashboardModule,
     AuthModule,
@@ -76,6 +82,7 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
     // Intelligence and maintenance
     ReportsModule,
     BackupModule,
+    DataTransferModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

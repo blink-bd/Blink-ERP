@@ -124,15 +124,20 @@ export class UsersService {
     });
   }
 
-  async recordFailedLogin(userId: string): Promise<void> {
+  /** يرجع true لو الحساب اتقفل بسبب المحاولة دي. */
+  async recordFailedLogin(userId: string): Promise<boolean> {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
-    if (!user) return;
+    if (!user) return false;
 
     user.failedLoginAttempts += 1;
+    let locked = false;
     if (user.failedLoginAttempts >= 5) {
       user.lockedUntil = new Date(Date.now() + 30 * 60 * 1000);
+      user.failedLoginAttempts = 0;
+      locked = true;
     }
     await this.usersRepository.save(user);
+    return locked;
   }
 
   async isLocked(user: User): Promise<boolean> {

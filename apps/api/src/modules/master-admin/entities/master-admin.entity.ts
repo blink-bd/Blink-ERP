@@ -35,6 +35,24 @@ export class MasterAdmin {
   @Column({ name: 'last_login_ip', length: 45, nullable: true })
   lastLoginIp?: string;
 
+  /** بيزيد عند تغيير كلمة المرور أو "تسجيل الخروج من كل الأجهزة" => كل التوكنات القديمة تبطل */
+  @Column({ name: 'session_version', type: 'int', default: 0 })
+  sessionVersion: number;
+
+  /** سر المصادقة الثنائية (TOTP) — مشفّر بـ AES-256-GCM */
+  @Column({ name: 'totp_secret', type: 'text', nullable: true })
+  totpSecret?: string | null;
+
+  @Column({ name: 'totp_enabled', default: false })
+  totpEnabled: boolean;
+
+  /** آخر خطوة زمنية استُخدم فيها رمز (يمنع إعادة استخدام نفس الرمز) */
+  @Column({ name: 'totp_last_step', type: 'bigint', nullable: true })
+  totpLastStep?: string | null;
+
+  @Column({ name: 'password_changed_at', type: 'timestamp', nullable: true })
+  passwordChangedAt?: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

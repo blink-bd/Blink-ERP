@@ -14,14 +14,20 @@ import {
   Receipt,
   BarChart3,
   Settings,
+  UserCog,
+  FileSpreadsheet,
+  KeyRound,
   X,
 } from 'lucide-react';
+import { usePermissions } from '@/lib/permissions';
 
 interface NavItem {
   to: string;
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   feature?: string;
+  /** يظهر لو المستخدم عنده أي صلاحية من دول (للعرض فقط — السيرفر بيفرضها) */
+  permission?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -35,14 +41,31 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/expenses', labelKey: 'expenses', icon: Wallet, feature: 'expenses' },
   { to: '/cash-register', labelKey: 'cashRegister', icon: Receipt, feature: 'cash_register' },
   { to: '/reports', labelKey: 'reports', icon: BarChart3, feature: 'reports' },
+  { to: '/users', labelKey: 'users', icon: UserCog, permission: ['users.view', 'roles.manage'] },
+  {
+    to: '/data',
+    labelKey: 'dataTransfer',
+    icon: FileSpreadsheet,
+    feature: 'import_export',
+    permission: ['data.import', 'data.export'],
+  },
+  {
+    to: '/api-keys',
+    labelKey: 'apiKeys',
+    icon: KeyRound,
+    feature: 'api_access',
+    permission: ['api_keys.manage'],
+  },
   { to: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
 function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
   const { t } = useTranslation('nav');
   const featureEnabled = useFeature(item.feature || '__always__');
+  const { has } = usePermissions();
   const hasFeature = item.feature ? featureEnabled : true;
   if (!hasFeature) return null;
+  if (item.permission && !has(...item.permission)) return null;
 
   const Icon = item.icon;
   return (
@@ -87,9 +110,22 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         style={{ backgroundColor: branding.sidebarColor }}
       >
         <div className="px-4 py-5 border-b border-white/10 flex items-center gap-3">
-          {branding.logoUrl && <img src={branding.logoUrl} alt="الشعار" className="h-9 w-9 object-contain rounded bg-white/10" />}
-          <h1 className="min-w-0 flex-1 text-white text-lg font-bold truncate">{branding.appName}</h1>
-          <button type="button" className="rounded p-1 text-gray-300 hover:bg-white/10 hover:text-white lg:hidden" onClick={onClose} aria-label="إغلاق القائمة">
+          {branding.logoUrl && (
+            <img
+              src={branding.logoUrl}
+              alt="الشعار"
+              className="h-9 w-9 object-contain rounded bg-white/10"
+            />
+          )}
+          <h1 className="min-w-0 flex-1 text-white text-lg font-bold truncate">
+            {branding.appName}
+          </h1>
+          <button
+            type="button"
+            className="rounded p-1 text-gray-300 hover:bg-white/10 hover:text-white lg:hidden"
+            onClick={onClose}
+            aria-label="إغلاق القائمة"
+          >
             <X className="h-5 w-5" />
           </button>
         </div>

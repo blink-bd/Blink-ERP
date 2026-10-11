@@ -69,6 +69,9 @@ export class TenantsService {
       phone: dto.phone,
       address: dto.address,
       city: dto.city,
+      country: dto.country,
+      currency: dto.currency,
+      timezone: dto.timezone,
       planId: dto.planId,
       subscriptionStartDate: dto.subscriptionStartDate
         ? new Date(dto.subscriptionStartDate)

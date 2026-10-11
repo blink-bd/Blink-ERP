@@ -7,6 +7,7 @@ import { RequirePermission } from '@/common/decorators/require-permission.decora
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InventoryService } from './inventory.service';
+import { WarehousesService } from './warehouses.service';
 import { AdjustInventoryDto, TransferInventoryDto } from './dto/inventory-movement.dto';
 
 @ApiTags('inventory')
@@ -16,7 +17,10 @@ import { AdjustInventoryDto, TransferInventoryDto } from './dto/inventory-moveme
 @RequireFeature('inventory')
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly warehousesService: WarehousesService
+  ) {}
 
   @Get()
   async summary(
@@ -46,6 +50,7 @@ export class InventoryController {
   @Post('adjust')
   @RequirePermission('inventory.adjust')
   async adjust(@Request() req, @Body() dto: AdjustInventoryDto) {
+    await this.warehousesService.findUsable(req.tenantId, dto.warehouseId);
     const transaction = await this.inventoryService.adjustManual(
       req.tenantId,
       dto.productId,
@@ -59,6 +64,7 @@ export class InventoryController {
 
   @Post('transfer')
   @RequirePermission('inventory.transfer')
+  @RequireFeature('warehouses')
   async transfer(@Request() req, @Body() dto: TransferInventoryDto) {
     const result = await this.inventoryService.transfer(
       req.tenantId,

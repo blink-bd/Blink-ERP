@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { parseRange } from './advanced-reports.service';
 
 @Injectable()
 export class ReportsService {
@@ -82,38 +83,64 @@ export class ReportsService {
     return { summary: summary[0] };
   }
 
+  /**
+   * الأرباح والخسائر — صافي بعد المرتجعات (الفاتورة الأصلية بتتعدل وقت المرتجع). التواريخ: من بداية startDate لحد نهاية endDate.
+   */
   async profitLossReport(tenantId: string, startDate: string, endDate: string) {
-    const revenue = await this.dataSource.query(
-      `SELECT COALESCE(SUM(total), 0) AS "sales" FROM sales
-       WHERE tenant_id = $1 AND status = 'completed' AND sale_date BETWEEN $2 AND $3`,
-      [tenantId, startDate, endDate]
+    const range = parseRange(startDate, endDate);
+    const params = [tenantId, range.fromTs, range.toExclusiveTs];
+    const [sales] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(total), 0) AS "sales", COALESCE(SUM(cogs), 0) AS "cogs",
+              COALESCE(SUM(discount_amount), 0) AS "discounts", COUNT(*)::int AS "count"
+       FROM sales
+       WHERE tenant_id = $1 AND status IN ('completed', 'returned') AND sale_date >= $2 AND sale_date < $3`,
+      params
+    );
+    const [returns] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(total), 0) AS "total", COALESCE(SUM(cogs_adjustment), 0) AS "cogs"
+       FROM sale_returns
+       WHERE tenant_id = $1 AND status = 'completed' AND return_date >= $2 AND return_date < $3`,
+      params
+    );
+    const expensesByCategory = await this.dataSource.query(
+      `SELECT COALESCE(ec.name, 'أخرى') AS "category", COALESCE(SUM(e.amount), 0) AS "total"
+       FROM expenses e
+       LEFT JOIN expense_categories ec ON ec.id = e.category_id AND ec.tenant_id = $1
+       WHERE e.tenant_id = $1 AND e.status = 'approved' AND e.expense_date >= $2 AND e.expense_date < $3
+       GROUP BY ec.name ORDER BY 2 DESC`,
+      params
     );
 
-    const cogs = await this.dataSource.query(
-      `SELECT COALESCE(SUM(cogs), 0) AS "cogs" FROM sales
-       WHERE tenant_id = $1 AND status = 'completed' AND sale_date BETWEEN $2 AND $3`,
-      [tenantId, startDate, endDate]
-    );
-
-    const expenses = await this.dataSource.query(
-      `SELECT COALESCE(SUM(amount), 0) AS "expenses" FROM expenses
-       WHERE tenant_id = $1 AND status = 'approved' AND expense_date BETWEEN $2 AND $3`,
-      [tenantId, startDate, endDate]
-    );
-
-    const salesTotal = Number(revenue[0].sales);
-    const cogsTotal = Number(cogs[0].cogs);
-    const expensesTotal = Number(expenses[0].expenses);
+    // ملحوظة: تسجيل المرتجع بيخصم قيمته وتكلفته من الفاتورة الأصلية نفسها (sales.total/cogs)،
+    // فالمبيعات هنا صافية بالفعل؛ المرتجعات بتظهر للعرض فقط ومش بتتخصم تاني.
+    const salesTotal = Number(sales.sales);
+    const returnsTotal = Number(returns.total);
+    const grossSales = salesTotal + returnsTotal;
+    const cogsTotal = Number(sales.cogs);
+    const expensesTotal = expensesByCategory.reduce((s: number, r: any) => s + Number(r.total), 0);
     const grossProfit = salesTotal - cogsTotal;
     const netProfit = grossProfit - expensesTotal;
 
     return {
-      period: { startDate, endDate },
-      revenue: { sales: salesTotal, total: salesTotal },
+      period: { startDate: range.from, endDate: range.to },
+      revenue: {
+        grossSales,
+        returns: returnsTotal,
+        discounts: Number(sales.discounts),
+        sales: salesTotal,
+        total: salesTotal,
+        invoices: sales.count,
+      },
       cogs: cogsTotal,
       grossProfit,
       grossProfitMargin: salesTotal > 0 ? (grossProfit / salesTotal) * 100 : 0,
-      expenses: { total: expensesTotal },
+      expenses: {
+        total: expensesTotal,
+        byCategory: expensesByCategory.map((r: any) => ({
+          category: r.category,
+          total: Number(r.total),
+        })),
+      },
       netProfit,
       netProfitMargin: salesTotal > 0 ? (netProfit / salesTotal) * 100 : 0,
     };

@@ -10,5 +10,8 @@
   "expenses": "المصروفات",
   "cashRegister": "الخزينة",
   "reports": "التقارير",
+  "users": "المستخدمين والصلاحيات",
+  "dataTransfer": "استيراد وتصدير",
+  "apiKeys": "مفاتيح API",
   "settings": "الإعدادات"
 }
