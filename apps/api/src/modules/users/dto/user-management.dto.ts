@@ -16,7 +16,7 @@ export class CreateTenantUserDto {
   @IsString() @Length(2, 255) fullName: string;
   @IsOptional() @IsString() @Length(0, 50) phone?: string;
   @IsString() @Length(8, 128) password: string;
-  @IsArray() @ArrayMaxSize(20) @IsUUID('4', { each: true }) roleIds: string[];
+  @IsArray() @ArrayMaxSize(20) @IsUUID(undefined, { each: true }) roleIds: string[];
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() branchId?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() warehouseId?: string | null;
 }
@@ -25,7 +25,7 @@ export class UpdateTenantUserDto {
   @IsOptional() @IsString() @Length(2, 255) fullName?: string;
   @IsOptional() @IsString() @Length(0, 50) phone?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;
-  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUUID('4', { each: true }) roleIds?: string[];
+  @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUUID(undefined, { each: true }) roleIds?: string[];
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() branchId?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() warehouseId?: string | null;
 }

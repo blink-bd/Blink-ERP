@@ -210,7 +210,8 @@ export class MasterAdminService implements OnModuleInit {
 
   private async assertPassword(admin: MasterAdmin, password: string) {
     if (!(await argon2.verify(admin.passwordHash, password || '').catch(() => false))) {
-      throw new UnauthorizedException('كلمة المرور الحالية غير صحيحة');
+      // 403 مش 401: الجلسة نفسها سليمة، فالواجهة ماتعملش تسجيل خروج
+      throw new ForbiddenException('كلمة المرور الحالية غير صحيحة');
     }
   }
 
@@ -270,7 +271,7 @@ export class MasterAdminService implements OnModuleInit {
     const admin = await this.getAdmin(adminId);
     if (!admin.totpSecret) throw new ForbiddenException('ابدأ إعداد المصادقة الثنائية أولاً');
     const step = verifyTotp(decryptSecret(admin.totpSecret, this.totpKey), otp);
-    if (step === null) throw new UnauthorizedException('رمز المصادقة غير صحيح');
+    if (step === null) throw new ForbiddenException('رمز المصادقة غير صحيح');
     admin.totpEnabled = true;
     admin.totpLastStep = String(step);
     admin.sessionVersion = (admin.sessionVersion ?? 0) + 1; // أي جلسة قديمة بدون 2FA تخرج
@@ -294,7 +295,7 @@ export class MasterAdminService implements OnModuleInit {
     const step = verifyTotp(decryptSecret(admin.totpSecret, this.totpKey), otp, {
       lastUsedStep: admin.totpLastStep != null ? Number(admin.totpLastStep) : null,
     });
-    if (step === null) throw new UnauthorizedException('رمز المصادقة غير صحيح');
+    if (step === null) throw new ForbiddenException('رمز المصادقة غير صحيح');
     admin.totpEnabled = false;
     admin.totpSecret = null;
     admin.totpLastStep = null;
@@ -426,8 +427,8 @@ export class MasterAdminService implements OnModuleInit {
          (SELECT COUNT(*)::int FROM products WHERE tenant_id = $1 AND deleted_at IS NULL) AS products,
          (SELECT COUNT(*)::int FROM api_keys WHERE tenant_id = $1 AND revoked_at IS NULL AND deleted_at IS NULL
             AND (expires_at IS NULL OR expires_at > NOW())) AS "activeApiKeys",
-         (SELECT COUNT(*)::int FROM audit_logs WHERE tenant_id = $1 AND description = 'tenant'
-            AND action = 'TENANT_LOGIN_FAILED' AND created_at > NOW() - INTERVAL '24 hours') AS "failedLogins24h"`,
+         (SELECT COUNT(*)::int FROM audit_logs WHERE tenant_id = $1
+            AND action IN ('TENANT_LOGIN_FAILED', 'TENANT_ACCOUNT_LOCKED') AND created_at > NOW() - INTERVAL '24 hours') AS "failedLogins24h"`,
       [id]
     );
     return {

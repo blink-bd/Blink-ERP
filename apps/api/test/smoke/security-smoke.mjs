@@ -336,7 +336,7 @@ async function main() {
     token: ot,
     body: { currentPassword: 'wrong-wrong-1', newPassword: 'Another#Pass2024!' },
   });
-  check('change password with wrong current → 401', cpBad.status === 401, cpBad);
+  check('change password with wrong current → 403', cpBad.status === 403, cpBad);
   const cp = await call('POST', '/auth/change-password', {
     token: ot,
     body: { currentPassword: ownerPassword, newPassword: 'Another#Pass2024!' },

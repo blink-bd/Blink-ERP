@@ -143,7 +143,8 @@ export class AuthService {
         action: 'PASSWORD_CHANGE_FAILED',
         severity: 'warning',
       });
-      throw new UnauthorizedException('كلمة المرور الحالية غير صحيحة');
+      // 403 مش 401: الجلسة سليمة، فالواجهة ماتحاولش refresh/تسجيل خروج
+      throw new ForbiddenException('كلمة المرور الحالية غير صحيحة');
     }
     if (current === next) throw new ForbiddenException('كلمة المرور الجديدة لازم تختلف عن الحالية');
     assertStrongPassword(next);

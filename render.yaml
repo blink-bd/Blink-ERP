@@ -29,3 +29,11 @@ services:
         sync: false        # 12+ حرف: كبير وصغير ورقم ورمز
       - key: MASTER_ADMIN_NAME
         value: المدير العام
+      - key: MASTER_2FA_ENCRYPTION_KEY
+        generateValue: true  # تشفير أسرار المصادقة الثنائية — لا تغيّره بعد تفعيل 2FA
+      - key: MASTER_ADMIN_ALLOWED_IPS
+        sync: false        # اختياري: IPs مكتبك/بيتك فقط (مفصولة بفاصلة، يدعم CIDR)
+      - key: TRUST_PROXY_HOPS
+        value: "1"         # Render بيحط Proxy واحد قدام السيرفر
+      - key: THROTTLE_LIMIT
+        value: "300"

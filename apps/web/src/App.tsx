@@ -9,27 +9,76 @@ import { AppLayout } from './components/layout/AppLayout';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 
-const LoginPage = lazy(() => import('./pages/Login').then((module) => ({ default: module.LoginPage })));
-const DashboardPage = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage })));
+const LoginPage = lazy(() =>
+  import('./pages/Login').then((module) => ({ default: module.LoginPage }))
+);
+const DashboardPage = lazy(() =>
+  import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage }))
+);
 const POSPage = lazy(() => import('./pages/POS').then((module) => ({ default: module.POSPage })));
-const ProductsPage = lazy(() => import('./pages/Products').then((module) => ({ default: module.ProductsPage })));
-const InventoryPage = lazy(() => import('./pages/Inventory').then((module) => ({ default: module.InventoryPage })));
-const CustomersPage = lazy(() => import('./pages/Customers').then((module) => ({ default: module.CustomersPage })));
-const SuppliersPage = lazy(() => import('./pages/Suppliers').then((module) => ({ default: module.SuppliersPage })));
-const PurchasesPage = lazy(() => import('./pages/Purchases').then((module) => ({ default: module.PurchasesPage })));
-const ExpensesPage = lazy(() => import('./pages/Expenses').then((module) => ({ default: module.ExpensesPage })));
-const CashRegisterPage = lazy(() => import('./pages/CashRegister').then((module) => ({ default: module.CashRegisterPage })));
-const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
-const SettingsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.SettingsPage })));
-const AdminLoginPage = lazy(() => import('./pages/admin/AdminLogin').then((module) => ({ default: module.AdminLoginPage })));
-const AdminLayout = lazy(() => import('./pages/admin/AdminLayout').then((module) => ({ default: module.AdminLayout })));
-const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboard').then((module) => ({ default: module.AdminDashboardPage })));
-const AdminTenantsPage = lazy(() => import('./pages/admin/AdminTenants').then((module) => ({ default: module.AdminTenantsPage })));
-const AdminTenantDetailPage = lazy(() => import('./pages/admin/AdminTenantDetail').then((module) => ({ default: module.AdminTenantDetailPage })));
+const ProductsPage = lazy(() =>
+  import('./pages/Products').then((module) => ({ default: module.ProductsPage }))
+);
+const InventoryPage = lazy(() =>
+  import('./pages/Inventory').then((module) => ({ default: module.InventoryPage }))
+);
+const CustomersPage = lazy(() =>
+  import('./pages/Customers').then((module) => ({ default: module.CustomersPage }))
+);
+const SuppliersPage = lazy(() =>
+  import('./pages/Suppliers').then((module) => ({ default: module.SuppliersPage }))
+);
+const PurchasesPage = lazy(() =>
+  import('./pages/Purchases').then((module) => ({ default: module.PurchasesPage }))
+);
+const ExpensesPage = lazy(() =>
+  import('./pages/Expenses').then((module) => ({ default: module.ExpensesPage }))
+);
+const CashRegisterPage = lazy(() =>
+  import('./pages/CashRegister').then((module) => ({ default: module.CashRegisterPage }))
+);
+const ReportsPage = lazy(() =>
+  import('./pages/Reports').then((module) => ({ default: module.ReportsPage }))
+);
+const SettingsPage = lazy(() =>
+  import('./pages/Settings').then((module) => ({ default: module.SettingsPage }))
+);
+const UsersPage = lazy(() =>
+  import('./pages/Users').then((module) => ({ default: module.UsersPage }))
+);
+const ApiKeysPage = lazy(() =>
+  import('./pages/ApiKeys').then((module) => ({ default: module.ApiKeysPage }))
+);
+const DataTransferPage = lazy(() =>
+  import('./pages/DataTransfer').then((module) => ({ default: module.DataTransferPage }))
+);
+const AdminLoginPage = lazy(() =>
+  import('./pages/admin/AdminLogin').then((module) => ({ default: module.AdminLoginPage }))
+);
+const AdminLayout = lazy(() =>
+  import('./pages/admin/AdminLayout').then((module) => ({ default: module.AdminLayout }))
+);
+const AdminDashboardPage = lazy(() =>
+  import('./pages/admin/AdminDashboard').then((module) => ({ default: module.AdminDashboardPage }))
+);
+const AdminTenantsPage = lazy(() =>
+  import('./pages/admin/AdminTenants').then((module) => ({ default: module.AdminTenantsPage }))
+);
+const AdminSecurityPage = lazy(() =>
+  import('./pages/admin/AdminSecurity').then((module) => ({ default: module.AdminSecurityPage }))
+);
+const AdminTenantDetailPage = lazy(() =>
+  import('./pages/admin/AdminTenantDetail').then((module) => ({
+    default: module.AdminTenantDetailPage,
+  }))
+);
 
 function LoadingScreen() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 text-gray-500" role="status">
+    <div
+      className="flex min-h-screen items-center justify-center bg-gray-50 text-gray-500"
+      role="status"
+    >
       جاري التحميل...
     </div>
   );
@@ -52,6 +101,7 @@ function AppRoutes() {
           <Route index element={<AdminDashboardPage />} />
           <Route path="tenants" element={<AdminTenantsPage />} />
           <Route path="tenants/:id" element={<AdminTenantDetailPage />} />
+          <Route path="security" element={<AdminSecurityPage />} />
         </Route>
         <Route
           element={
@@ -70,6 +120,9 @@ function AppRoutes() {
           <Route path="/expenses" element={<ExpensesPage />} />
           <Route path="/cash-register" element={<CashRegisterPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/users" element={<UsersPage />} />
+          <Route path="/api-keys" element={<ApiKeysPage />} />
+          <Route path="/data" element={<DataTransferPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

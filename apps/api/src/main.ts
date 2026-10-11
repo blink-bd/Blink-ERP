@@ -85,6 +85,15 @@ async function bootstrap() {
       .setDescription('Multi-Tenant ERP/POS System API Documentation')
       .setVersion('1.0')
       .addBearerAuth()
+      .addApiKey(
+        {
+          type: 'apiKey',
+          name: 'X-API-Key',
+          in: 'header',
+          description: 'مفتاح API للتكاملات (blk_live_...)',
+        },
+        'api-key'
+      )
       .addTag('auth', 'Authentication endpoints')
       .addTag('tenants', 'Tenant management')
       .addTag('users', 'User management')

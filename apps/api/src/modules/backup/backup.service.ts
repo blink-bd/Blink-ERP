@@ -37,7 +37,7 @@ const TENANT_TABLES = [
 ] as const;
 
 /** أعمدة حساسة لا يجب أن تظهر في ملف النسخة الاحتياطية إطلاقاً. */
-const SENSITIVE_KEY_PATTERN = /password|token|secret|otp/i;
+const SENSITIVE_KEY_PATTERN = /password|token|secret|otp|hash|totp/i;
 
 function sanitizeRow(row: Record<string, unknown>): Record<string, unknown> {
   const clean: Record<string, unknown> = {};
