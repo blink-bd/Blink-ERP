@@ -406,7 +406,9 @@ export class MasterAdminService implements OnModuleInit {
       maxUsers: tenant.maxUsers ?? null,
       maxBranches: tenant.maxBranches ?? null,
       maxWarehouses: tenant.maxWarehouses ?? null,
+      maxProducts: tenant.maxProducts ?? null,
     };
+    if (dto.maxProducts !== undefined) tenant.maxProducts = dto.maxProducts;
     if (dto.maxUsers !== undefined) tenant.maxUsers = dto.maxUsers;
     if (dto.maxBranches !== undefined) tenant.maxBranches = dto.maxBranches;
     if (dto.maxWarehouses !== undefined) tenant.maxWarehouses = dto.maxWarehouses;
@@ -437,6 +439,7 @@ export class MasterAdminService implements OnModuleInit {
         maxUsers: tenant.maxUsers ?? null,
         maxBranches: tenant.maxBranches ?? null,
         maxWarehouses: tenant.maxWarehouses ?? null,
+        maxProducts: tenant.maxProducts ?? null,
       },
     };
   }

@@ -452,6 +452,78 @@ async function main() {
     keyExport
   );
 
+  // ------------------------------------------------------------ limits & regional
+  console.log('\n[10] Product limit & regional settings');
+  const tInfo = await call('GET', `/admin/tenants/${tenantId}`, { token: mt });
+  check(
+    'new tenant defaults to Africa/Cairo + EGP',
+    data(tInfo)?.timezone === 'Africa/Cairo' && data(tInfo)?.currency === 'EGP',
+    data(tInfo)
+  );
+  const badTz = await call('PUT', `/admin/tenants/${tenantId}`, {
+    token: mt,
+    body: { timezone: "Africa/Cairo'; DROP TABLE x;--" },
+  });
+  check('invalid timezone rejected → 400', badTz.status === 400, badTz);
+  const badCur = await call('PUT', `/admin/tenants/${tenantId}`, {
+    token: mt,
+    body: { currency: 'egp1' },
+  });
+  check('invalid currency rejected → 400', badCur.status === 400, badCur);
+  const okReg = await call('PUT', `/admin/tenants/${tenantId}`, {
+    token: mt,
+    body: { timezone: 'Asia/Dubai', currency: 'AED' },
+  });
+  check(
+    'regional settings saved',
+    okReg.status < 300 && data(okReg)?.timezone === 'Asia/Dubai',
+    okReg
+  );
+  const hm = await call('GET', '/reports/advanced/sales-heatmap', { token: ot });
+  check('heatmap uses tenant timezone', data(hm)?.timezone === 'Asia/Dubai', hm);
+
+  const usageNow = await call('GET', `/admin/tenants/${tenantId}/usage`, { token: mt });
+  const productCount = data(usageNow)?.usage?.products;
+  const setLimit = await call('PUT', `/admin/tenants/${tenantId}/limits`, {
+    token: mt,
+    body: { maxProducts: productCount },
+  });
+  check('set maxProducts = current count', setLimit.status < 300, setLimit);
+  const overLimit = await call('POST', '/products', {
+    token: ot,
+    body: { name: `زيادة ${uniq}`, sellingPrice: 10, costPrice: 5 },
+  });
+  check(
+    'product create blocked at limit → 403 LIMIT_REACHED',
+    overLimit.status === 403 && overLimit.body?.error?.code === 'LIMIT_REACHED',
+    overLimit
+  );
+  const overImport = await upload(
+    'products',
+    'اسم المنتج,كود المنتج,سعر التكلفة,سعر البيع\nجديد فوق الحد,LIM-1,5,9\n',
+    true
+  );
+  check(
+    'import dry-run reports product limit',
+    data(overImport)?.errors?.some((e) => String(e.message).includes('حد باقتك')),
+    overImport
+  );
+  const updateAtLimit = await upload('products', good, false);
+  check(
+    'updating existing products still allowed at limit',
+    data(updateAtLimit)?.summary?.updated === 2,
+    updateAtLimit
+  );
+  await call('PUT', `/admin/tenants/${tenantId}/limits`, {
+    token: mt,
+    body: { maxProducts: null },
+  });
+  const afterLift = await call('POST', '/products', {
+    token: ot,
+    body: { name: `بعد الرفع ${uniq}`, sellingPrice: 10, costPrice: 5 },
+  });
+  check('product create allowed after removing limit', afterLift.status < 300, afterLift);
+
   // cleanup: suspend smoke tenant
   const susp = await call('PATCH', `/admin/tenants/${tenantId}/status`, {
     token: mt,

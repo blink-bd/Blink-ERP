@@ -46,6 +46,8 @@ export class TenantLimitsDto {
     number | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(100000) maxWarehouses?:
     number | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsInt() @Min(1) @Max(10000000) maxProducts?:
+    number | null;
 }
 
 export class DeleteTenantDto {

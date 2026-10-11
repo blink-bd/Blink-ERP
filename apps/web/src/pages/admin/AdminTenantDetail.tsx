@@ -17,10 +17,46 @@ interface Usage {
     activeApiKeys: number;
     failedLogins24h: number;
   };
-  limits: { maxUsers: number | null; maxBranches: number | null; maxWarehouses: number | null };
+  limits: {
+    maxUsers: number | null;
+    maxBranches: number | null;
+    maxWarehouses: number | null;
+    maxProducts: number | null;
+  };
 }
 const limitInput = (v: number | null | undefined) =>
   v === null || v === undefined ? '' : String(v);
+
+const TIMEZONES = [
+  ['Africa/Cairo', 'مصر (القاهرة)'],
+  ['Asia/Riyadh', 'السعودية (الرياض)'],
+  ['Asia/Dubai', 'الإمارات (دبي)'],
+  ['Asia/Kuwait', 'الكويت'],
+  ['Asia/Qatar', 'قطر'],
+  ['Asia/Bahrain', 'البحرين'],
+  ['Asia/Muscat', 'عُمان'],
+  ['Asia/Amman', 'الأردن'],
+  ['Asia/Baghdad', 'العراق'],
+  ['Africa/Tripoli', 'ليبيا'],
+  ['Africa/Casablanca', 'المغرب'],
+  ['Europe/Istanbul', 'تركيا'],
+  ['UTC', 'UTC'],
+];
+const CURRENCIES = [
+  ['EGP', 'جنيه مصري'],
+  ['SAR', 'ريال سعودي'],
+  ['AED', 'درهم إماراتي'],
+  ['KWD', 'دينار كويتي'],
+  ['QAR', 'ريال قطري'],
+  ['BHD', 'دينار بحريني'],
+  ['OMR', 'ريال عماني'],
+  ['JOD', 'دينار أردني'],
+  ['IQD', 'دينار عراقي'],
+  ['LYD', 'دينار ليبي'],
+  ['MAD', 'درهم مغربي'],
+  ['TRY', 'ليرة تركية'],
+  ['USD', 'دولار أمريكي'],
+];
 
 export function AdminTenantDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -50,8 +86,15 @@ export function AdminTenantDetailPage() {
     maxUsers: '',
     maxBranches: '',
     maxWarehouses: '',
+    maxProducts: '',
   });
   const [limitsSaving, setLimitsSaving] = useState(false);
+  const [regional, setRegional] = useState({
+    timezone: 'Africa/Cairo',
+    currency: 'EGP',
+    country: '',
+  });
+  const [regionalSaving, setRegionalSaving] = useState(false);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [auditFilter, setAuditFilter] = useState('');
 
@@ -72,6 +115,11 @@ export function AdminTenantDetailPage() {
     );
     setSubscriptionCycle(t.data.data.subscriptionCycle || 'monthly');
     setSubscriptionNote(t.data.data.subscriptionNote || '');
+    setRegional({
+      timezone: t.data.data.timezone || 'Africa/Cairo',
+      currency: t.data.data.currency || 'EGP',
+      country: t.data.data.country || '',
+    });
     loadUsage();
   };
   const loadUsage = async () => {
@@ -83,6 +131,7 @@ export function AdminTenantDetailPage() {
         maxUsers: limitInput(l.maxUsers),
         maxBranches: limitInput(l.maxBranches),
         maxWarehouses: limitInput(l.maxWarehouses),
+        maxProducts: limitInput(l.maxProducts),
       });
     } catch {
       /* interceptor */
@@ -111,6 +160,7 @@ export function AdminTenantDetailPage() {
         maxUsers: parse(limitsForm.maxUsers),
         maxBranches: parse(limitsForm.maxBranches),
         maxWarehouses: parse(limitsForm.maxWarehouses),
+        maxProducts: parse(limitsForm.maxProducts),
       });
       toast.success('تم تحديث حدود الحساب');
       loadUsage();
@@ -176,6 +226,22 @@ export function AdminTenantDetailPage() {
       toast.success('تم حفظ هوية التاجر البصرية');
     } finally {
       setBrandingSaving(false);
+    }
+  };
+
+  const saveRegional = async () => {
+    setRegionalSaving(true);
+    try {
+      await adminApi.put(`/admin/tenants/${id}`, {
+        timezone: regional.timezone,
+        currency: regional.currency,
+        country: regional.country.trim() || undefined,
+      });
+      toast.success('تم حفظ الإعدادات الإقليمية');
+    } catch {
+      /* interceptor */
+    } finally {
+      setRegionalSaving(false);
     }
   };
 
@@ -421,7 +487,10 @@ export function AdminTenantDetailPage() {
                 'المخازن',
                 `${usage.usage.warehouses}${usage.limits.maxWarehouses ? ` / ${usage.limits.maxWarehouses}` : ''}`,
               ],
-              ['المنتجات', usage.usage.products],
+              [
+                'المنتجات',
+                `${usage.usage.products}${usage.limits.maxProducts ? ` / ${usage.limits.maxProducts}` : ''}`,
+              ],
               ['مفاتيح API نشطة', usage.usage.activeApiKeys],
               ['دخول فاشل (24 ساعة)', usage.usage.failedLogins24h],
             ].map(([label, value]) => (
@@ -435,7 +504,7 @@ export function AdminTenantDetailPage() {
             ))}
           </div>
         )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Label>أقصى عدد مستخدمين</Label>
             <Input
@@ -466,9 +535,75 @@ export function AdminTenantDetailPage() {
               onChange={(e) => setLimitsForm({ ...limitsForm, maxWarehouses: e.target.value })}
             />
           </div>
+          <div>
+            <Label>أقصى عدد منتجات</Label>
+            <Input
+              type="number"
+              min={1}
+              placeholder="بدون حد"
+              value={limitsForm.maxProducts}
+              onChange={(e) => setLimitsForm({ ...limitsForm, maxProducts: e.target.value })}
+            />
+          </div>
         </div>
         <Button onClick={saveLimits} disabled={limitsSaving}>
           {limitsSaving ? 'جاري الحفظ...' : 'حفظ الحدود'}
+        </Button>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-5 space-y-4">
+        <div>
+          <h2 className="text-lg font-bold">الإعدادات الإقليمية</h2>
+          <p className="text-sm text-gray-500">
+            المنطقة الزمنية بتأثر على تقارير أوقات الذروة وبداية ونهاية اليوم، والعملة بتظهر في
+            الفواتير.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div>
+            <Label>المنطقة الزمنية</Label>
+            <select
+              className="h-10 w-full rounded-md border px-3"
+              value={regional.timezone}
+              onChange={(e) => setRegional({ ...regional, timezone: e.target.value })}
+            >
+              {!TIMEZONES.some(([v]) => v === regional.timezone) && (
+                <option value={regional.timezone}>{regional.timezone}</option>
+              )}
+              {TIMEZONES.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l} — {v}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>العملة</Label>
+            <select
+              className="h-10 w-full rounded-md border px-3"
+              value={regional.currency}
+              onChange={(e) => setRegional({ ...regional, currency: e.target.value })}
+            >
+              {!CURRENCIES.some(([v]) => v === regional.currency) && (
+                <option value={regional.currency}>{regional.currency}</option>
+              )}
+              {CURRENCIES.map(([v, l]) => (
+                <option key={v} value={v}>
+                  {l} ({v})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <Label>الدولة</Label>
+            <Input
+              value={regional.country}
+              onChange={(e) => setRegional({ ...regional, country: e.target.value })}
+            />
+          </div>
+        </div>
+        <Button onClick={saveRegional} disabled={regionalSaving}>
+          {regionalSaving ? 'جاري الحفظ...' : 'حفظ الإعدادات الإقليمية'}
         </Button>
       </div>
 

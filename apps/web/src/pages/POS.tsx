@@ -30,6 +30,7 @@ interface CustomerLite {
   id: string;
   name: string;
   phone?: string;
+  priceTier?: string;
 }
 interface PosDraft {
   id: string;
@@ -473,6 +474,18 @@ export function POSPage() {
                     className="block w-full text-right px-3 py-2 hover:bg-gray-100 text-sm"
                     onClick={() => {
                       setSelectedCustomer(customer);
+                      // تسعيرة العميل المحفوظة (جملة / نص جملة) بتتطبق تلقائياً
+                      if (
+                        customer.priceTier === 'wholesale' ||
+                        (customer.priceTier === 'half_wholesale' && halfWholesaleEnabled)
+                      ) {
+                        setPriceTier(customer.priceTier as PriceTier);
+                        toast.success(
+                          customer.priceTier === 'wholesale'
+                            ? 'تم تطبيق سعر الجملة لهذا العميل'
+                            : 'تم تطبيق سعر نص الجملة لهذا العميل'
+                        );
+                      }
                       setCustomerName(customer.name);
                       setCustomerPhone(customer.phone || '');
                       setCustomerResults([]);

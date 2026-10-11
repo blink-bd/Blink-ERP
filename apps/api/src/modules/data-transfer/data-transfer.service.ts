@@ -1,3 +1,4 @@
+import { getProductCapacity } from '@/modules/products/product-limits';
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { plainToInstance } from 'class-transformer';
@@ -229,6 +230,17 @@ export class DataTransferService {
       updated: 0,
       failed: 0,
     };
+
+    // حد المنتجات في باقة التاجر: الاستيراد كله يترفض لو هيعدّي الحد
+    if (def.entity === 'products' && summary.toCreate > 0) {
+      const cap = await getProductCapacity(this.dataSource, actor.tenantId);
+      if (cap.max !== null && cap.count + summary.toCreate > cap.max) {
+        errors.unshift({
+          row: 1,
+          message: `الملف هيضيف ${summary.toCreate} منتج جديد والمتاح ${cap.remaining} بس من حد باقتك (${cap.max}). قلّل المنتجات الجديدة أو اطلب زيادة الحد`,
+        });
+      }
+    }
 
     // كل-أو-لا شيء على مستوى التحقق: لو فيه أي خطأ مش هنكتب حاجة
     if (dryRun || errors.length) {

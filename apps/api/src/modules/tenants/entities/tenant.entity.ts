@@ -28,13 +28,13 @@ export class Tenant extends BaseEntity {
   @Column({ length: 100, nullable: true })
   city?: string;
 
-  @Column({ length: 100, default: 'Saudi Arabia' })
+  @Column({ length: 100, default: 'Egypt' })
   country: string;
 
-  @Column({ length: 3, default: 'SAR' })
+  @Column({ length: 3, default: 'EGP' })
   currency: string;
 
-  @Column({ length: 50, default: 'Asia/Riyadh' })
+  @Column({ length: 50, default: 'Africa/Cairo' })
   timezone: string;
 
   @Column({ name: 'default_language', length: 5, default: 'ar' })
@@ -84,6 +84,9 @@ export class Tenant extends BaseEntity {
 
   @Column({ name: 'max_warehouses', type: 'int', nullable: true })
   maxWarehouses?: number | null;
+
+  @Column({ name: 'max_products', type: 'int', nullable: true })
+  maxProducts?: number | null;
 
   @OneToMany(() => User, (user) => user.tenant)
   users: User[];

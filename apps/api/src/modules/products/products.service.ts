@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
+import { assertCanAddProducts } from './product-limits';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository, IsNull, In } from 'typeorm';
 import { Product } from './entities/product.entity';
@@ -282,6 +283,7 @@ export class ProductsService {
     if (duplicates.sku) throw new ConflictException('رمز المنتج موجود مسبقاً');
     if (duplicates.barcode) throw new ConflictException('الباركود موجود مسبقاً');
 
+    await assertCanAddProducts(this.productsRepository.manager, tenantId);
     await this.assertTenantReferences(tenantId, dto.categoryId, dto.brandId);
     await this.assertHalfWholesaleAllowed(tenantId, dto.halfWholesalePrice);
     this.validateSellingPrices(
