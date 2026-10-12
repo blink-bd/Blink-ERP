@@ -41,6 +41,8 @@ describe('SalesService - createReturn', () => {
   beforeEach(async () => {
     mockManager = {
       findOne: jest.fn(),
+      // createReturn/voidSale يقرآن أصناف الفاتورة بعد قفل رأس الفاتورة بدون relations
+      find: jest.fn().mockResolvedValue([]),
       query: jest.fn(async (sql: string) => {
         if (sql.includes('FROM sale_return_items')) return [];
         if (sql.includes('INSERT INTO document_counters')) return [{ value: 1 }];
@@ -180,6 +182,9 @@ describe('SalesService - createReturn', () => {
       }
       return Promise.resolve(null);
     });
+    mockManager.find.mockImplementation((entity: any) =>
+      Promise.resolve(entity === SaleItem ? sale.items || [] : [])
+    );
     mockManager.query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM sale_return_items')) return previousRows;
       if (sql.includes('INSERT INTO document_counters')) return [{ value: 1 }];

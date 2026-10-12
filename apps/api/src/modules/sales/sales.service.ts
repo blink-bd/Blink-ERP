@@ -480,12 +480,13 @@ export class SalesService {
   async voidSale(tenantId: string, id: string, reason: string, userId: string): Promise<void> {
     if (!reason?.trim()) throw new BadRequestException('سبب إلغاء الفاتورة مطلوب');
     const result = await this.dataSource.transaction(async (manager) => {
+      // بدون relations مع القفل: FOR UPDATE لا يعمل على الجانب الاختياري من LEFT JOIN.
       const sale = await manager.findOne(Sale, {
         where: { id, tenantId },
-        relations: ['items'],
         lock: { mode: 'pessimistic_write' },
       });
       if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
+      sale.items = await manager.find(SaleItem, { where: { saleId: sale.id, tenantId } });
       if (sale.status !== 'completed') throw new BadRequestException('الفاتورة ليست مكتملة');
       if (Number(sale.paidAmount) > 0) {
         throw new BadRequestException('لا يمكن إلغاء فاتورة تم الدفع عليها');
@@ -559,16 +560,20 @@ export class SalesService {
     if (!dto.items?.length) throw new BadRequestException('أضف صنفاً واحداً على الأقل للمرتجع');
 
     const returnResult = await this.dataSource.transaction(async (manager) => {
+      // نقفل الفاتورة نفسها بدون relations: PostgreSQL يرفض FOR UPDATE على الجانب
+      // الاختياري من LEFT JOIN (كان يسبب فشل كل عمليات المرتجع).
       const sale = await manager.findOne(Sale, {
         where: { id: saleId, tenantId },
-        relations: ['items'],
         lock: { mode: 'pessimistic_write' },
       });
       if (!sale) throw new NotFoundException('الفاتورة غير موجودة');
       if (!['completed', 'returned'].includes(sale.status)) {
         throw new BadRequestException('لا يمكن إرجاع فاتورة ملغاة أو غير مكتملة');
       }
-      const saleItems = sale.items || [];
+      const saleItems = await manager.find(SaleItem, {
+        where: { saleId: sale.id, tenantId },
+      });
+      sale.items = saleItems;
       if (!saleItems.length) throw new BadRequestException('الفاتورة لا تحتوي على أصناف');
 
       const requested = new Map<string, number>();
