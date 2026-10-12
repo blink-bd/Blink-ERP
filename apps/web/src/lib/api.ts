@@ -2,7 +2,7 @@ import axios, { AxiosInstance, AxiosError } from 'axios';
 import { toast } from 'react-hot-toast';
 import { getCsrfToken } from './csrf';
 
-// استخدم مساراً نسبياً افتراضياً حتى يعمل التطبيق من نفس النطاق أو خلف proxy.
+// Keep browser requests same-origin by default so the web app can sit behind a proxy.
 const API_URL = (import.meta as any).env?.VITE_API_URL || '/api/v1';
 const SAFE_METHODS = new Set(['get', 'head', 'options']);
 const NO_REFRESH_PATHS = ['/auth/login', '/auth/refresh', '/auth/csrf'];
@@ -15,6 +15,7 @@ class ApiClient {
     this.client = axios.create({
       baseURL: API_URL,
       withCredentials: true,
+      timeout: 15000,
       headers: { 'Content-Type': 'application/json' },
     });
     this.setupInterceptors();
@@ -63,8 +64,9 @@ class ApiClient {
         }
 
         const message = (error.response?.data as any)?.error?.message || 'حدث خطأ غير متوقع';
-        // أخطاء جلسة الدخول الأولية لا تظهر كرسالة منبثقة للمستخدم.
-        if (!isAuthEndpoint || requestUrl.includes('/auth/login')) toast.error(message);
+        if (!isAuthEndpoint || requestUrl.includes('/auth/login')) {
+          toast.error(Array.isArray(message) ? message.join('، ') : message);
+        }
         return Promise.reject(error);
       }
     );

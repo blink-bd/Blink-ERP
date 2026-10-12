@@ -39,7 +39,6 @@ export function InvoiceAttachments({
   useEffect(() => {
     load();
     // Invoice identity is stable for the component's lifetime.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entityType, invoiceId]);
 
   const upload = async (file?: File) => {

@@ -8,24 +8,44 @@ import {
   UseGuards,
   Request,
   ParseUUIDPipe,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { FeaturesService } from '@/modules/features/features.service';
+import { getFeatureDefinition } from '@/modules/features/features.catalog';
 import { SalesService } from './sales.service';
-import { CreateSaleDto } from './dto/create-sale.dto';
+import { AddSalePaymentDto, CreateSaleDto, VoidSaleDto } from './dto/create-sale.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
 import { ResolveReturnItemDto } from './dto/resolve-return-item.dto';
 
 @ApiTags('sales')
 @ApiBearerAuth()
+@RequirePermission('sales.view')
 @Controller({ path: 'sales', version: '1' })
 @RequireFeature('sales')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class SalesController {
-  constructor(private readonly salesService: SalesService) {}
+  constructor(
+    private readonly salesService: SalesService,
+    private readonly featuresService: FeaturesService
+  ) {}
+
+  private async assertFeature(tenantId: string, code: string) {
+    if (!(await this.featuresService.tenantHasFeature(tenantId, code))) {
+      const name = getFeatureDefinition(code)?.nameAr || code;
+      throw new ForbiddenException({
+        code: 'FEATURE_DISABLED',
+        feature: code,
+        message: `ميزة "${name}" غير مفعّلة لحسابك. تواصل مع الإدارة لتفعيلها`,
+      });
+    }
+  }
 
   @Get()
   async findAll(
@@ -56,21 +76,24 @@ export class SalesController {
   }
 
   @Get(':id')
-  async findOne(@Request() req, @Param('id') id: string) {
+  async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.salesService.findById(req.tenantId, id) };
   }
 
   @Post()
+  @RequirePermission('sales.create')
   async create(@Request() req, @Body() dto: CreateSaleDto) {
+    if (req.user?.authType !== 'api_key') await this.assertFeature(req.tenantId, 'pos');
     const sale = await this.salesService.create(req.tenantId, dto, req.user.id, req.user.branchId);
     return { success: true, data: sale, message: 'تم إنشاء الفاتورة بنجاح' };
   }
 
   @Post(':id/payments')
+  @RequirePermission('sales.payment')
   async addPayment(
     @Request() req,
-    @Param('id') id: string,
-    @Body() dto: { methodId: string; amount: number; referenceNumber?: string }
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddSalePaymentDto
   ) {
     const result = await this.salesService.addPayment(
       req.tenantId,
@@ -84,19 +107,26 @@ export class SalesController {
   }
 
   @Post(':id/void')
-  async void(@Request() req, @Param('id') id: string, @Body() dto: { reason: string }) {
+  @RequirePermission('sales.void')
+  async void(@Request() req, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSaleDto) {
     await this.salesService.voidSale(req.tenantId, id, dto.reason, req.user.id);
     return { success: true, message: 'تم إلغاء الفاتورة بنجاح' };
   }
 
   @Post(':id/return')
-  @RequireFeature('return_disposition')
-  async createReturn(@Request() req, @Param('id') id: string, @Body() dto: CreateReturnDto) {
+  @RequirePermission('sales.return')
+  @RequireFeature('returns', 'return_disposition')
+  async createReturn(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateReturnDto
+  ) {
     const result = await this.salesService.createReturn(req.tenantId, id, dto, req.user.id);
     return { success: true, data: result, message: 'تم تسجيل الاسترجاع وإرساله إلى الفحص' };
   }
 
   @Post('returns/:returnId/items/:itemId/disposition')
+  @RequirePermission('sales.return')
   @RequireFeature('return_disposition')
   async resolveReturnItem(
     @Request() req,

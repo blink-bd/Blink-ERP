@@ -23,7 +23,7 @@ export function AdminDashboardPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-bold">نظرة عامة</h1>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         <Card label="إجمالي التجّار" value={t.total} />
         <Card label="نشطون" value={t.active} tone="text-green-600" />
         <Card label="موقوفون" value={t.suspended} tone="text-orange-600" />
@@ -36,8 +36,8 @@ export function AdminDashboardPage() {
 
       <div>
         <h2 className="text-lg font-bold mb-3">آخر عمليات الإدارة</h2>
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="bg-gray-50"><tr>
               <th className="text-right p-3">الوقت</th><th className="text-right p-3">المدير</th>
               <th className="text-right p-3">العملية</th><th className="text-right p-3">IP</th>

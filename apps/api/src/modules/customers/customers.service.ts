@@ -55,13 +55,14 @@ export class CustomersService {
     return builder.orderBy('c.name', 'ASC').limit(10).getMany();
   }
 
-  async findById(tenantId: string, id: string): Promise<Customer> {
-    const customer = await this.repo.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
+  async findById(tenantId: string, id: string, manager?: EntityManager): Promise<Customer> {
+    const repository = manager ? manager.getRepository(Customer) : this.repo;
+    const customer = await repository.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
     if (!customer) throw new NotFoundException('العميل غير موجود');
     return customer;
   }
 
-  async create(tenantId: string, data: Partial<Customer>, userId?: string) {
+  async create(tenantId: string, data: Partial<Customer>, userId?: string, branchId?: string) {
     const clean = stripProtected(data);
     const previousBalance = Number((clean as any).previousBalance) || 0;
     return this.repo.manager.transaction(async (manager) => {
@@ -75,7 +76,14 @@ export class CustomersService {
           balanceReminderAnchorAt: previousBalance !== 0 ? new Date() : undefined,
         })
       );
-      await adjustBranchPartyBalance(manager, tenantId, 'customer', customer.id, previousBalance);
+      await adjustBranchPartyBalance(
+        manager,
+        tenantId,
+        'customer',
+        customer.id,
+        previousBalance,
+        branchId
+      );
       return customer;
     });
   }
@@ -83,7 +91,11 @@ export class CustomersService {
   async update(
     tenantId: string,
     id: string,
-    data: Partial<Customer> & { openingBalanceReason?: string; updatedBy?: string }
+    data: Partial<Customer> & {
+      openingBalanceReason?: string;
+      updatedBy?: string;
+      branchId?: string;
+    }
   ) {
     return this.repo.manager.transaction(async (manager) => {
       const customer = await manager.findOne(Customer, {
@@ -94,6 +106,7 @@ export class CustomersService {
       const clean = stripProtected(data as any);
       delete (clean as any).previousBalance;
       delete (clean as any).openingBalanceReason;
+      delete (clean as any).branchId;
       Object.assign(customer, clean);
 
       if (Object.prototype.hasOwnProperty.call(data, 'previousBalance')) {
@@ -106,7 +119,7 @@ export class CustomersService {
         if (Math.abs(delta) > 0.0001) {
           const reason = String((data as any).openingBalanceReason || '').trim();
           if (!reason) throw new BadRequestException('اكتب سبب تعديل الرصيد الافتتاحي');
-          const branchId = await resolveTenantBranch(manager, tenantId);
+          const resolvedBranchId = await resolveTenantBranch(manager, tenantId, data.branchId);
           await manager.query(
             `INSERT INTO party_balance_adjustments
                (tenant_id, party_type, customer_id, branch_id, amount, balance_before, balance_after, reason, created_by)
@@ -114,7 +127,7 @@ export class CustomersService {
             [
               tenantId,
               id,
-              branchId || null,
+              resolvedBranchId || null,
               delta,
               before,
               nextOpening,
@@ -123,7 +136,14 @@ export class CustomersService {
             ]
           );
           customer.balance = Number(customer.balance) + delta;
-          await adjustBranchPartyBalance(manager, tenantId, 'customer', id, delta, branchId);
+          await adjustBranchPartyBalance(
+            manager,
+            tenantId,
+            'customer',
+            id,
+            delta,
+            resolvedBranchId
+          );
           customer.balanceReminderAnchorAt = new Date();
           customer.balanceReminderLastSentAt = null;
           await manager.query(
@@ -142,10 +162,14 @@ export class CustomersService {
     tenantId: string,
     id: string,
     delta: number,
-    branchId?: string
+    branchOrManager?: string | EntityManager
   ): Promise<Customer> {
-    return this.repo.manager.transaction((manager) =>
-      this.adjustBalanceInTransaction(manager, tenantId, id, delta, branchId)
+    const manager =
+      typeof branchOrManager === 'string' || branchOrManager == null ? undefined : branchOrManager;
+    const branchId = typeof branchOrManager === 'string' ? branchOrManager : undefined;
+    if (manager) return this.adjustBalanceInTransaction(manager, tenantId, id, delta);
+    return this.repo.manager.transaction((transactionManager) =>
+      this.adjustBalanceInTransaction(transactionManager, tenantId, id, delta, branchId)
     );
   }
 
@@ -156,22 +180,40 @@ export class CustomersService {
     delta: number,
     branchId?: string
   ): Promise<Customer> {
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `customer:${tenantId}:${id}`,
+    ]);
     const customer = await manager.findOne(Customer, {
       where: { id, tenantId, deletedAt: IsNull() },
       lock: { mode: 'pessimistic_write' },
     });
     if (!customer) throw new NotFoundException('العميل غير موجود');
-    customer.balance = Number(customer.balance) + delta;
+    const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
+    if (delta < 0 && resolvedBranchId) {
+      const [branchBalance] = await manager.query(
+        `SELECT COALESCE(balance, 0) AS balance FROM branch_party_balances
+         WHERE tenant_id = $1 AND branch_id = $2 AND party_type = 'customer' AND party_id = $3`,
+        [tenantId, resolvedBranchId, id]
+      );
+      if (Number(branchBalance?.balance || 0) + delta < -0.0001) {
+        throw new BadRequestException('لا يمكن أن يتجاوز التحصيل رصيد العميل المستحق في هذا الفرع');
+      }
+    }
+    const nextBalance = Number(customer.balance) + delta;
+    if (nextBalance < -0.0001) {
+      throw new BadRequestException('لا يمكن أن يصبح رصيد العميل سالبًا');
+    }
+    customer.balance = Math.max(0, nextBalance);
     customer.balanceReminderAnchorAt = new Date();
     customer.balanceReminderLastSentAt = null;
-    await manager.save(customer);
-    await adjustBranchPartyBalance(manager, tenantId, 'customer', id, delta, branchId);
+    const saved = await manager.save(customer);
+    await adjustBranchPartyBalance(manager, tenantId, 'customer', id, delta, resolvedBranchId);
     await manager.query(
       `UPDATE balance_reminder_events SET resolved_at = CURRENT_TIMESTAMP
        WHERE tenant_id = $1 AND party_type = 'customer' AND party_id = $2 AND resolved_at IS NULL`,
       [tenantId, id]
     );
-    return customer;
+    return saved;
   }
 
   async delete(tenantId: string, id: string): Promise<void> {
@@ -193,7 +235,8 @@ export class CustomersService {
     );
     const payments = await this.repo.manager.query(
       `SELECT p.id, p.branch_id AS "branchId", p.reference_number AS "referenceNumber", p.payment_date AS date, p.amount, pm.name_ar AS method
-       FROM payments p JOIN payment_methods pm ON pm.id = p.payment_method_id
+       FROM payments p JOIN payment_methods pm
+         ON pm.id = p.payment_method_id AND pm.tenant_id = $1
        WHERE p.tenant_id = $1 AND p.customer_id = $2
          AND ($3::uuid[] IS NULL OR p.branch_id = ANY($3::uuid[]))
        ORDER BY p.payment_date ASC`,
@@ -294,23 +337,53 @@ export class CustomersService {
     userId: string,
     branchId?: string
   ) {
-    if (!Number.isFinite(amount) || amount <= 0)
+    if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
+    }
     return this.repo.manager.transaction(async (manager) => {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `customer:${tenantId}:${customerId}`,
+      ]);
       const customer = await manager.findOne(Customer, {
         where: { id: customerId, tenantId, deletedAt: IsNull() },
         lock: { mode: 'pessimistic_write' },
       });
       if (!customer) throw new NotFoundException('العميل غير موجود');
-      const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
-      const count = await manager.query(
-        `SELECT COUNT(*)::int AS c FROM payments WHERE tenant_id = $1`,
-        [tenantId]
-      );
-      const paymentNumber = `PAY-${new Date().getFullYear()}-${String(count[0].c + 1).padStart(4, '0')}`;
 
+      const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
+      const [method] = await manager.query(
+        `SELECT id FROM payment_methods WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+        [methodId, tenantId]
+      );
+      if (!method) throw new BadRequestException('طريقة الدفع غير صالحة لهذا التاجر');
+
+      let availableBalance = Number(customer.balance);
+      if (resolvedBranchId) {
+        const [branchBalance] = await manager.query(
+          `SELECT COALESCE(balance, 0) AS balance FROM branch_party_balances
+           WHERE tenant_id = $1 AND branch_id = $2 AND party_type = 'customer' AND party_id = $3`,
+          [tenantId, resolvedBranchId, customerId]
+        );
+        availableBalance = Number(branchBalance?.balance || 0);
+      }
+      if (amount > Math.max(0, availableBalance)) {
+        throw new BadRequestException('مبلغ التحصيل أكبر من رصيد العميل المستحق في هذا الفرع');
+      }
+
+      const year = new Date().getFullYear();
+      const [counter] = await manager.query(
+        `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+         VALUES ($1, 'payment', $2, 2)
+         ON CONFLICT (tenant_id, document_type, document_year)
+         DO UPDATE SET next_value = document_counters.next_value + 1
+         RETURNING next_value - 1 AS value`,
+        [tenantId, year]
+      );
+      const paymentNumber = `PAY-${year}-${String(Number(counter.value)).padStart(4, '0')}`;
       await manager.query(
-        `INSERT INTO payments (tenant_id, payment_number, customer_id, branch_id, payment_method_id, amount, payment_date, notes, created_by)
+        `INSERT INTO payments
+           (tenant_id, payment_number, customer_id, branch_id, payment_method_id, amount,
+            payment_date, notes, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP, $7, $8)`,
         [
           tenantId,
@@ -324,7 +397,7 @@ export class CustomersService {
         ]
       );
 
-      customer.balance = Number(customer.balance) - amount;
+      customer.balance = Math.max(0, Number(customer.balance) - amount);
       customer.balanceReminderAnchorAt = new Date();
       customer.balanceReminderLastSentAt = null;
       const saved = await manager.save(customer);

@@ -4,6 +4,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import toast from 'react-hot-toast';
 import { Trash2, Plus, Minus, FilePlus2, FolderOpen, X } from 'lucide-react';
+import { useFeature } from '@/contexts/FeaturesContext';
+import { escapeHtml } from '@/lib/escape';
+
+type PriceTier = 'retail' | 'half_wholesale' | 'wholesale';
 
 interface CartLine {
   productId: string;
@@ -12,6 +16,7 @@ interface CartLine {
   barcode?: string;
   retailPrice: number;
   wholesalePrice: number | null;
+  halfWholesalePrice?: number | null;
   quantity: number;
   taxRate: number;
 }
@@ -25,12 +30,13 @@ interface CustomerLite {
   id: string;
   name: string;
   phone?: string;
+  priceTier?: string;
 }
 interface PosDraft {
   id: string;
   createdAt: string;
   cart: CartLine[];
-  priceTier: 'retail' | 'wholesale';
+  priceTier: PriceTier;
   discount: string;
   selectedCustomer: CustomerLite | null;
   customerName: string;
@@ -38,7 +44,7 @@ interface PosDraft {
 }
 interface StoredPosState {
   cart: CartLine[];
-  priceTier: 'retail' | 'wholesale';
+  priceTier: PriceTier;
   discount: string;
   selectedCustomer: CustomerLite | null;
   customerName: string;
@@ -61,7 +67,10 @@ export function POSPage() {
   const [query, setQuery] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [cart, setCart] = useState<CartLine[]>(stored.cart || []);
-  const [priceTier, setPriceTier] = useState<'retail' | 'wholesale'>(stored.priceTier || 'retail');
+  const [priceTier, setPriceTier] = useState<PriceTier>(stored.priceTier || 'retail');
+  const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
+  const effectiveTier: PriceTier =
+    priceTier === 'half_wholesale' && !halfWholesaleEnabled ? 'retail' : priceTier;
   const [discount, setDiscount] = useState(stored.discount || '0');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warehouseId, setWarehouseId] = useState(stored.warehouseId || '');
@@ -143,8 +152,18 @@ export function POSPage() {
     return () => window.clearTimeout(timer);
   }, [customerName]);
 
-  const priceFor = (line: CartLine) =>
-    priceTier === 'wholesale' && line.wholesalePrice ? line.wholesalePrice : line.retailPrice;
+  const priceFor = (line: CartLine) => {
+    if (effectiveTier === 'wholesale' && line.wholesalePrice) return line.wholesalePrice;
+    if (effectiveTier === 'half_wholesale' && line.halfWholesalePrice)
+      return line.halfWholesalePrice;
+    return line.retailPrice;
+  };
+  // السيرفر بيرفض نصف الجملة لمنتج ملوش سعر نصف جملة، فنبعت قطاعي للصنف ده
+  const tierFor = (line: CartLine): PriceTier => {
+    if (effectiveTier === 'wholesale' && line.wholesalePrice) return 'wholesale';
+    if (effectiveTier === 'half_wholesale' && line.halfWholesalePrice) return 'half_wholesale';
+    return 'retail';
+  };
   const subtotal = cart.reduce((sum, line) => sum + priceFor(line) * line.quantity, 0);
   const taxTotal = cart.reduce(
     (sum, line) => sum + (priceFor(line) * line.quantity * line.taxRate) / 100,
@@ -171,6 +190,10 @@ export function POSPage() {
           wholesalePrice:
             product.wholesalePrice !== null && product.wholesalePrice !== undefined
               ? Number(product.wholesalePrice)
+              : null,
+          halfWholesalePrice:
+            product.halfWholesalePrice !== null && product.halfWholesalePrice !== undefined
+              ? Number(product.halfWholesalePrice)
               : null,
           quantity: 1,
           taxRate: Number(product.taxRate) || 0,
@@ -259,16 +282,27 @@ export function POSPage() {
     setDrafts((previous) => previous.filter((draft) => draft.id !== id));
 
   const printReceipt = (sale: any) => {
-    if (!sale.receiptToken) {
-      toast.error('تم البيع لكن رابط الإيصال الإلكتروني غير متاح. حدّث الخادم وقاعدة البيانات.');
+    if (sale.receiptToken) {
+      const receiptUrl = `/receipt/${encodeURIComponent(sale.receiptToken)}?print=1`;
+      const receiptWindow = window.open(receiptUrl, '_blank');
+      if (!receiptWindow) {
+        toast('تعذر فتح نافذة جديدة؛ سيتم عرض الإيصال في الصفحة الحالية.');
+        window.location.assign(receiptUrl);
+      }
       return;
     }
-    const receiptUrl = `/receipt/${encodeURIComponent(sale.receiptToken)}?print=1`;
-    const receiptWindow = window.open(receiptUrl, '_blank');
-    if (!receiptWindow) {
-      toast('تعذر فتح نافذة جديدة؛ سيتم عرض الإيصال في الصفحة الحالية.');
-      window.location.assign(receiptUrl);
-    }
+
+    // Legacy fallback for invoices created before electronic receipt links were enabled.
+    const rows = sale.items
+      .map(
+        (item: any) =>
+          `<tr><td>${escapeHtml(item.productName)}</td><td>${escapeHtml(item.productSku || item.productBarcode || '-')}</td><td>${escapeHtml(item.quantity)}</td><td>${Number(item.total).toFixed(2)}</td></tr>`
+      )
+      .join('');
+    const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة ${escapeHtml(sale.saleNumber)}</title><style>@page{size:A5;margin:10mm}body{font-family:Arial,sans-serif;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:6px;text-align:right}th{background:#eee}.totals{margin-top:12px;font-size:14px}.totals div{display:flex;justify-content:space-between;padding:2px 0}.grand{font-weight:bold;font-size:16px;border-top:2px solid #333;margin-top:6px;padding-top:6px}</style></head><body><h2>فاتورة مبيعات رقم ${escapeHtml(sale.saleNumber)}</h2><p>التاريخ: ${new Date(sale.saleDate).toLocaleString('ar')}</p>${selectedCustomer ? `<p>العميل: ${escapeHtml(selectedCustomer.name)} ${selectedCustomer.phone ? `- ${escapeHtml(selectedCustomer.phone)}` : ''}</p>` : ''}<table><thead><tr><th>المنتج</th><th>الرمز</th><th>الكمية</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div><span>المجموع الفرعي</span><span>${Number(sale.subtotal).toFixed(2)}</span></div><div><span>الضريبة</span><span>${Number(sale.taxAmount).toFixed(2)}</span></div><div><span>الخصم</span><span>-${Number(sale.discountAmount).toFixed(2)}</span></div><div class="grand"><span>الإجمالي</span><span>${Number(sale.total).toFixed(2)}</span></div></div><script>window.print()</script></body></html>`;
+    const windowRef = window.open('', '_blank', 'width=400,height=600');
+    windowRef?.document.write(html);
+    windowRef?.document.close();
   };
 
   const ensureCustomer = async (): Promise<string | undefined> => {
@@ -305,7 +339,7 @@ export function POSPage() {
           quantity: line.quantity,
           unitPrice: priceFor(line),
           taxRate: line.taxRate,
-          priceTier,
+          priceTier: tierFor(line),
         })),
         payments: methodId ? [{ methodId, amount: total }] : [],
       });
@@ -333,9 +367,9 @@ export function POSPage() {
   };
 
   return (
-    <div className="grid grid-cols-3 gap-6 h-full">
-      <div className="col-span-2 flex flex-col">
-        <div className="flex gap-3 mb-4 items-center">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:h-full">
+      <div className="flex flex-col lg:col-span-2">
+        <div className="flex flex-wrap gap-3 mb-4 items-center">
           <form onSubmit={handleSearch} className="flex-1 relative">
             <Input
               ref={inputRef}
@@ -370,10 +404,19 @@ export function POSPage() {
             <button
               type="button"
               onClick={() => setPriceTier('retail')}
-              className={`px-4 font-medium ${priceTier === 'retail' ? 'bg-primary text-white' : 'bg-white'}`}
+              className={`px-4 font-medium ${effectiveTier === 'retail' ? 'bg-primary text-white' : 'bg-white'}`}
             >
               قطاعي
             </button>
+            {halfWholesaleEnabled && (
+              <button
+                type="button"
+                onClick={() => setPriceTier('half_wholesale')}
+                className={`px-4 font-medium ${effectiveTier === 'half_wholesale' ? 'bg-primary text-white' : 'bg-white'}`}
+              >
+                نص جملة
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setPriceTier('wholesale')}
@@ -419,7 +462,7 @@ export function POSPage() {
           </div>
         </div>
 
-        <div className="relative mb-4 grid grid-cols-2 gap-2">
+        <div className="relative mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <div className="relative">
             <Input
               value={customerName}
@@ -442,6 +485,18 @@ export function POSPage() {
                     className="block w-full text-right px-3 py-2 hover:bg-gray-100 text-sm"
                     onClick={() => {
                       setSelectedCustomer(customer);
+                      // تسعيرة العميل المحفوظة (جملة / نص جملة) بتتطبق تلقائياً
+                      if (
+                        customer.priceTier === 'wholesale' ||
+                        (customer.priceTier === 'half_wholesale' && halfWholesaleEnabled)
+                      ) {
+                        setPriceTier(customer.priceTier as PriceTier);
+                        toast.success(
+                          customer.priceTier === 'wholesale'
+                            ? 'تم تطبيق سعر الجملة لهذا العميل'
+                            : 'تم تطبيق سعر نص الجملة لهذا العميل'
+                        );
+                      }
                       setCustomerName(customer.name);
                       setCustomerPhone(customer.phone || '');
                       setCustomerResults([]);

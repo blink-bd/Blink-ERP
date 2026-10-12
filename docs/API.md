@@ -374,12 +374,73 @@ POST /inventory/transfer                (Permissions: inventory.adjust, Feature:
 
 ## Reports API
 
+كل التقارير بتاخد `startDate` و`endDate` بصيغة `YYYY-MM-DD`، والتقسيم لأيام وساعات بيتحسب بالمنطقة الزمنية بتاعة التاجر (`tenants.timezone`).
+
 ```http
-GET /reports/sales            (Permissions: reports.view, Feature: reports)
-GET /reports/inventory        (Permissions: reports.view)
-GET /reports/profit-loss      (Permissions: reports.view, Feature: advanced_reports)
-GET /reports/:reportType/export  (Permissions: reports.export)  -> format: pdf|xlsx|csv
+GET /reports/sales            (Permission: reports.view, Feature: reports)
+GET /reports/inventory        (Permission: reports.view, Feature: reports)
+GET /reports/purchases        (Permission: reports.view, Feature: reports)
+GET /reports/expenses         (Permission: reports.view, Feature: reports)
+GET /reports/profit-loss      (Permission: advanced_reports.view, Feature: advanced_reports)
 ```
+
+### Advanced Reports (Feature: `advanced_reports`, Permission: `advanced_reports.view`)
+```http
+GET /reports/advanced/product-profitability   ربحية كل منتج (إيراد، تكلفة، هامش)
+GET /reports/advanced/by-cashier              مبيعات كل كاشير
+GET /reports/advanced/by-payment-method       توزيع طرق الدفع
+GET /reports/advanced/inventory-valuation     قيمة المخزون بالتكلفة وبسعر البيع لكل مخزن
+GET /reports/advanced/dead-stock?days=60      أصناف راكدة لم تُبع منذ N يوم
+GET /reports/advanced/sales-heatmap           مبيعات حسب اليوم × الساعة -> { timezone, cells[] }
+GET /reports/advanced/top-customers           أعلى العملاء شراءً
+```
+
+---
+
+## Users & Roles API
+
+```http
+GET    /users/me
+GET    /users                        (users.view)    -> { users[], limits: { maxUsers, current } }
+POST   /users                        (users.create)  -> بيطبق maxUsers وقاعدة "مفيش صلاحيات أعلى من صلاحياتك"
+PUT    /users/:id                    (users.update)
+POST   /users/:id/reset-password     (users.update)  10 req/min
+POST   /users/:id/revoke-sessions    (users.update)  -> بيزود sessionVersion
+DELETE /users/:id                    (users.delete)  -> آخر مالك نشط محمي
+GET    /roles                        (users.view | roles.manage)
+GET    /roles/permissions            (roles.manage)
+POST   /roles | PUT /roles/:id | DELETE /roles/:id   (roles.manage)
+POST   /auth/change-password         { currentPassword, newPassword }  5 req/min, لا يقبل API key
+```
+
+---
+
+## API Keys (Feature: `api_access`, Permission: `api_keys.manage`)
+
+```http
+GET    /api-keys        -> { data: [...], meta: { grantablePermissions } }
+POST   /api-keys        { name, permissions[], expiresAt? } -> data.key يظهر مرة واحدة فقط
+DELETE /api-keys/:id    إلغاء فوري
+```
+
+استخدام المفتاح: `X-API-Key: blk_live_...` أو `Authorization: Bearer blk_live_...`.
+الصلاحية الفعلية = صلاحيات المفتاح ∩ صلاحيات منشئه الحالية. مسارات المستخدمين والأدوار والمفاتيح والاستيراد والتصدير وتغيير الباسورد مقفولة على المفاتيح.
+
+---
+
+## Data Import / Export (Feature: `import_export`)
+
+```http
+GET  /data/entities                          (data.import | data.export) الكيانات والأعمدة
+GET  /data/template/:entity                  (data.import)  قالب CSV فاضي
+GET  /data/export/:entity                    (data.export)  CSV بـ UTF-8 BOM، 10 req/min
+POST /data/import/:entity?dryRun=true|false  (data.import)  multipart "file"، 5MB / 5000 صف، 10 req/min
+```
+
+`entity` ∈ `products` | `customers` | `suppliers`. المطابقة مع السجلات الموجودة: المنتجات بـ SKU ثم الباركود، والعملاء والموردين بالموبايل.
+الاستيراد كل-أو-لا-شيء: لو فيه صف واحد فيه خطأ مفيش حاجة بتتكتب. الرد:
+`{ dryRun, applied, summary: { totalRows, valid, toCreate, toUpdate, created, updated, failed }, errors: [{ row, field?, message }] }`.
+استيراد منتجات جديدة بيتفحص قدام `maxProducts`.
 
 ---
 
@@ -396,25 +457,53 @@ POST /cash-register/transactions         (cash in/out)
 
 ## Master Admin API
 
+### Auth (`/admin/auth`)
+```http
+POST /admin/auth/login            { email, password, otp? }   5 req/min
+                                  -> 401 OTP_REQUIRED لو 2FA مفعلة ومفيش otp، و401 OTP_INVALID لو غلط
+GET  /admin/auth/me
+POST /admin/auth/change-password  { currentPassword, newPassword }
+POST /admin/auth/logout-all       يبطل كل الجلسات
+POST /admin/auth/2fa/setup        { password } -> { secret, otpauthUrl }
+POST /admin/auth/2fa/enable       { otp }
+POST /admin/auth/2fa/disable      { password, otp }
+```
+فشل إعادة التحقق (باسورد حالي أو OTP غلط في العمليات دي) بيرجع **403**.
+
+### Tenants
 ```http
 GET    /admin/tenants
-POST   /admin/tenants
-PUT    /admin/tenants/:id
-PUT    /admin/tenants/:id/features
-PUT    /admin/tenants/:id/branding
-GET    /admin/tenants/:id/activity
+GET    /admin/tenants/:id
+POST   /admin/tenants            { businessName, ..., country?, currency?, timezone?, adminUser: {...} }
+PUT    /admin/tenants/:id        أي حقل من فوق ماعدا adminUser
+PATCH  /admin/tenants/:id/status        { isActive }
+PUT    /admin/tenants/:id/subscription  { subscriptionPrice, subscriptionCycle, subscriptionNote, subscriptionEndsAt }
+PUT    /admin/tenants/:id/limits        { maxUsers?, maxBranches?, maxWarehouses?, maxProducts? }  (null = بدون حد)
+GET    /admin/tenants/:id/usage
+       -> { usage: { users, activeUsers, branches, warehouses, products, activeApiKeys, failedLogins24h },
+            limits: { maxUsers, maxBranches, maxWarehouses, maxProducts } }
+GET    /admin/tenants/:id/features
+PUT    /admin/tenants/:id/features      { features: [{ featureId, isEnabled }] }  الاعتماديات بتتفعل تلقائياً
+GET    /admin/tenants/:id/users
+POST   /admin/tenants/:id/reset-user-password
+GET    /admin/tenants/:id/audit-logs
+GET    /admin/tenants/:id/backup        نسخة JSON (بدون هاشات أو أسرار)
+POST   /admin/tenants/restore
+DELETE /admin/tenants/:id               { businessName } للتأكيد
 ```
 
----
+الإعدادات الإقليمية:
+- `timezone`: اسم IANA صحيح (`Africa/Cairo`، `Asia/Riyadh`، …). أي قيمة تانية بترجع 400.
+- `currency`: كود ISO من 3 حروف كبيرة (`EGP`، `SAR`، …).
+- الافتراضي للتجار الجدد `Egypt` / `EGP` / `Africa/Cairo`.
 
-## Synchronization API
-
+### Platform
 ```http
-POST /sync/sales
-GET  /sync/status
+GET /admin/dashboard
+GET /admin/plans
+GET /admin/features
+GET /admin/audit-logs     ?action=&tenantId=&page=&limit=
 ```
-
-Sync requests use `deviceId` + `idempotencyKey` for safe retries, and process operations (`create`/`update`/`delete`) against server entities.
 
 ---
 
@@ -424,7 +513,11 @@ Sync requests use `deviceId` + `idempotencyKey` for safe retries, and process op
 - `INVALID_CREDENTIALS`, `ACCOUNT_DISABLED`, `TENANT_SUSPENDED`, `SUBSCRIPTION_EXPIRED`, `TOKEN_EXPIRED`, `TOKEN_INVALID`
 
 ### Authorization Errors
-- `FORBIDDEN`, `FEATURE_NOT_ENABLED`, `PERMISSION_DENIED`
+- `FORBIDDEN`, `FEATURE_DISABLED`, `PERMISSION_DENIED`
+- `LIMIT_REACHED`: وصلت لحد في الباقة. فيه حقل `limit` بيحدد الحد (`maxProducts` …)
+- `OTP_REQUIRED`, `OTP_INVALID`: المصادقة الثنائية للمدير العام
+
+شكل الخطأ: `{ "success": false, "error": { "code", "message", ...extra, "timestamp", "path" } }`.
 
 ### Validation Errors
 - `VALIDATION_ERROR`, `REQUIRED_FIELD`, `INVALID_FORMAT`, `INVALID_VALUE`
@@ -434,16 +527,16 @@ Sync requests use `deviceId` + `idempotencyKey` for safe retries, and process op
   `SALE_NOT_FOUND`, `CANNOT_DELETE_HAS_TRANSACTIONS`, `SHIFT_ALREADY_OPEN`, `NO_OPEN_SHIFT`, `INVALID_PAYMENT_AMOUNT`
 
 ### System Errors
-- `INTERNAL_SERVER_ERROR`, `DATABASE_ERROR`, `FILE_UPLOAD_ERROR`, `SYNC_ERROR`
+- `INTERNAL_SERVER_ERROR`, `DATABASE_ERROR`, `FILE_UPLOAD_ERROR`
 
 ---
 
 ## Rate Limiting
 
-- General endpoints: 100 requests/minute per user
-- Login endpoint: 5 requests/minute per IP
-- Search endpoints: 50 requests/minute per user
-- Report exports: 10 requests/minute per user
+- General: `THROTTLE_LIMIT` requests/minute per IP (default 300)
+- Tenant login: 10/min · refresh: 30/min · change-password: 5/min
+- Master admin login / password / 2FA: 5/min
+- Data import / export, user password reset: 10/min
 
 ```http
 HTTP 429 Too Many Requests

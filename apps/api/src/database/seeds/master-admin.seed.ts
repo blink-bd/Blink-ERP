@@ -41,9 +41,22 @@ export async function seedMasterAdmin(dataSource: DataSource): Promise<void> {
   } else if (process.env.MASTER_ADMIN_RESET_PASSWORD === 'true') {
     existing.passwordHash = hash;
     existing.failedLoginAttempts = 0;
+    existing.lockedUntil = null as any;
+    existing.sessionVersion = (existing.sessionVersion ?? 0) + 1;
     await repo.save(existing);
     console.log(`✅ Master admin password reset: ${email}`);
   } else {
     console.log(`ℹ️  Master admin already exists: ${email}`);
+  }
+
+  // طوارئ: لو فقدت تطبيق المصادقة الثنائية، اضبط MASTER_ADMIN_RESET_2FA=true مرة واحدة ثم أعد النشر
+  // (يتطلب وصول للسيرفر نفسه، فمش ممكن لمهاجم من بره يستخدمه). بعدها احذف المتغير فوراً.
+  if (existing && process.env.MASTER_ADMIN_RESET_2FA === 'true') {
+    existing.totpEnabled = false;
+    existing.totpSecret = null;
+    existing.totpLastStep = null;
+    existing.sessionVersion = (existing.sessionVersion ?? 0) + 1;
+    await repo.save(existing);
+    console.log(`⚠️  Master admin 2FA reset: ${email} — احذف MASTER_ADMIN_RESET_2FA الآن`);
   }
 }

@@ -20,9 +20,12 @@ import { PurchasesModule } from './modules/purchases/purchases.module';
 import { CashRegisterModule } from './modules/cash-register/cash-register.module';
 import { ExpensesModule } from './modules/expenses/expenses.module';
 import { ReportsModule } from './modules/reports/reports.module';
-import { SyncModule } from './modules/sync/sync.module';
+import { BackupModule } from './modules/backup/backup.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { MasterAdminModule } from './modules/master-admin/master-admin.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
+import { DataTransferModule } from './modules/data-transfer/data-transfer.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { ReceiptsModule } from './modules/receipts/receipts.module';
@@ -33,31 +36,24 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 @Module({
   imports: [
-    // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env', '../../.env'],
     }),
-
-    // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: typeormConfig,
       inject: [ConfigService],
     }),
-
-    // Rate limiting
     ThrottlerModule.forRoot([
       {
-        ttl: 60000, // 1 minute
-        limit: 100, // 100 requests per minute
+        ttl: 60000,
+        limit: Number(process.env.THROTTLE_LIMIT) || 300,
       },
     ]),
-
-    // Cross-cutting concerns (filters, interceptors)
     CommonModule,
-
-    // Core: identity, tenancy, access control
+    AuditModule,
+    ApiKeysModule,
     MasterAdminModule,
     NotificationsModule,
     BalanceRemindersModule,
@@ -72,24 +68,17 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
     UsersModule,
     FeaturesModule,
     BrandingModule,
-
-    // Catalog & stock
     ProductsModule,
     InventoryModule,
-
-    // Parties
     CustomersModule,
     SuppliersModule,
-
-    // Transactions
     SalesModule,
     PurchasesModule,
     CashRegisterModule,
     ExpensesModule,
-
-    // Intelligence & offline
     ReportsModule,
-    SyncModule,
+    BackupModule,
+    DataTransferModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

@@ -115,6 +115,42 @@ CREATE TABLE tenant_features (
 
 Each has `nameAr`, `dependsOn`, `icon`, and optional `configSchema`/`limitsSchema` (e.g. `maxWarehouses`, `requestsPerHour`).
 
+### الكتالوج الفعلي والتطبيق على السيرفر
+
+مصدر الحقيقة: `apps/api/src/modules/features/features.catalog.ts`. الكتالوج بيتزامن مع جدول `features` عند كل تشغيل.
+
+| الكود | يعتمد على | بيتطبق على السيرفر في |
+|---|---|---|
+| `dashboard`, `users`, `settings` | — | أساسية (isCore)، مفعّلة دايماً |
+| `products` | — | `/products/*` |
+| `sales` | products | `/sales/*` |
+| `pos` | sales | إنشاء البيع من نقطة البيع |
+| `returns` | sales | مرتجعات المبيعات |
+| `inventory` | products | `/inventory/*` |
+| `customers`, `suppliers`, `cash_register`, `expenses` | — | المسارات الخاصة بكل واحدة |
+| `purchases` | suppliers, inventory | `/purchases/*` |
+| `reports` | — | `/reports/*` |
+| `advanced_reports` | reports | `/reports/profit-loss`، `/reports/advanced/*` |
+| `half_wholesale_pricing` | products | حقل `halfWholesalePrice` في المنتجات، و`priceTier=half_wholesale` في البيع |
+| `branches` | inventory | إنشاء الفرع التاني وما بعده |
+| `warehouses` | inventory | المخزن التاني وما بعده، والتحويل بين المخازن |
+| `barcode_printing` | products | `POST /products/barcode-labels` |
+| `import_export` | — | `/data/*` |
+| `api_access` | — | `/api-keys` والمصادقة بمفتاح API |
+
+- تفعيل ميزة بيفعّل اعتمادياتها تلقائياً، وإيقاف ميزة بيوقف اللي معتمد عليها.
+- الميزة المقفولة بترجع `403 { code: "FEATURE_DISABLED", feature }`، والواجهة بتعرض `FeatureLocked` بدل الصفحة.
+
+### حدود الباقة
+أعمدة في جدول `tenants`، والمدير العام بيظبطها من `PUT /admin/tenants/:id/limits` (`null` = بدون حد):
+`max_users`، `max_branches`، `max_warehouses`، `max_products`. تجاوز أي حد بيرجع `403 { code: "LIMIT_REACHED", limit }`.
+عشان تضيف حد جديد: عمود + migration، وحقل في `TenantLimitsDto`، ودالة `assertCanAdd…` (شوف `products/product-limits.ts`) تتنادى قبل الإنشاء.
+
+### إضافة ميزة جديدة
+1. أضف تعريفها في `features.catalog.ts` (`code`، `nameAr`، `dependsOn`، `isPremium`).
+2. ضع `@RequireFeature('code')` على الكونترولر أو المسار.
+3. في الواجهة: `useFeature('code')` وعنصر في `Sidebar` بـ `feature: 'code'`.
+
 ---
 
 ## Feature Resolution Logic

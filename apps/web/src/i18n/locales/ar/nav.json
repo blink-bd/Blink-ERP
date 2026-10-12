@@ -15,5 +15,8 @@
   "reports": "التقارير",
   "branchReports": "تقارير الفروع",
   "balanceReminders": "تنبيهات الأرصدة",
+  "users": "المستخدمين والصلاحيات",
+  "dataTransfer": "استيراد وتصدير",
+  "apiKeys": "مفاتيح API",
   "settings": "الإعدادات"
 }

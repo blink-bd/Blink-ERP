@@ -49,13 +49,14 @@ export class SuppliersService {
     return { data: suppliers, totalOwed };
   }
 
-  async findById(tenantId: string, id: string): Promise<Supplier> {
-    const supplier = await this.repo.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
+  async findById(tenantId: string, id: string, manager?: EntityManager): Promise<Supplier> {
+    const repository = manager ? manager.getRepository(Supplier) : this.repo;
+    const supplier = await repository.findOne({ where: { id, tenantId, deletedAt: IsNull() } });
     if (!supplier) throw new NotFoundException('المورد غير موجود');
     return supplier;
   }
 
-  async create(tenantId: string, data: Partial<Supplier>, userId?: string) {
+  async create(tenantId: string, data: Partial<Supplier>, userId?: string, branchId?: string) {
     const clean = stripProtected(data);
     const previousBalance = Number((clean as any).previousBalance) || 0;
     const created = await this.repo.manager.transaction(async (manager) => {
@@ -69,7 +70,14 @@ export class SuppliersService {
           balanceReminderAnchorAt: previousBalance !== 0 ? new Date() : undefined,
         })
       );
-      await adjustBranchPartyBalance(manager, tenantId, 'supplier', supplier.id, previousBalance);
+      await adjustBranchPartyBalance(
+        manager,
+        tenantId,
+        'supplier',
+        supplier.id,
+        previousBalance,
+        branchId
+      );
       return supplier;
     });
     await this.balanceReminders.checkSupplierPayablesLimit(tenantId);
@@ -79,7 +87,11 @@ export class SuppliersService {
   async update(
     tenantId: string,
     id: string,
-    data: Partial<Supplier> & { openingBalanceReason?: string; updatedBy?: string }
+    data: Partial<Supplier> & {
+      openingBalanceReason?: string;
+      updatedBy?: string;
+      branchId?: string;
+    }
   ) {
     const updated = await this.repo.manager.transaction(async (manager) => {
       const supplier = await manager.findOne(Supplier, {
@@ -90,6 +102,7 @@ export class SuppliersService {
       const clean = stripProtected(data as any);
       delete (clean as any).previousBalance;
       delete (clean as any).openingBalanceReason;
+      delete (clean as any).branchId;
       Object.assign(supplier, clean);
 
       if (Object.prototype.hasOwnProperty.call(data, 'previousBalance')) {
@@ -102,7 +115,7 @@ export class SuppliersService {
         if (Math.abs(delta) > 0.0001) {
           const reason = String((data as any).openingBalanceReason || '').trim();
           if (!reason) throw new BadRequestException('اكتب سبب تعديل الرصيد الافتتاحي');
-          const branchId = await resolveTenantBranch(manager, tenantId);
+          const resolvedBranchId = await resolveTenantBranch(manager, tenantId, data.branchId);
           await manager.query(
             `INSERT INTO party_balance_adjustments
                (tenant_id, party_type, supplier_id, branch_id, amount, balance_before, balance_after, reason, created_by)
@@ -110,7 +123,7 @@ export class SuppliersService {
             [
               tenantId,
               id,
-              branchId || null,
+              resolvedBranchId || null,
               delta,
               before,
               nextOpening,
@@ -119,7 +132,14 @@ export class SuppliersService {
             ]
           );
           supplier.balance = Number(supplier.balance) + delta;
-          await adjustBranchPartyBalance(manager, tenantId, 'supplier', id, delta, branchId);
+          await adjustBranchPartyBalance(
+            manager,
+            tenantId,
+            'supplier',
+            id,
+            delta,
+            resolvedBranchId
+          );
           supplier.balanceReminderAnchorAt = new Date();
           supplier.balanceReminderLastSentAt = null;
           await manager.query(
@@ -140,10 +160,14 @@ export class SuppliersService {
     tenantId: string,
     id: string,
     delta: number,
-    branchId?: string
+    branchOrManager?: string | EntityManager
   ): Promise<Supplier> {
-    const supplier = await this.repo.manager.transaction((manager) =>
-      this.adjustBalanceInTransaction(manager, tenantId, id, delta, branchId)
+    const manager =
+      typeof branchOrManager === 'string' || branchOrManager == null ? undefined : branchOrManager;
+    const branchId = typeof branchOrManager === 'string' ? branchOrManager : undefined;
+    if (manager) return this.adjustBalanceInTransaction(manager, tenantId, id, delta);
+    const supplier = await this.repo.manager.transaction((transactionManager) =>
+      this.adjustBalanceInTransaction(transactionManager, tenantId, id, delta, branchId)
     );
     await this.balanceReminders.checkSupplierPayablesLimit(tenantId);
     return supplier;
@@ -156,22 +180,42 @@ export class SuppliersService {
     delta: number,
     branchId?: string
   ): Promise<Supplier> {
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `supplier:${tenantId}:${id}`,
+    ]);
     const supplier = await manager.findOne(Supplier, {
       where: { id, tenantId, deletedAt: IsNull() },
       lock: { mode: 'pessimistic_write' },
     });
     if (!supplier) throw new NotFoundException('المورد غير موجود');
-    supplier.balance = Number(supplier.balance) + delta;
+    const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
+    if (delta < 0 && resolvedBranchId) {
+      const [branchBalance] = await manager.query(
+        `SELECT COALESCE(balance, 0) AS balance FROM branch_party_balances
+         WHERE tenant_id = $1 AND branch_id = $2 AND party_type = 'supplier' AND party_id = $3`,
+        [tenantId, resolvedBranchId, id]
+      );
+      if (Number(branchBalance?.balance || 0) + delta < -0.0001) {
+        throw new BadRequestException(
+          'لا يمكن أن يتجاوز السداد أو المرتجع رصيد المورد المستحق في هذا الفرع'
+        );
+      }
+    }
+    const nextBalance = Number(supplier.balance) + delta;
+    if (nextBalance < -0.0001) {
+      throw new BadRequestException('لا يمكن أن يصبح رصيد المورد سالبًا');
+    }
+    supplier.balance = Math.max(0, nextBalance);
     supplier.balanceReminderAnchorAt = new Date();
     supplier.balanceReminderLastSentAt = null;
-    await manager.save(supplier);
-    await adjustBranchPartyBalance(manager, tenantId, 'supplier', id, delta, branchId);
+    const saved = await manager.save(supplier);
+    await adjustBranchPartyBalance(manager, tenantId, 'supplier', id, delta, resolvedBranchId);
     await manager.query(
       `UPDATE balance_reminder_events SET resolved_at = CURRENT_TIMESTAMP
        WHERE tenant_id = $1 AND party_type = 'supplier' AND party_id = $2 AND resolved_at IS NULL`,
       [tenantId, id]
     );
-    return supplier;
+    return saved;
   }
 
   async checkSupplierPayablesLimit(tenantId: string) {
@@ -197,31 +241,52 @@ export class SuppliersService {
     userId: string | undefined,
     branchId?: string
   ): Promise<{ payment: SupplierPayment; supplier: Supplier }> {
-    if (!Number.isFinite(amount) || amount <= 0)
+    if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
+    }
+    if (!method?.trim()) throw new BadRequestException('طريقة السداد مطلوبة');
+
     const settlement = await this.repo.manager.transaction(async (manager) => {
-      const supplier = await manager.findOne(Supplier, {
+      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+        `supplier:${tenantId}:${supplierId}`,
+      ]);
+      const supplierRepo = manager.getRepository(Supplier);
+      const paymentRepo = manager.getRepository(SupplierPayment);
+      const supplier = await supplierRepo.findOne({
         where: { id: supplierId, tenantId, deletedAt: IsNull() },
         lock: { mode: 'pessimistic_write' },
       });
       if (!supplier) throw new NotFoundException('المورد غير موجود');
       const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
-      const payment = await manager.save(
-        manager.create(SupplierPayment, {
+      let availableBalance = Number(supplier.balance);
+      if (resolvedBranchId) {
+        const [branchBalance] = await manager.query(
+          `SELECT COALESCE(balance, 0) AS balance FROM branch_party_balances
+           WHERE tenant_id = $1 AND branch_id = $2 AND party_type = 'supplier' AND party_id = $3`,
+          [tenantId, resolvedBranchId, supplierId]
+        );
+        availableBalance = Number(branchBalance?.balance || 0);
+      }
+      if (amount > Math.max(0, availableBalance)) {
+        throw new BadRequestException('مبلغ السداد أكبر من رصيد المورد المستحق في هذا الفرع');
+      }
+
+      const payment = await paymentRepo.save(
+        paymentRepo.create({
           tenantId,
           supplierId,
           branchId: resolvedBranchId,
           amount,
-          method,
+          method: method.trim(),
           notes,
           paymentDate: new Date(),
           createdBy: userId,
         })
       );
-      supplier.balance = Number(supplier.balance) - amount;
+      supplier.balance = Math.max(0, Number(supplier.balance) - amount);
       supplier.balanceReminderAnchorAt = new Date();
       supplier.balanceReminderLastSentAt = null;
-      const savedSupplier = await manager.save(supplier);
+      const savedSupplier = await supplierRepo.save(supplier);
       await adjustBranchPartyBalance(
         manager,
         tenantId,

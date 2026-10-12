@@ -68,6 +68,12 @@ export class TenantBranding {
   @Column({ name: 'custom_css', type: 'text', nullable: true })
   customCss?: string;
 
+  @Column({ name: 'footer_text', length: 255, default: 'Copyright © 2026 Blink BD' })
+  footerText: string;
+
+  @Column({ name: 'footer_link_url', length: 500, nullable: true })
+  footerLinkUrl?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

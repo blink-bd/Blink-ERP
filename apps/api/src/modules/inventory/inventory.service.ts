@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
@@ -43,11 +43,17 @@ export class InventoryService {
     tenantId: string,
     options: { warehouseId?: string; search?: string; categoryId?: string } = {}
   ) {
+    // نستخدم INNER JOIN للمنتج والمخزن حتى لا تُرجع أي سجلات مخزون "يتيمة"
+    // مرتبطة بمنتج أو مخزن محذوف (حذفًا منطقيًا) أو مفقود — كانت هذه السجلات
+    // ترجع بـ product/warehouse = null وتسبب شاشة بيضاء في الواجهة.
+    // (لا نحذف السجلات اليتيمة من قاعدة البيانات؛ فقط لا نعيدها في الملخص.)
     const query = this.inventoryRepository
       .createQueryBuilder('inv')
-      .leftJoinAndSelect('inv.product', 'product')
+      .innerJoinAndSelect('inv.product', 'product', 'product.tenantId = :tenantId', { tenantId })
+      .innerJoinAndSelect('inv.warehouse', 'warehouse', 'warehouse.tenantId = :tenantId', {
+        tenantId,
+      })
       .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('inv.warehouse', 'warehouse')
       .where('inv.tenantId = :tenantId', { tenantId });
 
     if (options.warehouseId) {
@@ -65,16 +71,26 @@ export class InventoryService {
 
     const rows = await query.orderBy('product.name', 'ASC').getMany();
 
-    return rows.map((r) => ({
-      ...r,
-      stockValue: Number(r.quantity) * Number(r.weightedAvgCost || r.product?.costPrice || 0),
-      status:
-        Number(r.availableQuantity) <= 0
-          ? 'out_of_stock'
-          : Number(r.availableQuantity) <= (r.product?.minStockLevel || 0)
-            ? 'low_stock'
-            : 'available',
-    }));
+    const toFiniteNumber = (value: unknown): number => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    return rows.map((r) => {
+      const quantity = toFiniteNumber(r.quantity);
+      const unitCost = toFiniteNumber(r.weightedAvgCost) || toFiniteNumber(r.product?.costPrice);
+      const available = toFiniteNumber(r.availableQuantity);
+      return {
+        ...r,
+        stockValue: quantity * unitCost,
+        status:
+          available <= 0
+            ? 'out_of_stock'
+            : available <= toFiniteNumber(r.product?.minStockLevel)
+              ? 'low_stock'
+              : 'available',
+      };
+    });
   }
 
   async getTransactions(tenantId: string, productId?: string, warehouseId?: string) {
@@ -92,7 +108,11 @@ export class InventoryService {
    * Core stock-movement primitive. Callers that own a larger transaction should
    * use adjustInventoryInTransaction so sale/purchase and stock never diverge.
    */
-  async adjustInventory(input: AdjustInventoryInput): Promise<InventoryTransaction> {
+  async adjustInventory(
+    input: AdjustInventoryInput,
+    transactionManager?: EntityManager
+  ): Promise<InventoryTransaction> {
+    if (transactionManager) return this.adjustInventoryInTransaction(transactionManager, input);
     const transaction = await this.dataSource.transaction((manager) =>
       this.adjustInventoryInTransaction(manager, input)
     );
@@ -100,10 +120,33 @@ export class InventoryService {
     return transaction;
   }
 
+  private async assertTenantReferences(
+    manager: EntityManager,
+    input: AdjustInventoryInput
+  ): Promise<void> {
+    const [product] = await manager.query(
+      `SELECT id FROM products WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+      [input.productId, input.tenantId]
+    );
+    if (!product) throw new NotFoundException('المنتج غير موجود في هذا التاجر');
+    const [warehouse] = await manager.query(
+      `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND is_active = true`,
+      [input.warehouseId, input.tenantId]
+    );
+    if (!warehouse) throw new NotFoundException('المخزن غير موجود أو غير نشط لهذا التاجر');
+  }
+
   async adjustInventoryInTransaction(
     manager: EntityManager,
     input: AdjustInventoryInput
   ): Promise<InventoryTransaction> {
+    if (!Number.isFinite(input.quantity) || input.quantity === 0) {
+      throw new BadRequestException('كمية حركة المخزون غير صحيحة');
+    }
+    if (input.unitCost !== undefined && (!Number.isFinite(input.unitCost) || input.unitCost < 0)) {
+      throw new BadRequestException('تكلفة المخزون لا يمكن أن تكون سالبة أو غير صحيحة');
+    }
+    await this.assertTenantReferences(manager, input);
     // The advisory lock also serializes first-time creation when no inventory row exists yet.
     await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
       input.tenantId,
@@ -245,13 +288,14 @@ export class InventoryService {
     reason: string,
     userId?: string
   ) {
+    if (!reason?.trim()) throw new BadRequestException('سبب تعديل المخزون مطلوب');
     return this.adjustInventory({
       tenantId,
       productId,
       warehouseId,
       quantity,
       type: 'adjustment',
-      notes: reason,
+      notes: reason.trim(),
       userId,
     });
   }
@@ -259,9 +303,11 @@ export class InventoryService {
   async getAvailableQuantity(
     tenantId: string,
     productId: string,
-    warehouseId: string
+    warehouseId: string,
+    manager?: EntityManager
   ): Promise<number> {
-    const inventory = await this.inventoryRepository.findOne({
+    const repository = manager ? manager.getRepository(Inventory) : this.inventoryRepository;
+    const inventory = await repository.findOne({
       where: { tenantId, productId, warehouseId },
     });
     if (!inventory) return 0;

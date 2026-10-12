@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { assertWarehouseUsable } from '@/modules/inventory/location-limits';
+import { FeaturesService } from '@/modules/features/features.service';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
+import { EntityManager, Repository, DataSource, IsNull } from 'typeorm';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { WebhooksService } from '@/modules/integrations/webhooks.service';
 import { Purchase } from './entities/purchase.entity';
@@ -8,17 +10,10 @@ import { PurchaseItem } from './entities/purchase-item.entity';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { SuppliersService } from '@/modules/suppliers/suppliers.service';
 import { ProductsService } from '@/modules/products/products.service';
+import { Product } from '@/modules/products/entities/product.entity';
 import { Warehouse } from '@/modules/inventory/entities/warehouse.entity';
+import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
-
-interface CreatePurchaseInput {
-  supplierId: string;
-  warehouseId: string;
-  supplierInvoiceNumber?: string;
-  items: { productId: string; quantity: number; unitCost: number; taxRate?: number }[];
-  paidAmount?: number;
-  notes?: string;
-}
 
 @Injectable()
 export class PurchasesService {
@@ -29,16 +24,26 @@ export class PurchasesService {
     private readonly suppliersService: SuppliersService,
     private readonly productsService: ProductsService,
     private readonly notifications: NotificationsService,
-    private readonly webhooks: WebhooksService
+    private readonly webhooks: WebhooksService,
+    private readonly featuresService: FeaturesService
   ) {}
 
-  private async generatePurchaseNumber(tenantId: string): Promise<string> {
-    const count = await this.purchasesRepository.count({ where: { tenantId } });
+  private async generatePurchaseNumber(manager: EntityManager, tenantId: string): Promise<string> {
     const year = new Date().getFullYear();
-    return `PO-${year}-${String(count + 1).padStart(4, '0')}`;
+    const [row] = await manager.query(
+      `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
+       VALUES ($1, 'purchase', $2, 2)
+       ON CONFLICT (tenant_id, document_type, document_year)
+       DO UPDATE SET next_value = document_counters.next_value + 1
+       RETURNING next_value - 1 AS value`,
+      [tenantId, year]
+    );
+    return `PO-${year}-${String(Number(row.value)).padStart(4, '0')}`;
   }
 
   async findAll(tenantId: string, page = 1, limit = 20) {
+    page = Math.max(1, Number(page) || 1);
+    limit = Math.min(100, Math.max(1, Number(limit) || 20));
     const [data, total] = await this.purchasesRepository.findAndCount({
       where: { tenantId },
       order: { purchaseDate: 'DESC' },
@@ -57,17 +62,28 @@ export class PurchasesService {
     return purchase;
   }
 
-  /**
-   * Creates a purchase, increases stock (with weighted-average cost recalculation
-   * via InventoryService), and updates the supplier's balance for any unpaid amount.
-   */
   async create(
     tenantId: string,
-    dto: CreatePurchaseInput,
+    dto: CreatePurchaseDto,
     userId: string,
     assignedBranchId?: string
   ): Promise<Purchase> {
+    if (!dto.items?.length) {
+      throw new BadRequestException('أمر الشراء يجب أن يحتوي على صنف واحد على الأقل');
+    }
+    const paidInput = Number(dto.paidAmount || 0);
+    if (!Number.isFinite(paidInput) || paidInput < 0) {
+      throw new BadRequestException('مبلغ السداد غير صحيح');
+    }
+
     const purchase = await this.dataSource.transaction(async (manager) => {
+      const [supplier] = await manager.query(
+        `SELECT id FROM suppliers WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
+        [dto.supplierId, tenantId]
+      );
+      if (!supplier) throw new NotFoundException('المورد غير موجود في هذا التاجر');
+
+      await assertWarehouseUsable(manager, this.featuresService, tenantId, dto.warehouseId);
       const warehouse = await manager.findOne(Warehouse, {
         where: { id: dto.warehouseId, tenantId, deletedAt: IsNull(), isActive: true },
       });
@@ -77,18 +93,25 @@ export class PurchasesService {
         tenantId,
         warehouse.branchId || assignedBranchId
       );
+
       let subtotal = 0;
       let taxAmount = 0;
       const itemsToSave: Partial<PurchaseItem>[] = [];
-
       for (const itemInput of dto.items) {
+        if (!Number.isFinite(itemInput.quantity) || itemInput.quantity <= 0) {
+          throw new BadRequestException('كمية الشراء يجب أن تكون أكبر من صفر');
+        }
+        if (!Number.isFinite(itemInput.unitCost) || itemInput.unitCost < 0) {
+          throw new BadRequestException('تكلفة الشراء غير صحيحة');
+        }
         const lineSubtotal = itemInput.quantity * itemInput.unitCost;
-        const taxRate = itemInput.taxRate || 0;
+        const taxRate = Number(itemInput.taxRate || 0);
+        if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 100) {
+          throw new BadRequestException('نسبة الضريبة غير صحيحة');
+        }
         const lineTax = (lineSubtotal * taxRate) / 100;
-
         subtotal += lineSubtotal;
         taxAmount += lineTax;
-
         itemsToSave.push({
           tenantId,
           productId: itemInput.productId,
@@ -109,38 +132,50 @@ export class PurchasesService {
           userId,
         });
 
-        // تحديث تكلفة المنتج يتم في نفس معاملة الشراء والمخزون.
-        await this.productsService.applyPurchaseCostChangeInTransaction(
-          manager,
-          tenantId,
-          itemInput.productId,
-          itemInput.unitCost,
-          userId
-        );
+        // Keep the tenant's cost unchanged; flag a higher supplier price for review.
+        const product = await manager.findOne(Product, {
+          where: { id: itemInput.productId, tenantId, deletedAt: IsNull() },
+        });
+        if (!product) throw new NotFoundException('المنتج غير موجود في هذا التاجر');
+        const oldCost = Number(product.costPrice);
+        if (itemInput.unitCost > oldCost + 0.0001) {
+          await this.productsService.update(
+            tenantId,
+            itemInput.productId,
+            {
+              needsPriceReview: true,
+              priceReviewNote: `سعر الشراء الجديد ${itemInput.unitCost.toFixed(2)} أعلى من سعر التكلفة المسجل ${oldCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر التكلفة وأسعار البيع`,
+            } as any,
+            userId,
+            manager
+          );
+        }
       }
 
       const total = subtotal + taxAmount;
-      const paidAmount = dto.paidAmount || 0;
-      const purchaseNumber = await this.generatePurchaseNumber(tenantId);
-
-      const purchase = manager.create(Purchase, {
-        tenantId,
-        purchaseNumber,
-        supplierInvoiceNumber: dto.supplierInvoiceNumber,
-        supplierId: dto.supplierId,
-        branchId,
-        warehouseId: dto.warehouseId,
-        purchaseDate: new Date(),
-        subtotal,
-        taxAmount,
-        total,
-        paidAmount,
-        paymentStatus: paidAmount >= total ? 'paid' : paidAmount > 0 ? 'partial' : 'pending',
-        notes: dto.notes,
-        createdBy: userId,
-      });
-
-      const saved = await manager.save(purchase);
+      const paidAmount = paidInput;
+      if (paidAmount > total) {
+        throw new BadRequestException('مبلغ السداد لا يمكن أن يتجاوز إجمالي المشتريات');
+      }
+      const purchaseNumber = await this.generatePurchaseNumber(manager, tenantId);
+      const saved = await manager.save(
+        manager.create(Purchase, {
+          tenantId,
+          purchaseNumber,
+          supplierInvoiceNumber: dto.supplierInvoiceNumber,
+          supplierId: dto.supplierId,
+          branchId,
+          warehouseId: dto.warehouseId,
+          purchaseDate: new Date(),
+          subtotal,
+          taxAmount,
+          total,
+          paidAmount,
+          paymentStatus: paidAmount >= total ? 'paid' : paidAmount > 0 ? 'partial' : 'pending',
+          notes: dto.notes,
+          createdBy: userId,
+        })
+      );
 
       for (const item of itemsToSave) {
         await manager.save(manager.create(PurchaseItem, { ...item, purchaseId: saved.id }));
@@ -156,8 +191,6 @@ export class PurchasesService {
         );
       }
 
-      // لا نقرأ عبر repository خارج الـ transaction قبل commit؛ هذا كان يعيد
-      // «أمر الشراء غير موجود» رغم نجاح إدخاله.
       const result = await manager.findOne(Purchase, {
         where: { id: saved.id, tenantId },
         relations: ['items'],

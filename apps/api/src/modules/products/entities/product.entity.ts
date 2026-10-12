@@ -35,6 +35,16 @@ export class Product extends TenantBaseEntity {
   @Column({ name: 'wholesale_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   wholesalePrice?: number;
 
+  /** سعر نصف الجملة — يظهر/يُحفظ فقط إذا كانت ميزة half_wholesale_pricing مفعّلة للتاجر. */
+  @Column({
+    name: 'half_wholesale_price',
+    type: 'decimal',
+    precision: 15,
+    scale: 4,
+    nullable: true,
+  })
+  halfWholesalePrice?: number;
+
   @Column({ name: 'distributor_price', type: 'decimal', precision: 15, scale: 4, nullable: true })
   distributorPrice?: number;
 

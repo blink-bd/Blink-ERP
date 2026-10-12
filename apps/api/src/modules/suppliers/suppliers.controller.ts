@@ -9,19 +9,25 @@ import {
   Query,
   UseGuards,
   Request,
+  ParseUUIDPipe,
 } from '@nestjs/common';
+import { SupplierDto, UpdateSupplierDto } from './dto/supplier.dto';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { SuppliersService } from './suppliers.service';
+import { SupplierSettlementDto } from './dto/supplier-settlement.dto';
 
 @ApiTags('suppliers')
 @ApiBearerAuth()
 @RequireFeature('suppliers')
+@RequirePermission('suppliers.view')
 @Controller({ path: 'suppliers', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
@@ -31,10 +37,15 @@ export class SuppliersController {
     @Query('search') search?: string,
     @Query('branchIds') branchIds?: string
   ) {
-    const selected = branchIds
+    const requested = branchIds
       ?.split(',')
       .map((value) => value.trim())
       .filter(Boolean);
+    const selected = requested?.length
+      ? requested
+      : req.user?.branchId
+        ? [req.user.branchId]
+        : undefined;
     const result = await this.suppliersService.findAll(req.tenantId, search, selected);
     return { success: true, data: result.data, meta: { totalOwed: result.totalOwed } };
   }
@@ -49,16 +60,25 @@ export class SuppliersController {
   }
 
   @Get(':id')
-  async findOne(@Request() req, @Param('id') id: string) {
+  async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.suppliersService.findById(req.tenantId, id) };
   }
 
   @Get(':id/statement')
-  async statement(@Request() req, @Param('id') id: string, @Query('branchIds') branchIds?: string) {
-    const selected = branchIds
+  async statement(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('branchIds') branchIds?: string
+  ) {
+    const requested = branchIds
       ?.split(',')
       .map((value) => value.trim())
       .filter(Boolean);
+    const selected = requested?.length
+      ? requested
+      : req.user?.branchId
+        ? [req.user.branchId]
+        : undefined;
     return {
       success: true,
       data: await this.suppliersService.statement(req.tenantId, id, selected),
@@ -66,25 +86,38 @@ export class SuppliersController {
   }
 
   @Post()
-  async create(@Request() req, @Body() dto: any) {
-    const supplier = await this.suppliersService.create(req.tenantId, dto, req.user?.id);
+  @RequirePermission('suppliers.create')
+  async create(@Request() req, @Body() dto: SupplierDto) {
+    const supplier = await this.suppliersService.create(
+      req.tenantId,
+      dto,
+      req.user?.id,
+      req.user?.branchId
+    );
     return { success: true, data: supplier, message: 'تم إضافة المورد بنجاح' };
   }
 
   @Put(':id')
-  async update(@Request() req, @Param('id') id: string, @Body() dto: any) {
+  @RequirePermission('suppliers.update')
+  async update(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSupplierDto
+  ) {
     const supplier = await this.suppliersService.update(req.tenantId, id, {
       ...dto,
       updatedBy: req.user?.id,
+      branchId: req.user?.branchId,
     } as any);
     return { success: true, data: supplier, message: 'تم تحديث بيانات المورد بنجاح' };
   }
 
   @Post(':id/settle')
+  @RequirePermission('suppliers.settle')
   async settle(
     @Request() req,
-    @Param('id') id: string,
-    @Body() dto: { amount: number; method: string; notes?: string; branchId?: string }
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SupplierSettlementDto
   ) {
     const result = await this.suppliersService.settle(
       req.tenantId,
@@ -99,7 +132,8 @@ export class SuppliersController {
   }
 
   @Delete(':id')
-  async remove(@Request() req, @Param('id') id: string) {
+  @RequirePermission('suppliers.delete')
+  async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.suppliersService.delete(req.tenantId, id);
     return { success: true, message: 'تم حذف المورد بنجاح' };
   }

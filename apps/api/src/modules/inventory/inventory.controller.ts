@@ -11,17 +11,25 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InventoryService } from './inventory.service';
+import { WarehousesService } from './warehouses.service';
+import { AdjustInventoryDto } from './dto/inventory-movement.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
+@RequirePermission('inventory.view')
 @Controller({ path: 'inventory', version: '1' })
 @RequireFeature('inventory')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class InventoryController {
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly warehousesService: WarehousesService
+  ) {}
 
   @Get()
   async summary(
@@ -49,10 +57,9 @@ export class InventoryController {
   }
 
   @Post('adjust')
-  async adjust(
-    @Request() req,
-    @Body() dto: { productId: string; warehouseId: string; quantity: number; reason: string }
-  ) {
+  @RequirePermission('inventory.adjust')
+  async adjust(@Request() req, @Body() dto: AdjustInventoryDto) {
+    await this.warehousesService.findUsable(req.tenantId, dto.warehouseId);
     const transaction = await this.inventoryService.adjustManual(
       req.tenantId,
       dto.productId,
@@ -65,8 +72,10 @@ export class InventoryController {
   }
 
   @Post('transfer')
+  @RequirePermission('inventory.transfer')
+  @RequireFeature('warehouses')
   transfer() {
-    // نمنع التحويل الفوري القديم حتى لا يتجاوز مسار الطلب والموافقة الجديد.
+    // Immediate transfers bypass the required request/approval workflow.
     throw new GoneException('استخدم POST /inventory/transfers لإنشاء طلب تحويل يحتاج إلى موافقة');
   }
 }

@@ -13,17 +13,21 @@ import {
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { PermissionGuard } from '@/common/guards/permission.guard';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { BarcodeLabelsDto } from './dto/barcode-labels.dto';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
 @ApiTags('products')
 @ApiBearerAuth()
+@RequirePermission('products.view')
 @Controller({ path: 'products', version: '1' })
 @RequireFeature('products')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
@@ -61,6 +65,25 @@ export class ProductsController {
     };
   }
 
+  @Get('generate-barcode')
+  async generateBarcode(@Request() req) {
+    const barcode = await this.productsService.generateUniqueBarcode(req.tenantId);
+    return { success: true, data: { barcode } };
+  }
+
+  /**
+   * بيانات ملصقات الباركود (مقفولة بميزة "طباعة الباركود"). الواجهة بتطبع
+   * من البيانات اللي السيرفر بيرجعها، فلو الميزة مقفولة ماينفعش تتطبع ملصقات.
+   */
+  @Post('barcode-labels')
+  @RequireFeature('barcode_printing')
+  async barcodeLabels(@Request() req, @Body() dto: BarcodeLabelsDto) {
+    return {
+      success: true,
+      data: await this.productsService.barcodeLabels(req.tenantId, dto.items),
+    };
+  }
+
   @Get('search/:code')
   async searchByCode(@Request() req, @Param('code') code: string) {
     const product = await this.productsService.findByBarcodeOrSku(req.tenantId, code);
@@ -77,18 +100,21 @@ export class ProductsController {
   }
 
   @Post()
+  @RequirePermission('products.create')
   async create(@Request() req, @Body() dto: CreateProductDto) {
     const product = await this.productsService.create(req.tenantId, dto, req.user?.id);
     return { success: true, data: product, message: 'تم إضافة المنتج بنجاح' };
   }
 
   @Put(':id')
+  @RequirePermission('products.update')
   async update(@Request() req, @Param('id') id: string, @Body() dto: UpdateProductDto) {
     const product = await this.productsService.update(req.tenantId, id, dto, req.user?.id);
     return { success: true, data: product, message: 'تم تحديث المنتج بنجاح' };
   }
 
   @Delete(':id')
+  @RequirePermission('products.delete')
   async remove(@Request() req, @Param('id') id: string) {
     await this.productsService.delete(req.tenantId, id);
     return { success: true, message: 'تم حذف المنتج بنجاح' };

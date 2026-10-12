@@ -1,94 +1,48 @@
 # ERP/POS System for Mobile Accessories
 
-نظام ERP/POS متعدد المستأجرين (Multi-Tenant) متخصص في تجارة إكسسوارات الموبايلات.
+نظام ERP/POS متعدد المستأجرين لتجارة إكسسوارات الموبايلات، يعمل كتطبيق ويب من المتصفح.
 
 ## المميزات
 
-- ✅ بنية Multi-Tenant بعزل بيانات كامل
-- ✅ نظام إدارة ميزات (Feature Flags) لكل تاجر
-- ✅ هوية بصرية مخصصة (White-Label)
-- ✅ دعم عربي RTL كامل مع جاهزية للإنجليزية
-- ✅ تطبيق Desktop (Tauri)
-- ✅ نقطة بيع تعمل Offline مع مزامنة
-- ✅ إدارة مخزون شاملة
-- ✅ متابعة مبيعات ومشتريات
-- ✅ إدارة عملاء وموردين
-- ✅ تقارير وتحليلات متقدمة
-- ✅ تحويلات بين الفروع بحجز مخزون وموافقة مستخدم آخر
-- ✅ مصادقة HttpOnly Cookies مع حماية CSRF
-- ✅ تنبيهات البريد وWhatsApp وWebhooks
-- ✅ إيصال إلكتروني برابط تحقق وQR، ونسخ PostgreSQL احتياطي خارجي
+- Multi-Tenant مع عزل بيانات وصلاحيات Roles وPermissions على الـ Backend.
+- إدارة الميزات لكل تاجر وهوية بصرية مخصصة، مع دعم عربي RTL.
+- إدارة المنتجات والمخزون والمخازن والفروع، وتحويلات مخزون لا تُنفذ إلا بعد موافقة.
+- نقطة بيع ومبيعات ومشتريات ومرتجعات، مع إدارة العملاء والموردين والأرصدة.
+- تقارير تشغيلية ومتقدمة وتقارير لفروع منفردة أو لمجموعة فروع مختارة.
+- مصادقة عبر HttpOnly Cookies وحماية CSRF، مع تنبيهات البريد وWhatsApp وWebhooks.
+- إيصال إلكتروني برابط تحقق وQR، ومرفقات للفواتير، ونسخ PostgreSQL احتياطي خارجي.
 
 ## Tech Stack
 
-**Backend:** NestJS · TypeScript · PostgreSQL · TypeORM · Redis · Docker
-**Frontend:** Tauri (Desktop) · React · TypeScript · Tailwind CSS · TanStack Query · Zustand
+- API: NestJS, TypeORM, PostgreSQL, Redis
+- Web: React, Vite, TypeScript, Tailwind CSS
+- Monorepo: npm workspaces
 
 ## البدء السريع
 
-راجع **[docs/INSTALL_GUIDE.md](./docs/INSTALL_GUIDE.md)** للتشغيل المحلي (Desktop) خطوة بخطوة.
-
-راجع **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** لو عايز تنشر النظام كـ **Web App** على الإنترنت (GitHub + Render + Vercel) بحيث أي حد يفتحه من المتصفح بلينك.
-
-ملخص سريع:
+راجع [دليل التشغيل المحلي](./docs/INSTALL_GUIDE.md). لإعداد الويب والاستضافة راجع [دليل نشر Web App](./docs/DEPLOYMENT.md) و[دليل إعداد Web App خطوة بخطوة](./docs/WEBAPP_SETUP_GUIDE.md).
 
 ```bash
 npm install
-cd apps/api && npm install && cd ../..
-cd apps/desktop && npm install && cd ../..
+cp .env.example .env
 docker-compose up -d
-cd apps/api && npm run dev
-# في نافذة تانية:
-cd apps/desktop && npm run tauri dev
+npm run db:migrate
+npm run db:seed
+npm run dev
 ```
 
-أو استخدم `start.bat` (Windows) / `./start.sh` (Linux/macOS) بعد أول إعداد.
+## التوثيق
 
-## بنية المشروع
-
-```
-.
-├── apps/
-│   ├── api/              # NestJS backend
-│   ├── desktop/          # Tauri desktop app (تطبيق سطح مكتب)
-│   ├── web/              # نفس التطبيق كـ Web App عادي (بدون Tauri) — للنشر على Vercel/Netlify
-│   └── admin/            # Master admin web app (مستقبلي)
-├── packages/
-│   └── shared/           # Shared types
-├── infra/
-│   └── postgres/         # PostgreSQL init scripts
-├── docs/                 # كل التوثيق المعماري + دليل التسطيب + دليل النشر
-├── render.yaml           # وصف خدمات النشر التلقائي على Render (API + قاعدة بيانات)
-└── scripts/               # سكريبتات مساعدة
-```
-
-## التوثيق الكامل
-
-- [البنية المعمارية](./docs/ARCHITECTURE.md)
 - [تصميم قاعدة البيانات](./docs/DATABASE.md)
-- [توثيق الـ API](./docs/API.md)
+- [توثيق API](./docs/API.md)
 - [إرشادات الأمان](./docs/SECURITY.md)
-- [نظام إدارة الميزات](./docs/FEATURE_SYSTEM.md)
+- [نظام الميزات](./docs/FEATURE_SYSTEM.md)
 - [نظام الهوية التجارية](./docs/BRANDING_SYSTEM.md)
 - [نظام الترجمة](./docs/I18N_SYSTEM.md)
-- **[سجل تعديلات المرحلة 2 — تنفيذ طلبات التاجر الـ11](./docs/CHANGELOG_PHASE2.md)** ⭐ أحدث تحديث
-- [خطة المراحل ومتتبع الحالة](./docs/PROJECT_STATUS.md)
-- [دليل التسطيب الكامل (Desktop)](./docs/INSTALL_GUIDE.md)
-- **[دليل تسطيب Web App خطوة بخطوة (GitHub + Supabase + Render + Cloudflare)](./docs/WEBAPP_SETUP_GUIDE.md)** ⭐ ابدأ من هنا للنشر أونلاين
-- [دليل نشر بديل (Render + Vercel)](./docs/DEPLOYMENT.md)
-- [ملاحظات إضافية (Supabase + Cloudflare)](./docs/DEPLOY_SUPABASE_CLOUDFLARE.md)
-- **[تشغيل Cookies والتنبيهات والتحويلات وWebhooks والنسخ الاحتياطي والإيصال الإلكتروني](./docs/OPERATIONS_FEATURES.md)**
+- [سجل تعديلات المرحلة الثانية](./docs/CHANGELOG_PHASE2.md)
+- [تشغيل Cookies والتنبيهات والتحويلات وWebhooks والنسخ الاحتياطي والإيصال الإلكتروني](./docs/OPERATIONS_FEATURES.md)
+- [حالة المشروع وخطة التنفيذ](./docs/PROJECT_STATUS.md)
 
-## حالة الكود المرفق
+## ملاحظات
 
-هذه الحزمة تحتوي على:
-
-- ✅ بنية Monorepo كاملة وقابلة للتشغيل (npm workspaces + turbo)
-- ✅ Backend NestJS شغّال فعلياً: `AuthModule`, `TenantsModule`, `UsersModule` مع JWT + Argon2 + Guards + Migrations + Seeds
-- ✅ Desktop App React + Tauri شغّال فعلياً: Login, Dashboard, Auth/Features/Branding Contexts, i18n عربي RTL
-- ✅ Docker Compose (PostgreSQL, Redis, MinIO)
-- 🔲 باقي الموديولات (Products, Inventory, Sales, POS, Reports...) موصوفة بالكامل في `docs/` وجاهزة للتنفيذ حسب خطة `docs/PROJECT_STATUS.md`
-
-## الرخصة
-
-UNLICENSED - Proprietary software
+شغّل اختبارات الأمان والتكامل قبل الاستخدام التجاري واسع النطاق، وراجع إعدادات البيئة والأسرار قبل النشر.

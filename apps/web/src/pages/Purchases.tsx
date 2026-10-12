@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
-import { Plus, X, Trash2, Paperclip } from 'lucide-react';
+import { Plus, X, Trash2, Paperclip, Printer } from 'lucide-react';
 import { InvoiceAttachments } from '@/components/InvoiceAttachments';
+import { escapeHtml } from '@/lib/escape';
 
 interface Purchase {
   id: string;
@@ -15,12 +16,7 @@ interface Purchase {
   paymentStatus: string;
 }
 
-interface Line {
-  productId: string;
-  productName: string;
-  quantity: string;
-  unitCost: string;
-}
+interface Line { productId: string; productName: string; quantity: string; unitCost: string }
 
 export function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
@@ -35,9 +31,7 @@ export function PurchasesPage() {
   const [supplierId, setSupplierId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [paidAmount, setPaidAmount] = useState('');
-  const [lines, setLines] = useState<Line[]>([
-    { productId: '', productName: '', quantity: '1', unitCost: '' },
-  ]);
+  const [lines, setLines] = useState<Line[]>([{ productId: '', productName: '', quantity: '1', unitCost: '' }]);
 
   const load = async () => {
     setLoading(true);
@@ -51,52 +45,49 @@ export function PurchasesPage() {
     setSuppliers(s.data.data);
     setWarehouses(w.data.data);
     setProducts(pr.data.data);
-    if (w.data.data[0])
-      setWarehouseId((w.data.data.find((x: any) => x.isMain) || w.data.data[0]).id);
+    if (w.data.data[0]) setWarehouseId((w.data.data.find((x: any) => x.isMain) || w.data.data[0]).id);
     setLoading(false);
   };
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const updateLine = (i: number, patch: Partial<Line>) => {
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   };
-  const addLine = () =>
-    setLines((prev) => [...prev, { productId: '', productName: '', quantity: '1', unitCost: '' }]);
+  const addLine = () => setLines((prev) => [...prev, { productId: '', productName: '', quantity: '1', unitCost: '' }]);
   const removeLine = (i: number) => setLines((prev) => prev.filter((_, idx) => idx !== i));
 
-  const total = lines.reduce(
-    (sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unitCost) || 0),
-    0
-  );
+  const total = lines.reduce((sum, l) => sum + (Number(l.quantity) || 0) * (Number(l.unitCost) || 0), 0);
+
+  const printPurchase = async (id: string) => {
+    try {
+      const response = await api.get(`/purchases/${id}`);
+      const purchase = response.data.data;
+      const supplier = suppliers.find((s) => s.id === purchase.supplierId);
+      const rows = (purchase.items || []).map((item: any) => {
+        const product = products.find((p) => p.id === item.productId);
+        return `<tr><td>${escapeHtml(product?.name || item.productId)}</td><td>${Number(item.quantity)}</td><td>${Number(item.unitCost).toFixed(2)}</td><td>${Number(item.total).toFixed(2)}</td></tr>`;
+      }).join('');
+      const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة شراء ${escapeHtml(purchase.purchaseNumber)}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #aaa;padding:8px;text-align:right}th{background:#eee}.totals{margin-top:16px;font-weight:bold}</style></head><body><h2>فاتورة مشتريات رقم ${escapeHtml(purchase.purchaseNumber)}</h2><p>التاريخ: ${new Date(purchase.purchaseDate).toLocaleString('ar')}</p><p>المورد: ${escapeHtml(supplier?.name || '-')}</p>${purchase.supplierInvoiceNumber ? `<p>رقم فاتورة المورد: ${escapeHtml(purchase.supplierInvoiceNumber)}</p>` : ''}<table><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><p>المجموع الفرعي: ${Number(purchase.subtotal).toFixed(2)}</p><p>الضريبة: ${Number(purchase.taxAmount).toFixed(2)}</p><p>الإجمالي: ${Number(purchase.total).toFixed(2)}</p><p>المدفوع: ${Number(purchase.paidAmount).toFixed(2)}</p></div><script>window.print()</script></body></html>`;
+      const win = window.open('', '_blank');
+      if (!win) { toast.error('يرجى السماح بالنوافذ المنبثقة للطباعة'); return; }
+      win.document.write(html);
+      win.document.close();
+    } catch {
+      toast.error('تعذر تحميل فاتورة المشتريات للطباعة');
+    }
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supplierId || !warehouseId) {
-      toast.error('اختر المورد والمخزن');
-      return;
-    }
-    const items = lines
-      .filter((l) => l.productId && Number(l.quantity) > 0)
-      .map((l) => ({
-        productId: l.productId,
-        quantity: Number(l.quantity),
-        unitCost: Number(l.unitCost) || 0,
-      }));
-    if (items.length === 0) {
-      toast.error('أضف صنف واحد على الأقل');
-      return;
-    }
+    if (!supplierId || !warehouseId) { toast.error('اختر المورد والمخزن'); return; }
+    const items = lines.filter((l) => l.productId && Number(l.quantity) > 0).map((l) => ({
+      productId: l.productId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) || 0,
+    }));
+    if (items.length === 0) { toast.error('أضف صنف واحد على الأقل'); return; }
 
     setSaving(true);
     try {
-      await api.post('/purchases', {
-        supplierId,
-        warehouseId,
-        items,
-        paidAmount: Number(paidAmount) || 0,
-      });
+      await api.post('/purchases', { supplierId, warehouseId, items, paidAmount: Number(paidAmount) || 0 });
       toast.success('تم إنشاء أمر الشراء وتحديث المخزون بنجاح');
       setShowForm(false);
       setLines([{ productId: '', productName: '', quantity: '1', unitCost: '' }]);
@@ -109,7 +100,7 @@ export function PurchasesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">المشتريات</h1>
         <Button onClick={() => setShowForm((v) => !v)}>
           {showForm ? <X className="h-4 w-4 ml-2" /> : <Plus className="h-4 w-4 ml-2" />}
@@ -119,36 +110,18 @@ export function PurchasesPage() {
 
       {showForm && (
         <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>المورد</Label>
-              <select
-                className="border rounded-md h-10 px-3 w-full"
-                value={supplierId}
-                onChange={(e) => setSupplierId(e.target.value)}
-                required
-              >
+              <select className="border rounded-md h-10 px-3 w-full" value={supplierId} onChange={(e) => setSupplierId(e.target.value)} required>
                 <option value="">اختر مورد</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+                {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
             <div>
               <Label>المخزن</Label>
-              <select
-                className="border rounded-md h-10 px-3 w-full"
-                value={warehouseId}
-                onChange={(e) => setWarehouseId(e.target.value)}
-                required
-              >
-                {warehouses.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
+              <select className="border rounded-md h-10 px-3 w-full" value={warehouseId} onChange={(e) => setWarehouseId(e.target.value)} required>
+                {warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
               </select>
             </div>
           </div>
@@ -164,46 +137,23 @@ export function PurchasesPage() {
                     onChange={(e) => updateLine(i, { productId: e.target.value })}
                   >
                     <option value="">اختر منتج</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
+                    {products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
-                  <Input
-                    type="number"
-                    className="w-24"
-                    placeholder="الكمية"
-                    value={line.quantity}
-                    onChange={(e) => updateLine(i, { quantity: e.target.value })}
-                  />
-                  <Input
-                    type="number"
-                    className="w-28"
-                    placeholder="سعر التكلفة"
-                    value={line.unitCost}
-                    onChange={(e) => updateLine(i, { unitCost: e.target.value })}
-                  />
+                  <Input type="number" className="w-24" placeholder="الكمية" value={line.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} />
+                  <Input type="number" className="w-28" placeholder="سعر التكلفة" value={line.unitCost} onChange={(e) => updateLine(i, { unitCost: e.target.value })} />
                   <Button type="button" size="icon" variant="ghost" onClick={() => removeLine(i)}>
                     <Trash2 className="h-4 w-4 text-red-500" />
                   </Button>
                 </div>
               ))}
             </div>
-            <Button type="button" variant="outline" size="sm" className="mt-2" onClick={addLine}>
-              + إضافة صنف
-            </Button>
+            <Button type="button" variant="outline" size="sm" className="mt-2" onClick={addLine}>+ إضافة صنف</Button>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 items-end border-t pt-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end border-t pt-4">
             <div>
               <Label>المبلغ المدفوع الآن (اختياري)</Label>
-              <Input
-                type="number"
-                value={paidAmount}
-                onChange={(e) => setPaidAmount(e.target.value)}
-                placeholder="0 = آجل بالكامل"
-              />
+              <Input type="number" value={paidAmount} onChange={(e) => setPaidAmount(e.target.value)} placeholder="0 = آجل بالكامل" />
             </div>
             <div className="text-left">
               <p className="text-sm text-gray-500">الإجمالي</p>
@@ -212,56 +162,46 @@ export function PurchasesPage() {
           </div>
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={saving}>
-              {saving ? 'جاري الحفظ...' : 'حفظ أمر الشراء'}
-            </Button>
+            <Button type="submit" disabled={saving}>{saving ? 'جاري الحفظ...' : 'حفظ أمر الشراء'}</Button>
           </div>
         </form>
       )}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-gray-50">
             <tr>
               <th className="text-right p-3">رقم أمر الشراء</th>
               <th className="text-right p-3">التاريخ</th>
               <th className="text-right p-3">الإجمالي</th>
               <th className="text-right p-3">حالة الدفع</th>
-              <th className="text-right p-3">إثبات الدفع</th>
+              <th className="text-right p-3">مرفقات / طباعة</th>
             </tr>
           </thead>
           <tbody>
-            {loading && (
-              <tr>
-                <td colSpan={5} className="text-center py-8 text-gray-400">
-                  جاري التحميل...
-                </td>
-              </tr>
-            )}
-            {!loading && purchases.length === 0 && (
-              <tr>
-                <td colSpan={5} className="text-center py-8 text-gray-400">
-                  لا توجد أوامر شراء بعد
-                </td>
-              </tr>
-            )}
+            {loading && <tr><td colSpan={5} className="text-center py-8 text-gray-400">جاري التحميل...</td></tr>}
+            {!loading && purchases.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-gray-400">لا توجد أوامر شراء بعد</td></tr>}
             {purchases.map((p) => (
               <Fragment key={p.id}>
                 <tr className="border-t">
                   <td className="p-3">{p.purchaseNumber}</td>
-                  <td className="p-3 text-gray-500">
-                    {new Date(p.purchaseDate).toLocaleDateString('ar')}
-                  </td>
+                  <td className="p-3 text-gray-500">{new Date(p.purchaseDate).toLocaleDateString('ar')}</td>
                   <td className="p-3 font-medium">{Number(p.total).toFixed(2)}</td>
                   <td className="p-3">{p.paymentStatus}</td>
                   <td className="p-3">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}
-                    >
-                      <Paperclip className="ml-1 h-4 w-4" /> مرفقات
-                    </Button>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}
+                      >
+                        <Paperclip className="ml-1 h-4 w-4" /> مرفقات
+                      </Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}>
+                        <Printer className="h-4 w-4 ml-1" /> طباعة
+                      </Button>
+                    </div>
                   </td>
                 </tr>
                 {attachmentsFor === p.id && (

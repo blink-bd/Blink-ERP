@@ -13,8 +13,9 @@ export class MasterAdminGuard implements CanActivate {
       ? header.substring(7)
       : request.cookies?.[MASTER_TOKEN_COOKIE];
     if (!token) throw new UnauthorizedException('مطلوب تسجيل دخول المدير العام');
-    const admin = await this.masterAdminService.authenticate(token);
+    const admin = await this.masterAdminService.authenticate(token, request.ip || '');
     request.masterAdmin = { id: admin.id, email: admin.email, fullName: admin.fullName };
+    request.masterAdminEntity = admin;
     return true;
   }
 }

@@ -1,6 +1,10 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
-import { BellRing, Copy, ExternalLink, Plus, RefreshCw, RotateCw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
+import { BellRing, Copy, DatabaseBackup, Download, ExternalLink, KeyRound, Plus, RefreshCw, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { saveBlob } from '@/lib/download';
+import { usePermissions } from '@/lib/permissions';
+import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,6 +41,11 @@ const eventOptions = [
 ];
 
 export function SettingsPage() {
+  const { has } = usePermissions();
+  const { user } = useAuth();
+  const [downloading, setDownloading] = useState(false);
+  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [changing, setChanging] = useState(false);
   const [channels, setChannels] = useState<ChannelStatus | null>(null);
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [url, setUrl] = useState('');
@@ -68,6 +77,50 @@ export function SettingsPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const downloadBackup = async () => {
+    setDownloading(true);
+    try {
+      const response = await api.get('/backup/export');
+      const backup = response.data?.data ?? response.data;
+      const blob = new Blob([JSON.stringify(backup, null, 2)], {
+        type: 'application/json;charset=utf-8',
+      });
+      saveBlob(blob, `blink-erp-backup-${new Date().toISOString().slice(0, 10)}.json`);
+      toast.success('تم تنزيل النسخة الاحتياطية بنجاح');
+    } catch {
+      // يعرض عميل API رسالة الخطأ.
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const changePassword = async (event: FormEvent) => {
+    event.preventDefault();
+    if (pw.newPassword !== pw.confirm) {
+      toast.error('كلمة المرور الجديدة وتأكيدها مش متطابقين');
+      return;
+    }
+    if (pw.newPassword === pw.currentPassword) {
+      toast.error('كلمة المرور الجديدة لازم تختلف عن الحالية');
+      return;
+    }
+
+    setChanging(true);
+    try {
+      await api.post('/auth/change-password', {
+        currentPassword: pw.currentPassword,
+        newPassword: pw.newPassword,
+      });
+      // The server rotates the HttpOnly auth cookies; never persist tokens in browser storage.
+      toast.success('تم تغيير كلمة المرور وتسجيل الخروج من كل الأجهزة الأخرى');
+      setPw({ currentPassword: '', newPassword: '', confirm: '' });
+    } catch {
+      // يعرض عميل API رسالة الخطأ.
+    } finally {
+      setChanging(false);
+    }
+  };
 
   const sendTest = async () => {
     setTesting(true);
@@ -163,14 +216,97 @@ export function SettingsPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">التنبيهات والتكاملات</h1>
+          <h1 className="text-2xl font-bold">الإعدادات والتكاملات</h1>
           <p className="mt-1 text-sm text-gray-500">
-            إعدادات البريد وWhatsApp وروابط Webhook الصادرة.
+            أمان الحساب، النسخ الاحتياطي، البريد وWhatsApp وروابط Webhook الصادرة.
           </p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
           <RefreshCw className="ml-2 h-4 w-4" /> تحديث
         </Button>
+      </div>
+
+      <div className="max-w-3xl space-y-6">
+        <section className="rounded-xl border bg-white p-6">
+          <div className="mb-4 flex items-start gap-4">
+            <div className="rounded-lg bg-primary/10 p-3 text-primary">
+              <KeyRound className="h-6 w-6" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold">تغيير كلمة المرور</h2>
+              <p className="mt-1 text-sm text-gray-500">
+                حسابك: <span dir="ltr">{user?.email}</span>. سيتم إنهاء الجلسات الأخرى بعد التغيير.
+              </p>
+            </div>
+          </div>
+          <form onSubmit={changePassword} className="space-y-3">
+            <div>
+              <Label>كلمة المرور الحالية</Label>
+              <Input
+                required
+                type="password"
+                autoComplete="current-password"
+                value={pw.currentPassword}
+                onChange={(event) => setPw({ ...pw, currentPassword: event.target.value })}
+              />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>كلمة المرور الجديدة</Label>
+                <Input
+                  required
+                  type="password"
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={pw.newPassword}
+                  onChange={(event) => setPw({ ...pw, newPassword: event.target.value })}
+                />
+              </div>
+              <div>
+                <Label>تأكيد كلمة المرور</Label>
+                <Input
+                  required
+                  type="password"
+                  minLength={8}
+                  autoComplete="new-password"
+                  value={pw.confirm}
+                  onChange={(event) => setPw({ ...pw, confirm: event.target.value })}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">8 أحرف على الأقل، وتحتوي على حروف وأرقام.</p>
+            <Button type="submit" disabled={changing}>
+              {changing ? 'جاري التغيير...' : 'تغيير كلمة المرور'}
+            </Button>
+          </form>
+        </section>
+
+        {has('backup.export') && (
+          <section className="rounded-xl border bg-white p-6">
+            <div className="flex items-start gap-4">
+              <div className="rounded-lg bg-primary/10 p-3 text-primary">
+                <DatabaseBackup className="h-6 w-6" />
+              </div>
+              <div className="flex-1">
+                <h2 className="mb-1 text-lg font-semibold">النسخ الاحتياطي</h2>
+                <p className="mb-4 text-sm text-gray-500">
+                  تنزيل نسخة من بيانات المتجر بصيغة JSON. كلمات المرور ومفاتيح API لا تُضمّن في الملف؛ احتفظ به في مكان آمن.
+                </p>
+                <Button onClick={() => void downloadBackup()} disabled={downloading}>
+                  <Download className="me-2 h-4 w-4" />
+                  {downloading ? 'جاري التحضير...' : 'تنزيل نسخة احتياطية JSON'}
+                </Button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <div className="flex gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+          <ShieldCheck className="h-5 w-5 shrink-0" />
+          <div>
+            العمليات الحساسة تُسجّل في سجل التدقيق، ومالك النظام يستطيع مراجعتها. إذا لاحظت دخولاً غير معتاد، غيّر كلمة المرور فوراً.
+          </div>
+        </div>
       </div>
 
       <section className="rounded-xl bg-white p-5 shadow-sm">

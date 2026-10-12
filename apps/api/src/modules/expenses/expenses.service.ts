@@ -1,6 +1,6 @@
 import { stripProtected } from '@/common/utils/sanitize';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Expense } from './entities/expense.entity';
@@ -25,13 +25,32 @@ export class ExpensesService {
   }
 
   async create(tenantId: string, data: Partial<Expense>, userId: string): Promise<Expense> {
-    const count = await this.expensesRepository.count({ where: { tenantId } });
     const clean = stripProtected(data);
+    if (!clean.categoryId) throw new BadRequestException('فئة المصروف مطلوبة');
+    if (!Number.isFinite(Number(clean.amount)) || Number(clean.amount) <= 0) {
+      throw new BadRequestException('قيمة المصروف يجب أن تكون أكبر من صفر');
+    }
+
+    const [category] = await this.expensesRepository.manager.query(
+      `SELECT id FROM expense_categories WHERE id = $1 AND tenant_id = $2 AND is_active = true`,
+      [clean.categoryId, tenantId]
+    );
+    if (!category) throw new NotFoundException('فئة المصروف غير موجودة لهذا التاجر');
+
+    if (clean.shiftId) {
+      const [shift] = await this.expensesRepository.manager.query(
+        `SELECT id FROM cash_register_shifts WHERE id = $1 AND tenant_id = $2 AND status = 'open'`,
+        [clean.shiftId, tenantId]
+      );
+      if (!shift) throw new NotFoundException('الوردية غير موجودة لهذا التاجر');
+    }
+
     const branchId = await resolveTenantBranch(
       this.expensesRepository.manager,
       tenantId,
       clean.branchId
     );
+    const count = await this.expensesRepository.count({ where: { tenantId } });
     const expense = this.expensesRepository.create({
       ...clean,
       branchId,
@@ -51,7 +70,6 @@ export class ExpensesService {
     return this.categoriesRepository.save(category);
   }
 
-  /** إجمالي المصروفات اليومي/الشهري/السنوي حسب فترة مختارة. */
   async summary(tenantId: string, period: 'day' | 'month' | 'year' = 'day', branchIds?: string[]) {
     const trunc = period === 'year' ? 'year' : period === 'month' ? 'month' : 'day';
     const [row] = await this.expensesRepository.manager.query(

@@ -47,6 +47,14 @@ export class CreateProductDto {
   @IsNumber()
   wholesalePrice?: number;
 
+  @ApiPropertyOptional({
+    description: 'سعر نصف الجملة (يتطلب تفعيل ميزة half_wholesale_pricing للتاجر)',
+    example: 25.0,
+  })
+  @IsOptional()
+  @IsNumber()
+  halfWholesalePrice?: number;
+
   @ApiPropertyOptional({ example: 15 })
   @IsOptional()
   @IsNumber()

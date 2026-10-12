@@ -9,6 +9,8 @@ interface User {
   tenantId: string;
   roles: string[];
   permissions: string[];
+  branchId?: string;
+  warehouseId?: string;
 }
 
 interface AuthContextValue {
@@ -16,7 +18,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string, tenantId: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -24,7 +26,7 @@ const AuthContext = createContext<AuthContextValue>({
   isAuthenticated: false,
   isLoading: true,
   login: async () => {},
-  logout: () => {},
+  logout: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -39,7 +41,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkAuth = async () => {
     try {
-      // الاعتماد على HttpOnly cookies؛ لا يُخزّن أي JWT في localStorage.
       const response = await api.get('/auth/me');
       setUser(response.data.data);
     } catch {
@@ -59,15 +60,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       toast.success('تم تسجيل الدخول بنجاح');
     } catch (error: any) {
       const message = error.response?.data?.error?.message || 'فشل تسجيل الدخول';
-      toast.error(message);
+      toast.error(Array.isArray(message) ? message.join('، ') : message);
       throw error;
     }
   };
 
-  const logout = () => {
-    void api.post('/auth/logout').catch(() => undefined);
-    setUser(null);
-    toast.success('تم تسجيل الخروج');
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      // Local cleanup still happens if the network is unavailable.
+    } finally {
+      setUser(null);
+      toast.success('تم تسجيل الخروج');
+    }
   };
 
   return (

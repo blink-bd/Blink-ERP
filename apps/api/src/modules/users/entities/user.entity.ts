@@ -46,6 +46,9 @@ export class User extends BaseEntity {
   @Column({ name: 'password_changed_at', type: 'timestamp', nullable: true })
   passwordChangedAt?: Date;
 
+  @Column({ name: 'session_version', type: 'integer', default: 0 })
+  sessionVersion: number;
+
   @Column({ name: 'failed_login_attempts', default: 0 })
   failedLoginAttempts: number;
 

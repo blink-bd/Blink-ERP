@@ -1,4 +1,15 @@
-import { Controller, Get, Post, Put, Param, Body, Ip, Request, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Put,
+  Param,
+  Body,
+  Ip,
+  Request,
+  UseGuards,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { TenantsService } from './tenants.service';
 import { CreateTenantDto } from './dto/create-tenant.dto';
@@ -22,7 +33,7 @@ export class TenantsController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.tenantsService.findById(id) };
   }
 
@@ -44,7 +55,7 @@ export class TenantsController {
   async update(
     @Request() req,
     @Ip() ip: string,
-    @Param('id') id: string,
+    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateTenantDto
   ) {
     const tenant = await this.tenantsService.update(id, dto);

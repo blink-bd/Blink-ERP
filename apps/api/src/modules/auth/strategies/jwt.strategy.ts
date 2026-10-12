@@ -12,6 +12,7 @@ export interface JwtPayload {
   email: string;
   roles: string[];
   permissions: string[];
+  sessionVersion: number;
 }
 
 @Injectable()
@@ -32,19 +33,26 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: JwtPayload) {
     const user = await this.usersService.findById(payload.sub);
-
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('User not active');
-    }
+    if (!user || !user.isActive) throw new UnauthorizedException('User not active');
 
     assertTenantUsable(user.tenant);
+    if (payload.tenantId !== user.tenantId || payload.sessionVersion !== user.sessionVersion) {
+      throw new UnauthorizedException('جلسة غير صالحة أو منتهية');
+    }
+
+    // Reload roles on every request so revoked permissions take effect immediately.
+    const roles = (user.roles || []).map((role) => role.name);
+    const permissions = Array.from(
+      new Set((user.roles || []).flatMap((role) => (role.permissions || []).map((p) => p.name)))
+    );
 
     return {
-      id: payload.sub,
-      tenantId: payload.tenantId,
-      email: payload.email,
-      roles: payload.roles,
-      permissions: payload.permissions,
+      id: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      roles,
+      permissions,
+      authType: 'jwt' as const,
       branchId: user.branchId,
       warehouseId: user.warehouseId,
     };

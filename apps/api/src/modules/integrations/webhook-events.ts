@@ -1,5 +1,6 @@
 export const WEBHOOK_EVENTS = [
   'sale.created',
+  'sale.return.created',
   'purchase.created',
   'inventory.low_stock',
   'inventory.transfer.requested',

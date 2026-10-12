@@ -6,55 +6,75 @@ import helmet from 'helmet';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { parseAllowedOrigins, validateSecurityEnv } from './common/security/env.validation';
 import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 
 async function bootstrap() {
+  validateSecurityEnv();
+
   const app = await NestFactory.create(AppModule, {
+    bodyParser: true,
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
   });
 
   const configService = app.get(ConfigService);
+  const express = app.getHttpAdapter().getInstance();
+  const configuredHops = Number(configService.get('TRUST_PROXY_HOPS') ?? 1);
+  express.set(
+    'trust proxy',
+    Number.isInteger(configuredHops) && configuredHops >= 0 ? configuredHops : 1
+  );
+  express.disable('x-powered-by');
 
-  // خلف Render/Cloudflare: استخدم قيمة Render الموثوقة لعنوان العميل وحدود الطلبات.
-  app.getHttpAdapter().getInstance().set('trust proxy', 1);
-
+  // Cookies must be parsed before the CSRF middleware and cookie-based auth guards.
   app.use(cookieParser());
-  app.use(helmet());
+  app.use(
+    helmet({
+      crossOriginResourcePolicy: { policy: 'same-site' },
+      referrerPolicy: { policy: 'no-referrer' },
+      hsts: { maxAge: 31536000, includeSubDomains: true },
+    })
+  );
+  app.use((_req: any, res: any, next: () => void) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
   app.use(compression());
 
   const isProduction = configService.get('NODE_ENV') === 'production';
-  const configuredOrigins = [
-    configService.get<string>('FRONTEND_URL'),
-    ...(configService.get<string>('CORS_ORIGINS') || '').split(','),
-  ]
-    .map((origin) => origin?.trim().replace(/\/$/, ''))
-    .filter((origin): origin is string => Boolean(origin));
+  const origins = [
+    ...parseAllowedOrigins(configService.get<string>('FRONTEND_URL')),
+    ...parseAllowedOrigins(configService.get<string>('CORS_ORIGINS')),
+  ];
   if (!isProduction) {
-    configuredOrigins.push('http://localhost:5173', 'tauri://localhost', 'http://tauri.localhost');
+    origins.push('http://localhost:5173', 'tauri://localhost', 'http://tauri.localhost');
   }
-  const allowedOrigins = new Set(configuredOrigins);
-
+  const allowedOrigins = new Set(origins);
   app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.has(origin.replace(/\/$/, ''))) {
-        callback(null, true);
-      } else {
-        callback(new Error('Origin is not allowed by CORS'));
-      }
+    origin: (origin: string | undefined, callback: (err: Error | null, ok?: boolean) => void) => {
+      // Server-to-server calls have no Origin; browser origins must be explicitly allowed.
+      if (!origin || allowedOrigins.has(origin.replace(/\/+$/, ''))) return callback(null, true);
+      return callback(null, false);
     },
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Backup-Alert-Token'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-CSRF-Token',
+      'X-Backup-Alert-Token',
+      'X-API-Key',
+    ],
+    exposedHeaders: ['Content-Disposition'],
     maxAge: 600,
   });
 
-  // كل طلب يغيّر البيانات يحتاج رمز CSRF مطابقاً للكوكي والـ header.
+  // Mutating browser requests must send the double-submit CSRF token.
   const csrfMiddleware = new CsrfMiddleware();
   app.use((req, res, next) => csrfMiddleware.use(req, res, next));
 
   app.setGlobalPrefix('api');
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
-
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -70,11 +90,24 @@ async function bootstrap() {
       .setDescription('Multi-Tenant ERP/POS System API Documentation')
       .setVersion('1.0')
       .addBearerAuth()
+      .addApiKey(
+        {
+          type: 'apiKey',
+          name: 'X-API-Key',
+          in: 'header',
+          description: 'مفتاح API للتكاملات (blk_live_...)',
+        },
+        'api-key'
+      )
       .addTag('auth', 'Authentication endpoints')
       .addTag('tenants', 'Tenant management')
+      .addTag('users', 'User management')
       .addTag('products', 'Product catalog')
-      .addTag('sales', 'Sales management')
+      .addTag('sales', 'Sales management and returns')
       .addTag('inventory', 'Inventory management and approved transfers')
+      .addTag('customers', 'Customer management')
+      .addTag('suppliers', 'Supplier management')
+      .addTag('reports', 'Reports and branch analytics')
       .addTag('webhooks', 'Signed outbound webhooks')
       .addTag('electronic-receipts', 'Public receipt verification')
       .build();
@@ -84,8 +117,9 @@ async function bootstrap() {
 
   const port = Number(configService.get('PORT') || 3000);
   await app.listen(port, '0.0.0.0');
-
+  app.enableShutdownHooks();
   console.log(`🚀 Application is running on port ${port}`);
+  if (!isProduction) console.log(`📚 API Documentation: http://localhost:${port}/api/docs`);
 }
 
 bootstrap();
