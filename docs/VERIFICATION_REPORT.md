@@ -2,7 +2,9 @@
 
 تاريخ التحقق: 2026-10-12 · البيئة: Node 22.22.3، PostgreSQL 16.2 (قاعدة اختبار محلية `blink_erp_test` / `blink_erp_flow`).
 
-هذا التقرير يوضح ما تم تشغيله فعلياً وما لم يتم تشغيله. لم يُنفَّذ نشر على Render من بيئة التطوير هذه، لذلك لا يوجد ادعاء بنشر ناجح.
+هذا التقرير يوضح ما تم تشغيله فعلياً وما لم يتم تشغيله.
+
+**النشر:** دُمج التغيير في `main` عبر Pull Request #20 (الالتزام `c8422ed3`)، وظهر نشر Render لخدمة `erp-api` على هذا الالتزام بحالة `success` في GitHub Deployments (سجل Render: `dep-db6e9dnavr4c7380630g`، والرابط العام للخدمة `https://erp-api-dad5.onrender.com`) — أي أن البناء والبدء وفحص الصحة `/api/v1/health` نجحوا. لم يُتحقق من الاستجابة من داخل بيئة التطوير هذه لأنها لا تصل إلى نطاق onrender.com.
 
 ## 1. ما تم تشغيله والنتائج
 
@@ -21,6 +23,7 @@
 | نسخة احتياطية فعلية | `bash scripts/backup-postgres.sh` (pg_dump 16.2 + رفع S3 محاكى) | ✅ ملف custom-format ‎~175KB رُفع باسم `blink-erp/postgres/<timestamp>.dump` |
 | استعادة فعلية | `RESTORE_CONFIRM=true bash scripts/restore-postgres.sh <dump>` | ✅ استُعيدت قاعدة جديدة وظهرت الجداول والبيانات (features=27) |
 | تشغيل التطبيق فعلياً | `node dist/main.js` + `GET /api/v1/health` | ✅ `{status:"ok",database:"ok"}` |
+| نشر Render بعد الدمج | GitHub Deployments للالتزام `c8422ed3` | ✅ حالة `success` (خدمة `erp-api`) |
 | Firebase-like smoke للنقاط الحساسة | `POST /api/v1/ops/balance-reminders/run`، `POST /api/v1/ops/backup-alert` | ✅ 201 مع التوكن و401 بدونه |
 
 سير CI الجديد (`.github/workflows/ci.yml`) نُفِّذ فعلياً على GitHub ونجح في المهمتين: API (فحص أنواع + بناء + اختبارات وحدة + اختبارات تكامل على خدمة PostgreSQL 16) والواجهة (فحص أنواع + بناء) — تشغيل 38257555302 على Pull Request #20.
@@ -62,7 +65,7 @@
 | الاحتفاظ بالنسخ | سياسة Lifecycle على مخزن S3؛ لا حذف تلقائي من السكربت. |
 | التحقق من مفتاح 2FA في Render | تأكد من وجود `MASTER_2FA_ENCRYPTION_KEY` في Environment بدون طباعة قيمته، ولا تغيّره بعد تفعيل 2FA. |
 | قفل لوحة المدير بالـ IP (اختياري) | `MASTER_ADMIN_ALLOWED_IPS` غير مطلوب ولا يوقف الخدمة عند غيابه (IP متغير لدى المالك). لا تستخدم `*` أو `0.0.0.0/0`. |
-| النشر على Render | لم يُنفَّذ من هنا؛ بعد الدمج راجع Deploy Logs ثم `/api/v1/health`. |
+| النشر على Render | نُشر الالتزام `c8422ed3` بنجاح. عند أي تعديل لاحق راجع Deploy Logs ثم `/api/v1/health`. |
 
 ### ❌ ناقص (غير موجود أصلاً — لا يُدَّعى غير ذلك)
 
