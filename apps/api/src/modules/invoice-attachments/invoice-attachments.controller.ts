@@ -21,6 +21,9 @@ import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InvoiceAttachmentsService } from './invoice-attachments.service';
 import { UploadedEvidenceFile } from './uploaded-evidence-file';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { assertRowAllowed, scopeOf } from '@/common/utils/access-scope';
 
 @ApiTags('invoice-attachments')
 @ApiBearerAuth()
@@ -28,7 +31,31 @@ import { UploadedEvidenceFile } from './uploaded-evidence-file';
 @RequireFeature('invoice_attachments')
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
 export class InvoiceAttachmentsController {
-  constructor(private readonly attachments: InvoiceAttachmentsService) {}
+  constructor(
+    private readonly attachments: InvoiceAttachmentsService,
+    @InjectDataSource() private readonly dataSource: DataSource
+  ) {}
+
+  /** المرفقات تبع الفاتورة: المستخدم لازم يكون له صلاحية على فرع/مخزن الفاتورة. */
+  private async assertInvoiceAllowed(req: any, entityType: string, invoiceId: string) {
+    const table =
+      entityType === 'sale' || entityType === 'sales'
+        ? 'sales'
+        : entityType === 'purchase' || entityType === 'purchases'
+          ? 'purchases'
+          : null;
+    if (!table) return; // نوع غير معروف — الخدمة هترفضه
+    await assertRowAllowed(this.dataSource.manager, table, req.tenantId, invoiceId, scopeOf(req));
+  }
+
+  private async assertAttachmentAllowed(req: any, attachmentId: string) {
+    const [row] = await this.dataSource.query(
+      `SELECT entity_type AS "entityType", entity_id AS "entityId"
+       FROM invoice_attachments WHERE id = $1 AND tenant_id = $2`,
+      [attachmentId, req.tenantId]
+    );
+    if (row) await this.assertInvoiceAllowed(req, row.entityType, row.entityId);
+  }
 
   @Post('invoices/:entityType/:invoiceId')
   @ApiConsumes('multipart/form-data')
@@ -51,6 +78,7 @@ export class InvoiceAttachmentsController {
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string,
     @UploadedFile() file?: UploadedEvidenceFile
   ) {
+    await this.assertInvoiceAllowed(req, entityType, invoiceId);
     return {
       success: true,
       data: await this.attachments.upload(req.tenantId, req.user.id, entityType, invoiceId, file),
@@ -63,6 +91,7 @@ export class InvoiceAttachmentsController {
     @Param('entityType') entityType: string,
     @Param('invoiceId', ParseUUIDPipe) invoiceId: string
   ) {
+    await this.assertInvoiceAllowed(req, entityType, invoiceId);
     return {
       success: true,
       data: await this.attachments.list(req.tenantId, entityType, invoiceId),
@@ -75,6 +104,7 @@ export class InvoiceAttachmentsController {
     @Param('attachmentId', ParseUUIDPipe) attachmentId: string,
     @Res() response: Response
   ) {
+    await this.assertAttachmentAllowed(req, attachmentId);
     const file = await this.attachments.getContent(req.tenantId, attachmentId);
     const fallbackName = file.originalName.replace(/["\\\r\n]/g, '_').replace(/[^\x20-\x7e]/g, '_');
     response.setHeader('Content-Type', file.mimeType);
@@ -90,6 +120,7 @@ export class InvoiceAttachmentsController {
 
   @Delete('files/:attachmentId')
   async remove(@Request() req, @Param('attachmentId', ParseUUIDPipe) attachmentId: string) {
+    await this.assertAttachmentAllowed(req, attachmentId);
     return { success: true, data: await this.attachments.remove(req.tenantId, attachmentId) };
   }
 }

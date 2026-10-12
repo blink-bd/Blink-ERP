@@ -2,12 +2,33 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { parseRange } from './advanced-reports.service';
+import { AccessScope, UNRESTRICTED_SCOPE, sqlIn } from '@/common/utils/access-scope';
+
+/** شرط فلترة فرع/مخزن العمل لجدول فيه branch_id (وwarehouse_id اختياري). */
+function scopeClause(scope: AccessScope, params: any[], alias = '', withWarehouse = true): string {
+  const a = alias ? `${alias}.` : '';
+  return (
+    sqlIn(`${a}branch_id`, scope.branchIds, params) +
+    (withWarehouse ? sqlIn(`${a}warehouse_id`, scope.warehouseIds, params) : '')
+  );
+}
 
 @Injectable()
 export class ReportsService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
-  async salesReport(tenantId: string, startDate: string, endDate: string) {
+  async salesReport(
+    tenantId: string,
+    startDate: string,
+    endDate: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ) {
+    const p1: any[] = [tenantId, startDate, endDate];
+    const c1 = scopeClause(scope, p1);
+    const p2: any[] = [tenantId, startDate, endDate];
+    const c2 = scopeClause(scope, p2);
+    const p3: any[] = [tenantId, startDate, endDate];
+    const c3 = scopeClause(scope, p3, 's');
     const summary = await this.dataSource.query(
       `
       SELECT
@@ -18,9 +39,9 @@ export class ReportsService {
         COALESCE(SUM(discount_amount), 0) AS "totalDiscount",
         COALESCE(SUM(tax_amount), 0) AS "totalTax"
       FROM sales
-      WHERE tenant_id = $1 AND status = 'completed' AND sale_date BETWEEN $2 AND $3
+      WHERE tenant_id = $1 AND status = 'completed' AND sale_date BETWEEN $2 AND $3${c1}
       `,
-      [tenantId, startDate, endDate]
+      p1
     );
 
     const breakdown = await this.dataSource.query(
@@ -31,11 +52,11 @@ export class ReportsService {
         COALESCE(SUM(total), 0) AS "totalSales",
         COALESCE(SUM(total - cogs), 0) AS "grossProfit"
       FROM sales
-      WHERE tenant_id = $1 AND status = 'completed' AND sale_date BETWEEN $2 AND $3
+      WHERE tenant_id = $1 AND status = 'completed' AND sale_date BETWEEN $2 AND $3${c2}
       GROUP BY DATE(sale_date)
       ORDER BY DATE(sale_date) ASC
       `,
-      [tenantId, startDate, endDate]
+      p2
     );
 
     const topProducts = await this.dataSource.query(
@@ -48,12 +69,12 @@ export class ReportsService {
         SUM(si.total - si.total_cost) AS "profit"
       FROM sale_items si
       JOIN sales s ON s.id = si.sale_id AND s.tenant_id = $1
-      WHERE si.tenant_id = $1 AND s.sale_date BETWEEN $2 AND $3 AND s.status = 'completed'
+      WHERE si.tenant_id = $1 AND s.sale_date BETWEEN $2 AND $3 AND s.status = 'completed'${c3}
       GROUP BY si.product_id, si.product_name
       ORDER BY revenue DESC
       LIMIT 10
       `,
-      [tenantId, startDate, endDate]
+      p3
     );
 
     return {
@@ -64,7 +85,9 @@ export class ReportsService {
     };
   }
 
-  async inventoryReport(tenantId: string) {
+  async inventoryReport(tenantId: string, scope: AccessScope = UNRESTRICTED_SCOPE) {
+    const params: any[] = [tenantId];
+    const wh = sqlIn('i.warehouse_id', scope.warehouseIds, params);
     const summary = await this.dataSource.query(
       `
       SELECT
@@ -74,10 +97,10 @@ export class ReportsService {
         COUNT(*) FILTER (WHERE i.available_quantity <= p.min_stock_level)::int AS "lowStockProducts",
         COUNT(*) FILTER (WHERE i.available_quantity <= 0)::int AS "outOfStockProducts"
       FROM products p
-      LEFT JOIN inventory i ON i.product_id = p.id AND i.tenant_id = $1
+      LEFT JOIN inventory i ON i.product_id = p.id AND i.tenant_id = $1${wh}
       WHERE p.tenant_id = $1 AND p.deleted_at IS NULL AND p.track_inventory = true
       `,
-      [tenantId]
+      params
     );
 
     return { summary: summary[0] };
@@ -86,29 +109,40 @@ export class ReportsService {
   /**
    * الأرباح والخسائر — صافي بعد المرتجعات (الفاتورة الأصلية بتتعدل وقت المرتجع). التواريخ: من بداية startDate لحد نهاية endDate.
    */
-  async profitLossReport(tenantId: string, startDate: string, endDate: string) {
+  async profitLossReport(
+    tenantId: string,
+    startDate: string,
+    endDate: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ) {
     const range = parseRange(startDate, endDate);
-    const params = [tenantId, range.fromTs, range.toExclusiveTs];
+    const base = [tenantId, range.fromTs, range.toExclusiveTs];
+    const salesParams: any[] = [...base];
+    const salesScope = scopeClause(scope, salesParams);
+    const returnParams: any[] = [...base];
+    const returnScope = scopeClause(scope, returnParams);
+    const expenseParams: any[] = [...base];
+    const expenseScope = scopeClause(scope, expenseParams, 'e', false);
     const [sales] = await this.dataSource.query(
       `SELECT COALESCE(SUM(total), 0) AS "sales", COALESCE(SUM(cogs), 0) AS "cogs",
               COALESCE(SUM(discount_amount), 0) AS "discounts", COUNT(*)::int AS "count"
        FROM sales
-       WHERE tenant_id = $1 AND status IN ('completed', 'returned') AND sale_date >= $2 AND sale_date < $3`,
-      params
+       WHERE tenant_id = $1 AND status IN ('completed', 'returned') AND sale_date >= $2 AND sale_date < $3${salesScope}`,
+      salesParams
     );
     const [returns] = await this.dataSource.query(
       `SELECT COALESCE(SUM(total), 0) AS "total", COALESCE(SUM(cogs_adjustment), 0) AS "cogs"
        FROM sale_returns
-       WHERE tenant_id = $1 AND status = 'completed' AND return_date >= $2 AND return_date < $3`,
-      params
+       WHERE tenant_id = $1 AND status = 'completed' AND return_date >= $2 AND return_date < $3${returnScope}`,
+      returnParams
     );
     const expensesByCategory = await this.dataSource.query(
       `SELECT COALESCE(ec.name, 'أخرى') AS "category", COALESCE(SUM(e.amount), 0) AS "total"
        FROM expenses e
        LEFT JOIN expense_categories ec ON ec.id = e.category_id AND ec.tenant_id = $1
-       WHERE e.tenant_id = $1 AND e.status = 'approved' AND e.expense_date >= $2 AND e.expense_date < $3
+       WHERE e.tenant_id = $1 AND e.status = 'approved' AND e.expense_date >= $2 AND e.expense_date < $3${expenseScope}
        GROUP BY ec.name ORDER BY 2 DESC`,
-      params
+      expenseParams
     );
 
     // ملحوظة: تسجيل المرتجع بيخصم قيمته وتكلفته من الفاتورة الأصلية نفسها (sales.total/cogs)،
@@ -146,7 +180,16 @@ export class ReportsService {
     };
   }
 
-  async purchasesReport(tenantId: string, startDate: string, endDate: string) {
+  async purchasesReport(
+    tenantId: string,
+    startDate: string,
+    endDate: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ) {
+    const p1: any[] = [tenantId, startDate, endDate];
+    const c1 = scopeClause(scope, p1);
+    const p2: any[] = [tenantId, startDate, endDate];
+    const c2 = scopeClause(scope, p2, 'p');
     const [summary] = await this.dataSource.query(
       `SELECT
          COUNT(*)::int AS "purchasesCount",
@@ -154,8 +197,8 @@ export class ReportsService {
          COALESCE(SUM(paid_amount), 0) AS "totalPaid",
          COALESCE(SUM(total - paid_amount), 0) AS "totalRemaining"
        FROM purchases
-       WHERE tenant_id = $1 AND purchase_date BETWEEN $2 AND $3`,
-      [tenantId, startDate, endDate]
+       WHERE tenant_id = $1 AND purchase_date BETWEEN $2 AND $3${c1}`,
+      p1
     );
 
     const bySupplier = await this.dataSource.query(
@@ -163,28 +206,37 @@ export class ReportsService {
               COUNT(p.id)::int AS "purchasesCount", COALESCE(SUM(p.total), 0) AS total
        FROM purchases p JOIN suppliers s
          ON s.id = p.supplier_id AND s.tenant_id = $1
-       WHERE p.tenant_id = $1 AND p.purchase_date BETWEEN $2 AND $3
+       WHERE p.tenant_id = $1 AND p.purchase_date BETWEEN $2 AND $3${c2}
        GROUP BY s.id, s.name ORDER BY total DESC LIMIT 10`,
-      [tenantId, startDate, endDate]
+      p2
     );
 
     return { period: { startDate, endDate }, summary, bySupplier };
   }
 
-  async expensesReport(tenantId: string, startDate: string, endDate: string) {
+  async expensesReport(
+    tenantId: string,
+    startDate: string,
+    endDate: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ) {
+    const p1: any[] = [tenantId, startDate, endDate];
+    const c1 = scopeClause(scope, p1, '', false);
+    const p2: any[] = [tenantId, startDate, endDate];
+    const c2 = scopeClause(scope, p2, 'e', false);
     const [summary] = await this.dataSource.query(
       `SELECT COUNT(*)::int AS "expensesCount", COALESCE(SUM(amount), 0) AS total
-       FROM expenses WHERE tenant_id = $1 AND status = 'approved' AND expense_date BETWEEN $2 AND $3`,
-      [tenantId, startDate, endDate]
+       FROM expenses WHERE tenant_id = $1 AND status = 'approved' AND expense_date BETWEEN $2 AND $3${c1}`,
+      p1
     );
 
     const byCategory = await this.dataSource.query(
       `SELECT ec.name_ar AS category, COUNT(e.id)::int AS count, COALESCE(SUM(e.amount), 0) AS total
        FROM expenses e JOIN expense_categories ec
          ON ec.id = e.category_id AND ec.tenant_id = $1
-       WHERE e.tenant_id = $1 AND e.status = 'approved' AND e.expense_date BETWEEN $2 AND $3
+       WHERE e.tenant_id = $1 AND e.status = 'approved' AND e.expense_date BETWEEN $2 AND $3${c2}
        GROUP BY ec.name_ar ORDER BY total DESC`,
-      [tenantId, startDate, endDate]
+      p2
     );
 
     return { period: { startDate, endDate }, summary, byCategory };

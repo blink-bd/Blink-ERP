@@ -5,6 +5,8 @@ import { normalizeInclusiveDateRange } from '@/common/utils/date-range';
 
 interface BranchOptions {
   branchIds?: string[];
+  /** الفروع المسموحة للمستخدم (null/undefined = الكل) — فلتر إضافي مش شرط وجود. */
+  restrictToBranchIds?: string[] | null;
   startDate?: string;
   endDate?: string;
 }
@@ -20,8 +22,13 @@ export class BranchAnalyticsService {
        FROM branches
        WHERE tenant_id = $1 AND deleted_at IS NULL AND is_active = true
          AND ($2::uuid[] IS NULL OR id = ANY($2::uuid[]))
+         AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))
        ORDER BY is_main DESC, name ASC`,
-      [tenantId, options.branchIds?.length ? options.branchIds : null]
+      [
+        tenantId,
+        options.branchIds?.length ? options.branchIds : null,
+        options.restrictToBranchIds ?? null,
+      ]
     );
     if (options.branchIds?.length && branches.length !== new Set(options.branchIds).size) {
       throw new NotFoundException('أحد الفروع المحددة غير موجود أو غير نشط');

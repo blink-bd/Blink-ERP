@@ -18,6 +18,7 @@ import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InventoryService } from './inventory.service';
 import { WarehousesService } from './warehouses.service';
 import { AdjustInventoryDto } from './dto/inventory-movement.dto';
+import { assertWarehouseInWorkingScope, scopeOf } from '@/common/utils/access-scope';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -31,6 +32,10 @@ export class InventoryController {
     private readonly warehousesService: WarehousesService
   ) {}
 
+  /**
+   * مخزون فرع/مخزن العمل الحالي؛ لو المستخدم شغال على «كل الفروع» بيظهر المخزون
+   * في كل المخازن المسموح له بيها.
+   */
   @Get()
   async summary(
     @Request() req,
@@ -40,6 +45,7 @@ export class InventoryController {
   ) {
     const data = await this.inventoryService.getSummary(req.tenantId, {
       warehouseId,
+      warehouseIds: scopeOf(req).warehouseIds,
       search,
       categoryId,
     });
@@ -52,7 +58,12 @@ export class InventoryController {
     @Query('productId') productId?: string,
     @Query('warehouseId') warehouseId?: string
   ) {
-    const data = await this.inventoryService.getTransactions(req.tenantId, productId, warehouseId);
+    const data = await this.inventoryService.getTransactions(
+      req.tenantId,
+      productId,
+      warehouseId,
+      scopeOf(req).warehouseIds
+    );
     return { success: true, data };
   }
 
@@ -60,6 +71,7 @@ export class InventoryController {
   @RequirePermission('inventory.adjust')
   async adjust(@Request() req, @Body() dto: AdjustInventoryDto) {
     await this.warehousesService.findUsable(req.tenantId, dto.warehouseId);
+    assertWarehouseInWorkingScope(scopeOf(req), dto.warehouseId);
     const transaction = await this.inventoryService.adjustManual(
       req.tenantId,
       dto.productId,

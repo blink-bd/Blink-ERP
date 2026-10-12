@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRightLeft, Check, RefreshCw, X } from 'lucide-react';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -53,6 +54,7 @@ const statusLabel: Record<Transfer['status'], string> = {
 
 export function TransfersPage() {
   const { user } = useAuth();
+  const { reload: reloadWorkspace } = useWorkspace();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -181,7 +183,8 @@ export function TransfersPage() {
       setNewWarehouseBranch(branchId);
       setAssignBranchId(branchId);
       toast.success('تم إنشاء الفرع. اربط به مخزناً أو أنشئ مخزناً جديداً.');
-      await load();
+      // صفحة «فرع العمل» في القائمة بتظهر أول ما يبقى فيه أكتر من فرع/مخزن
+      await Promise.all([load(), reloadWorkspace()]);
     } catch {
       // يعرض عميل API رسالة الخطأ.
     } finally {
@@ -203,7 +206,8 @@ export function TransfersPage() {
       });
       setNewWarehouseName('');
       toast.success('تم إنشاء المخزن وربطه بالفرع');
-      await load();
+      // صفحة «فرع العمل» في القائمة بتظهر أول ما يبقى فيه أكتر من فرع/مخزن
+      await Promise.all([load(), reloadWorkspace()]);
     } catch {
       // يعرض عميل API رسالة الخطأ.
     } finally {
@@ -221,7 +225,8 @@ export function TransfersPage() {
     try {
       await api.put(`/warehouses/${unlinkedWarehouseId}`, { branchId: assignBranchId });
       toast.success('تم ربط المخزن بالفرع');
-      await load();
+      // صفحة «فرع العمل» في القائمة بتظهر أول ما يبقى فيه أكتر من فرع/مخزن
+      await Promise.all([load(), reloadWorkspace()]);
     } catch {
       // يعرض عميل API رسالة الخطأ.
     } finally {

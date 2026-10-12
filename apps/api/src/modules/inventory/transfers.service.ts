@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, IsNull, Repository } from 'typeorm';
+import { DataSource, EntityManager, IsNull, Repository, In } from 'typeorm';
 import { randomBytes } from 'node:crypto';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { WebhooksService } from '@/modules/integrations/webhooks.service';
@@ -43,15 +43,22 @@ export class TransfersService {
     private readonly audit: AuditService
   ) {}
 
-  async list(tenantId: string, status?: string) {
+  /** warehouseIds: مخازن نطاق العمل — بيظهر التحويل لو المصدر أو الوجهة جوه النطاق (null = الكل). */
+  async list(tenantId: string, status?: string, warehouseIds: string[] | null = null) {
+    const base = {
+      tenantId,
+      deletedAt: IsNull(),
+      ...(status && ['pending', 'approved', 'rejected'].includes(status)
+        ? { status: status as any }
+        : {}),
+    };
     return this.transfers.find({
-      where: {
-        tenantId,
-        deletedAt: IsNull(),
-        ...(status && ['pending', 'approved', 'rejected'].includes(status)
-          ? { status: status as any }
-          : {}),
-      },
+      where: warehouseIds
+        ? [
+            { ...base, sourceWarehouseId: In(warehouseIds) },
+            { ...base, destinationWarehouseId: In(warehouseIds) },
+          ]
+        : base,
       relations: TRANSFER_RELATIONS,
       order: { createdAt: 'DESC' },
       take: 100,

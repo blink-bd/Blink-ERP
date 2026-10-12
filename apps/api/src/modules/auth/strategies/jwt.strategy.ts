@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '@/modules/users/users.service';
+import { AccessScopeService } from '@/modules/users/access-scope.service';
 import { assertTenantUsable } from '@/common/utils/tenant-access';
 import { ACCESS_TOKEN_COOKIE } from '@/common/utils/auth-cookies';
 
@@ -19,7 +20,8 @@ export interface JwtPayload {
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(
     private readonly configService: ConfigService,
-    private readonly usersService: UsersService
+    private readonly usersService: UsersService,
+    private readonly accessScope: AccessScopeService
   ) {
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
@@ -53,8 +55,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       roles,
       permissions,
       authType: 'jwt' as const,
+      fullName: user.fullName,
       branchId: user.branchId,
       warehouseId: user.warehouseId,
+      // نطاق الفروع/المخازن (الصلاحيات + فرع العمل) — بيتحسب مع كل طلب عشان أي تغيير
+      // في صلاحيات المستخدم أو فرع العمل يتطبق فوراً.
+      scope: await this.accessScope.resolve(user),
     };
   }
 }

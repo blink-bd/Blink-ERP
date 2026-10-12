@@ -21,12 +21,28 @@ import {
   UpdateTenantUserDto,
 } from './dto/user-management.dto';
 import { PERMISSION_CATEGORY_LABELS, PERMISSION_LABELS } from './permission-labels';
+import { AccessScope } from '@/common/utils/access-scope';
 
 export interface Actor {
   id: string;
   tenantId: string;
   roles: string[];
   permissions: string[];
+  scope?: AccessScope;
+}
+
+interface BranchAccessInput {
+  accessAllBranches?: boolean;
+  allowedBranchIds?: string[];
+  allowedWarehouseIds?: string[];
+  branchId?: string | null;
+  warehouseId?: string | null;
+}
+
+interface BranchAccess {
+  accessAllBranches: boolean;
+  allowedBranchIds: string[];
+  allowedWarehouseIds: string[];
 }
 
 const OWNER_ROLE = 'owner';
@@ -70,6 +86,94 @@ export class UserManagementService {
         throw new ForbiddenException('لا يمكنك إدارة مستخدم لديه صلاحيات أعلى من صلاحياتك');
       }
     }
+    // مستخدم محدود بفروع معينة مايقدرش يدير مستخدم بيشوف فروع أكتر منه.
+    const scope = actor.scope;
+    if (scope && !scope.accessAll && target.id !== actor.id) {
+      const outside =
+        target.accessAllBranches !== false ||
+        (target.allowedBranchIds || []).some((id) => !scope.allowedBranchIds?.includes(id));
+      if (outside) {
+        throw new ForbiddenException('لا يمكنك إدارة مستخدم له صلاحية على فروع خارج فروعك');
+      }
+    }
+  }
+
+  /**
+   * يتحقق من صلاحيات الفروع/المخازن المطلوبة ويرجّع القيم اللي هتتحفظ:
+   * - المالك دايماً «كل الفروع والمخازن».
+   * - المستخدم المحدود لازم يكون له فرع واحد على الأقل، والمخازن لازم تكون تابعة لفروعه.
+   * - الفرع/المخزن الافتراضي لازم يكونوا ضمن المسموح.
+   * - مستخدم محدود (بيدير مستخدمين) مايقدرش يدي صلاحية على فروع/مخازن خارج نطاقه.
+   */
+  private async resolveBranchAccess(
+    actor: Actor,
+    input: BranchAccessInput,
+    current: BranchAccess,
+    willBeOwner: boolean
+  ): Promise<BranchAccess> {
+    if (willBeOwner) {
+      return { accessAllBranches: true, allowedBranchIds: [], allowedWarehouseIds: [] };
+    }
+    const accessAllBranches = input.accessAllBranches ?? current.accessAllBranches;
+    const actorScope = actor.scope;
+    const actorRestricted = !!actorScope && !actorScope.accessAll;
+
+    if (accessAllBranches) {
+      if (actorRestricted) {
+        throw new ForbiddenException('لا يمكنك منح صلاحية «كل الفروع» وأنت نفسك محدود بفروع معينة');
+      }
+      return { accessAllBranches: true, allowedBranchIds: [], allowedWarehouseIds: [] };
+    }
+
+    const branchIds = Array.from(new Set(input.allowedBranchIds ?? current.allowedBranchIds));
+    const warehouseIds = Array.from(
+      new Set(input.allowedWarehouseIds ?? current.allowedWarehouseIds)
+    );
+    if (!branchIds.length) {
+      throw new BadRequestException('اختار فرع واحد على الأقل للمستخدم، أو اديله صلاحية كل الفروع');
+    }
+    const branches: { id: string }[] = await this.users.manager.query(
+      `SELECT id FROM branches WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`,
+      [actor.tenantId, branchIds]
+    );
+    if (branches.length !== branchIds.length) {
+      throw new BadRequestException('فرع من الفروع المختارة غير موجود');
+    }
+    const warehouses: { id: string; branchId: string | null }[] = warehouseIds.length
+      ? await this.users.manager.query(
+          `SELECT id, branch_id AS "branchId" FROM warehouses
+           WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`,
+          [actor.tenantId, warehouseIds]
+        )
+      : [];
+    if (warehouses.length !== warehouseIds.length) {
+      throw new BadRequestException('مخزن من المخازن المختارة غير موجود');
+    }
+    const foreign = warehouses.find((w) => w.branchId && !branchIds.includes(w.branchId));
+    if (foreign) {
+      throw new BadRequestException('فيه مخزن مختار تابع لفرع مش من فروع المستخدم');
+    }
+    if (actorRestricted) {
+      const allowedB = actorScope!.allowedBranchIds || [];
+      const allowedW = actorScope!.allowedWarehouseIds || [];
+      if (
+        branchIds.some((id) => !allowedB.includes(id)) ||
+        warehouseIds.some((id) => !allowedW.includes(id))
+      ) {
+        throw new ForbiddenException('لا يمكنك منح صلاحية على فروع أو مخازن خارج نطاقك');
+      }
+    }
+    if (input.branchId && !branchIds.includes(input.branchId)) {
+      throw new BadRequestException('الفرع الافتراضي لازم يكون من الفروع المسموح بيها للمستخدم');
+    }
+    if (input.warehouseId && !warehouseIds.includes(input.warehouseId)) {
+      throw new BadRequestException('المخزن الافتراضي لازم يكون من المخازن المسموح بيها للمستخدم');
+    }
+    return {
+      accessAllBranches: false,
+      allowedBranchIds: branchIds,
+      allowedWarehouseIds: warehouseIds,
+    };
   }
 
   private async loadRolesForAssignment(actor: Actor, roleIds: string[]): Promise<Role[]> {
@@ -162,6 +266,10 @@ export class UserManagementService {
       isActive: user.isActive,
       branchId: user.branchId,
       warehouseId: user.warehouseId,
+      accessAllBranches:
+        (user.roles || []).some((r) => r.name === OWNER_ROLE) || user.accessAllBranches !== false,
+      allowedBranchIds: user.allowedBranchIds || [],
+      allowedWarehouseIds: user.allowedWarehouseIds || [],
       lastLoginAt: user.lastLoginAt,
       lastLoginIp: user.lastLoginIp,
       lockedUntil: user.lockedUntil && user.lockedUntil > new Date() ? user.lockedUntil : null,
@@ -192,6 +300,17 @@ export class UserManagementService {
     await this.assertSeatAvailable(actor.tenantId);
     const roles = await this.loadRolesForAssignment(actor, dto.roleIds);
     await this.assertBranchWarehouse(actor.tenantId, dto.branchId, dto.warehouseId);
+    const access = await this.resolveBranchAccess(
+      actor,
+      dto,
+      {
+        // مستخدم محدود بيعمل مستخدم جديد: الافتراضي يبقى محدود زيه.
+        accessAllBranches: !(actor.scope && !actor.scope.accessAll),
+        allowedBranchIds: [],
+        allowedWarehouseIds: [],
+      },
+      roles.some((r) => r.name === OWNER_ROLE)
+    );
 
     const email = dto.email.toLowerCase().trim();
     const exists = await this.users.findOne({
@@ -210,6 +329,7 @@ export class UserManagementService {
     created.roles = roles;
     created.branchId = dto.branchId ?? undefined;
     created.warehouseId = dto.warehouseId ?? undefined;
+    Object.assign(created, access);
     await this.users.save(created);
 
     await this.audit.log({
@@ -217,7 +337,14 @@ export class UserManagementService {
       action: 'USER_CREATED',
       entityType: 'user',
       entityId: created.id,
-      newValues: { email, fullName: dto.fullName, roles: roles.map((r) => r.name) },
+      newValues: {
+        email,
+        fullName: dto.fullName,
+        roles: roles.map((r) => r.name),
+        accessAllBranches: access.accessAllBranches,
+        allowedBranchIds: access.allowedBranchIds,
+        allowedWarehouseIds: access.allowedWarehouseIds,
+      },
       severity: 'warning',
     });
     return this.toPublic(await this.getTarget(actor.tenantId, created.id));
@@ -255,6 +382,30 @@ export class UserManagementService {
     }
 
     await this.assertBranchWarehouse(actor.tenantId, dto.branchId, dto.warehouseId);
+    const accessTouched =
+      dto.accessAllBranches !== undefined ||
+      dto.allowedBranchIds !== undefined ||
+      dto.allowedWarehouseIds !== undefined ||
+      dto.roleIds !== undefined ||
+      dto.branchId !== undefined ||
+      dto.warehouseId !== undefined;
+    if (accessTouched) {
+      const access = await this.resolveBranchAccess(
+        actor,
+        {
+          ...dto,
+          branchId: dto.branchId !== undefined ? dto.branchId : target.branchId,
+          warehouseId: dto.warehouseId !== undefined ? dto.warehouseId : target.warehouseId,
+        },
+        {
+          accessAllBranches: target.accessAllBranches !== false,
+          allowedBranchIds: target.allowedBranchIds || [],
+          allowedWarehouseIds: target.allowedWarehouseIds || [],
+        },
+        (target.roles || []).some((r) => r.name === OWNER_ROLE)
+      );
+      Object.assign(target, access);
+    }
     if (dto.fullName !== undefined) target.fullName = dto.fullName.trim();
     if (dto.phone !== undefined) target.phone = dto.phone;
     if (dto.isActive !== undefined) target.isActive = dto.isActive;
@@ -266,12 +417,21 @@ export class UserManagementService {
     const after = this.toPublic(await this.getTarget(actor.tenantId, id));
     await this.audit.log({
       ...actorFromRequest(req),
-      action: dto.roleIds ? 'USER_ROLES_CHANGED' : 'USER_UPDATED',
+      action: dto.roleIds
+        ? 'USER_ROLES_CHANGED'
+        : dto.accessAllBranches !== undefined ||
+            dto.allowedBranchIds !== undefined ||
+            dto.allowedWarehouseIds !== undefined
+          ? 'USER_BRANCH_ACCESS_CHANGED'
+          : 'USER_UPDATED',
       entityType: 'user',
       entityId: id,
       oldValues: before,
       newValues: after,
-      severity: dto.roleIds || dto.isActive !== undefined ? 'warning' : 'info',
+      severity:
+        dto.roleIds || dto.isActive !== undefined || dto.allowedBranchIds !== undefined
+          ? 'warning'
+          : 'info',
     });
     return after;
   }

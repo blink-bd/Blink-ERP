@@ -18,6 +18,7 @@ import { RequirePermission } from '@/common/decorators/require-permission.decora
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { BarcodeLabelsDto } from './dto/barcode-labels.dto';
+import { scopeOf } from '@/common/utils/access-scope';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -48,6 +49,7 @@ export class ProductsController {
       categoryId,
       brandId,
       isActive: isActive !== undefined ? isActive === 'true' : undefined,
+      scope: scopeOf(req),
     });
     return { success: true, data: result.data, meta: result.meta };
   }
@@ -102,14 +104,26 @@ export class ProductsController {
   @Post()
   @RequirePermission('products.create')
   async create(@Request() req, @Body() dto: CreateProductDto) {
-    const product = await this.productsService.create(req.tenantId, dto, req.user?.id);
+    const product = await this.productsService.create(
+      req.tenantId,
+      dto,
+      req.user?.id,
+      scopeOf(req)
+    );
     return { success: true, data: product, message: 'تم إضافة المنتج بنجاح' };
   }
 
   @Put(':id')
   @RequirePermission('products.update')
   async update(@Request() req, @Param('id') id: string, @Body() dto: UpdateProductDto) {
-    const product = await this.productsService.update(req.tenantId, id, dto, req.user?.id);
+    const product = await this.productsService.update(
+      req.tenantId,
+      id,
+      dto,
+      req.user?.id,
+      undefined,
+      scopeOf(req)
+    );
     return { success: true, data: product, message: 'تم تحديث المنتج بنجاح' };
   }
 

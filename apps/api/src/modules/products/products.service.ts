@@ -13,6 +13,11 @@ import { InventoryService } from '@/modules/inventory/inventory.service';
 import { WarehousesService } from '@/modules/inventory/warehouses.service';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FeaturesService } from '@/modules/features/features.service';
+import {
+  AccessScope,
+  UNRESTRICTED_SCOPE,
+  assertWarehouseInWorkingScope,
+} from '@/common/utils/access-scope';
 
 const HALF_WHOLESALE_FEATURE_CODE = 'half_wholesale_pricing';
 
@@ -23,6 +28,8 @@ interface ListOptions {
   categoryId?: string;
   brandId?: string;
   isActive?: boolean;
+  /** نطاق العمل (فرع/مخزن) — بيحدد المخازن اللي بتتحسب منها الكمية. */
+  scope?: AccessScope;
 }
 
 @Injectable()
@@ -166,7 +173,33 @@ export class ProductsService {
     throw new BadRequestException('تعذّر توليد باركود غير مكرر، حاول مرة أخرى');
   }
 
+  /**
+   * المخزن اللي هتتسجل عليه الكمية الافتتاحية: المبعوث (لازم يكون جوه نطاق العمل) ←
+   * مخزن العمل الحالي ← المخزن الرئيسي لو ضمن نطاق العمل ← أول مخزن في النطاق ← الرئيسي.
+   */
+  private async resolveStockWarehouse(
+    tenantId: string,
+    warehouseId: string | undefined,
+    scope: AccessScope,
+    userId?: string
+  ) {
+    if (warehouseId) {
+      assertWarehouseInWorkingScope(scope, warehouseId);
+      return this.warehousesService.findUsable(tenantId, warehouseId);
+    }
+    if (scope.activeWarehouseId) {
+      return this.warehousesService.findUsable(tenantId, scope.activeWarehouseId);
+    }
+    const main = await this.warehousesService.findOrCreateDefault(tenantId, userId);
+    if (!scope.warehouseIds || scope.warehouseIds.includes(main.id)) return main;
+    if (scope.warehouseIds.length) {
+      return this.warehousesService.findUsable(tenantId, scope.warehouseIds[0]);
+    }
+    return main;
+  }
+
   async findAll(tenantId: string, options: ListOptions = {}) {
+    const scope = options.scope ?? UNRESTRICTED_SCOPE;
     const page = Math.max(1, Number(options.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
 
@@ -203,28 +236,37 @@ export class ProductsService {
       .take(limit)
       .getManyAndCount();
 
-    // نجيب إجمالي الكمية المتاحة لكل منتج من كل المخازن في استعلام واحد (أسرع من N استعلامات)
+    // نجيب إجمالي الكمية المتاحة لكل منتج في مخازن فرع/مخزن العمل الحالي
+    // (أو كل المخازن لو شغال على «الكل») في استعلام واحد (أسرع من N استعلامات)
     const ids = data.map((p) => p.id);
     const stockMap = new Map<string, number>();
     if (ids.length) {
+      const params: any[] = [ids, tenantId];
+      let warehouseFilter = '';
+      if (scope.warehouseIds) {
+        params.push(scope.warehouseIds);
+        warehouseFilter = ' AND warehouse_id = ANY($3::uuid[])';
+      }
       const rows = await this.productsRepository.manager.query(
         `SELECT product_id, COALESCE(SUM(available_quantity), 0) AS qty
-         FROM inventory WHERE tenant_id = $2 AND product_id = ANY($1) GROUP BY product_id`,
-        [ids, tenantId]
+         FROM inventory WHERE tenant_id = $2 AND product_id = ANY($1)${warehouseFilter}
+         GROUP BY product_id`,
+        params
       );
       for (const r of rows) stockMap.set(r.product_id, Number(r.qty));
     }
 
+    // «الكمية الافتتاحية» المعروضة = الكمية في نفس المخزن اللي التعديل هيتسجل عليه
+    // (مخزن العمل الحالي، أو الرئيسي) عشان تعديلها من شاشة المنتجات يبقى متسق.
     const openingStockMap = new Map<string, number>();
     if (ids.length) {
+      const stockWarehouse = await this.resolveStockWarehouse(tenantId, undefined, scope);
       const rows = await this.productsRepository.manager.query(
         `SELECT i.product_id, COALESCE(SUM(i.available_quantity), 0) AS qty
          FROM inventory i
-         JOIN warehouses w ON w.id = i.warehouse_id
-         WHERE i.tenant_id = $2 AND w.tenant_id = $2 AND i.product_id = ANY($1)
-           AND w.is_main = true AND w.deleted_at IS NULL
+         WHERE i.tenant_id = $2 AND i.product_id = ANY($1) AND i.warehouse_id = $3
          GROUP BY i.product_id`,
-        [ids, tenantId]
+        [ids, tenantId, stockWarehouse.id]
       );
       for (const r of rows) openingStockMap.set(r.product_id, Number(r.qty));
     }
@@ -274,7 +316,12 @@ export class ProductsService {
       .getOne();
   }
 
-  async create(tenantId: string, dto: CreateProductDto, userId?: string): Promise<Product> {
+  async create(
+    tenantId: string,
+    dto: CreateProductDto,
+    userId?: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ): Promise<Product> {
     const sku = dto.sku?.trim() || undefined;
     const barcode = dto.barcode?.trim() || undefined;
     const duplicates = await this.findDuplicateIdentifiers(tenantId, sku, barcode);
@@ -314,9 +361,7 @@ export class ProductsService {
 
     // كمية افتتاحية (اختياري) — بتتسجل كحركة مخزون من نوع opening_balance
     if (initialQuantity && initialQuantity > 0) {
-      const wh = warehouseId
-        ? await this.warehousesService.findUsable(tenantId, warehouseId)
-        : await this.warehousesService.findOrCreateDefault(tenantId, userId);
+      const wh = await this.resolveStockWarehouse(tenantId, warehouseId, scope, userId);
       await this.inventoryService.adjustInventory({
         tenantId,
         productId: saved.id,
@@ -360,7 +405,8 @@ export class ProductsService {
     id: string,
     dto: UpdateProductDto,
     userId?: string,
-    manager?: EntityManager
+    manager?: EntityManager,
+    scope: AccessScope = UNRESTRICTED_SCOPE
   ): Promise<Product> {
     const repository = manager ? manager.getRepository(Product) : this.productsRepository;
     const product = manager
@@ -421,9 +467,7 @@ export class ProductsService {
       if (!Number.isFinite(nextQuantity) || nextQuantity < 0) {
         throw new BadRequestException('الكمية الافتتاحية يجب أن تكون صفراً أو أكبر');
       }
-      const warehouse = warehouseId
-        ? await this.warehousesService.findUsable(tenantId, warehouseId)
-        : await this.warehousesService.findOrCreateDefault(tenantId, userId);
+      const warehouse = await this.resolveStockWarehouse(tenantId, warehouseId, scope, userId);
       const current = await this.inventoryService.getAvailableQuantity(
         tenantId,
         product.id,

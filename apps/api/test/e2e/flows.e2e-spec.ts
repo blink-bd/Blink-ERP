@@ -736,6 +736,159 @@ describe('Blink ERP — integration flows (e2e)', () => {
     });
   });
 
+  // ------------------------------------------- workspace / per-user branch access
+  describe('workspace and per-user branch access', () => {
+    let restricted: TestClient;
+
+    it('shows the workspace selector once the tenant has more than one branch', async () => {
+      const ws = await tenantA.get(api('/workspace'));
+      expect(ws.status).toBe(200);
+      expect(ws.body.data.showSelector).toBe(true);
+      expect(ws.body.data.accessAll).toBe(true);
+      const ids = ws.body.data.branches.map((b: any) => b.id);
+      expect(ids).toEqual(expect.arrayContaining([state.branch1Id, state.branch2Id]));
+    });
+
+    it('filters sales and stock by the selected working branch, then back to all', async () => {
+      const set = await tenantA.put(api('/workspace'), {
+        branchId: state.branch2Id,
+        warehouseId: null,
+      });
+      expect(set.status).toBe(200);
+      expect(set.body.data.activeBranchId).toBe(state.branch2Id);
+
+      const sales = await tenantA.get(api('/sales'));
+      expect(sales.status).toBe(200);
+      expect(sales.body.data.some((s: any) => s.id === state.saleId)).toBe(false);
+
+      const stock = await tenantA.get(api('/inventory'));
+      expect(stock.status).toBe(200);
+      expect(stock.body.data.length).toBeGreaterThan(0);
+      expect(stock.body.data.every((r: any) => r.warehouseId === state.warehouse2Id)).toBe(true);
+
+      // مخزن تابع لفرع تاني مايتختارش مع الفرع ده
+      const mismatch = await tenantA.put(api('/workspace'), {
+        branchId: state.branch2Id,
+        warehouseId: state.warehouse1Id,
+      });
+      expect(mismatch.status).toBe(400);
+
+      const reset = await tenantA.put(api('/workspace'), { branchId: null, warehouseId: null });
+      expect(reset.status).toBe(200);
+      expect(reset.body.data.activeBranchId).toBeNull();
+      const all = await tenantA.get(api('/sales'));
+      expect(all.body.data.some((s: any) => s.id === state.saleId)).toBe(true);
+    });
+
+    it('restricts a user to specific branches and warehouses', async () => {
+      const role = await tenantA.post(api('/roles'), {
+        name: 'branch_manager',
+        nameAr: 'مدير فرع',
+        permissions: [
+          'dashboard.view',
+          'sales.view',
+          'sales.create',
+          'products.view',
+          'inventory.view',
+          'inventory.adjust',
+          'branches.view',
+          'warehouses.view',
+          'reports.view',
+          'users.view',
+          'users.create',
+        ],
+      });
+      expect(role.status).toBe(201);
+      state.branchRoleId = role.body.data.id;
+
+      const created = await tenantA.post(api('/users'), {
+        fullName: 'مدير الفرع التاني',
+        email: 'branch2@example.test',
+        password: 'Branch!Pass2026x',
+        roleIds: [state.branchRoleId],
+        branchId: state.branch2Id,
+        warehouseId: state.warehouse2Id,
+        accessAllBranches: false,
+        allowedBranchIds: [state.branch2Id],
+        allowedWarehouseIds: [state.warehouse2Id],
+      });
+      expect(created.status).toBe(201);
+      expect(created.body.data.accessAllBranches).toBe(false);
+
+      restricted = new TestClient(baseUrl);
+      const login = await restricted.post(api(`/auth/login?tenantId=${state.tenantAId}`), {
+        email: 'branch2@example.test',
+        password: 'Branch!Pass2026x',
+      });
+      expect([200, 201]).toContain(login.status);
+
+      const ws = await restricted.get(api('/workspace'));
+      expect(ws.status).toBe(200);
+      expect(ws.body.data.accessAll).toBe(false);
+      expect(ws.body.data.branches.map((b: any) => b.id)).toEqual([state.branch2Id]);
+      expect(ws.body.data.warehouses.map((w: any) => w.id)).toEqual([state.warehouse2Id]);
+
+      // بيانات الفرع الأول مقفولة عليه
+      const sale = await restricted.get(api(`/sales/${state.saleId}`));
+      expect(sale.status).toBe(403);
+      const sales = await restricted.get(api('/sales'));
+      expect(sales.body.data.some((s: any) => s.id === state.saleId)).toBe(false);
+
+      const warehouses = await restricted.get(api('/warehouses'));
+      expect(warehouses.body.data.map((w: any) => w.id)).toEqual([state.warehouse2Id]);
+      const branches = await restricted.get(api('/branches'));
+      expect(branches.body.data.map((b: any) => b.id)).toEqual([state.branch2Id]);
+
+      const stock = await restricted.get(api('/inventory'));
+      expect(stock.body.data.every((r: any) => r.warehouseId === state.warehouse2Id)).toBe(true);
+
+      const switchBranch = await restricted.put(api('/workspace'), {
+        branchId: state.branch1Id,
+        warehouseId: null,
+      });
+      expect(switchBranch.status).toBe(403);
+
+      const adjust = await restricted.post(api('/inventory/adjust'), {
+        productId: state.productId,
+        warehouseId: state.warehouse1Id,
+        quantity: 1,
+        reason: 'محاولة تعديل مخزن فرع تاني',
+      });
+      expect(adjust.status).toBe(403);
+
+      const report = await restricted.get(
+        api(
+          `/reports/branches?branchIds=${state.branch1Id}&startDate=2000-01-01&endDate=2999-12-31`
+        )
+      );
+      expect(report.status).toBe(403);
+    });
+
+    it('prevents a restricted user from granting wider branch access', async () => {
+      const allAccess = await restricted.post(api('/users'), {
+        fullName: 'محاولة صلاحية أوسع',
+        email: 'escalate1@example.test',
+        password: 'Escalate!Pass2026x',
+        roleIds: [state.branchRoleId],
+        accessAllBranches: true,
+      });
+      expect(allAccess.status).toBe(403);
+      expect(JSON.stringify(allAccess.body)).not.toContain('LIMIT_REACHED');
+
+      const otherBranch = await restricted.post(api('/users'), {
+        fullName: 'محاولة فرع تاني',
+        email: 'escalate2@example.test',
+        password: 'Escalate!Pass2026x',
+        roleIds: [state.branchRoleId],
+        accessAllBranches: false,
+        allowedBranchIds: [state.branch1Id],
+        allowedWarehouseIds: [state.warehouse1Id],
+      });
+      expect(otherBranch.status).toBe(403);
+      expect(JSON.stringify(otherBranch.body)).not.toContain('LIMIT_REACHED');
+    });
+  });
+
   // ------------------------------------------------------------- balance alerts
   describe('balance reminders', () => {
     it('creates a customer reminder after the configured days', async () => {

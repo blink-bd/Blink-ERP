@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { useBranding } from '@/contexts/BrandingContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -23,6 +24,7 @@ import {
   UserCog,
   FileSpreadsheet,
   KeyRound,
+  MapPin,
   X,
 } from 'lucide-react';
 import { usePermissions } from '@/lib/permissions';
@@ -33,10 +35,13 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   feature?: string;
   permission?: string[];
+  /** بيظهر بس لما يبقى فيه أكتر من فرع أو مخزن متاح للمستخدم. */
+  requiresWorkspaceChoice?: boolean;
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
+  { to: '/workspace', labelKey: 'workspace', icon: MapPin, requiresWorkspaceChoice: true },
   { to: '/pos', labelKey: 'pos', icon: ShoppingCart, feature: 'pos' },
   { to: '/sales', labelKey: 'sales', icon: FileText, feature: 'sales' },
   { to: '/returns', labelKey: 'returns', icon: RotateCcw, feature: 'return_disposition' },
@@ -74,8 +79,10 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
   const { t } = useTranslation('nav');
   const featureEnabled = useFeature(item.feature || '__always__');
   const { has } = usePermissions();
+  const { workspace } = useWorkspace();
   const hasFeature = item.feature ? featureEnabled : true;
   if (!hasFeature) return null;
+  if (item.requiresWorkspaceChoice && !workspace?.showSelector) return null;
   if (item.permission && !has(...item.permission)) return null;
 
   const Icon = item.icon;

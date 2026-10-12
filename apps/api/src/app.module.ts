@@ -9,6 +9,7 @@ import { CommonModule } from './common/common.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TenantsModule } from './modules/tenants/tenants.module';
 import { UsersModule } from './modules/users/users.module';
+import { WorkspaceModule } from './modules/workspace/workspace.module';
 import { FeaturesModule } from './modules/features/features.module';
 import { BrandingModule } from './modules/branding/branding.module';
 import { ProductsModule } from './modules/products/products.module';
@@ -66,6 +67,7 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module';
     AuthModule,
     TenantsModule,
     UsersModule,
+    WorkspaceModule,
     FeaturesModule,
     BrandingModule,
     ProductsModule,

@@ -1,4 +1,12 @@
-import { BadRequestException, Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  BadRequestException,
+  Controller,
+  ForbiddenException,
+  Get,
+  Query,
+  UseGuards,
+  Request,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { isUUID } from 'class-validator';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
@@ -10,6 +18,7 @@ import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { ReportsService } from './reports.service';
 import { BranchAnalyticsService } from './branch-analytics.service';
 import { AdvancedReportsService, parseRange } from './advanced-reports.service';
+import { scopeOf } from '@/common/utils/access-scope';
 
 @ApiTags('reports')
 @ApiBearerAuth()
@@ -29,7 +38,12 @@ export class ReportsController {
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string
   ) {
-    const data = await this.reportsService.salesReport(req.tenantId, startDate, endDate);
+    const data = await this.reportsService.salesReport(
+      req.tenantId,
+      startDate,
+      endDate,
+      scopeOf(req)
+    );
     return { success: true, data };
   }
 
@@ -53,10 +67,16 @@ export class ReportsController {
     if (startDate && endDate && Date.parse(startDate) > Date.parse(endDate)) {
       throw new BadRequestException('تاريخ البداية يجب أن يسبق تاريخ النهاية');
     }
+    // مقارنة الفروع: مقيدة بالفروع المسموحة للمستخدم (مش فرع العمل الحالي).
+    const allowed = scopeOf(req).allowedBranchIds;
+    if (allowed && selected?.some((id) => !allowed.includes(id))) {
+      throw new ForbiddenException('مش مسموح لك تشوف تقارير الفرع ده');
+    }
     return {
       success: true,
       data: await this.branchAnalytics.report(req.tenantId, {
         branchIds: selected,
+        restrictToBranchIds: allowed,
         startDate,
         endDate,
       }),
@@ -65,7 +85,7 @@ export class ReportsController {
 
   @Get('inventory')
   async inventory(@Request() req) {
-    const data = await this.reportsService.inventoryReport(req.tenantId);
+    const data = await this.reportsService.inventoryReport(req.tenantId, scopeOf(req));
     return { success: true, data };
   }
 
@@ -77,7 +97,12 @@ export class ReportsController {
   ) {
     return {
       success: true,
-      data: await this.reportsService.purchasesReport(req.tenantId, startDate, endDate),
+      data: await this.reportsService.purchasesReport(
+        req.tenantId,
+        startDate,
+        endDate,
+        scopeOf(req)
+      ),
     };
   }
 
@@ -89,7 +114,12 @@ export class ReportsController {
   ) {
     return {
       success: true,
-      data: await this.reportsService.expensesReport(req.tenantId, startDate, endDate),
+      data: await this.reportsService.expensesReport(
+        req.tenantId,
+        startDate,
+        endDate,
+        scopeOf(req)
+      ),
     };
   }
 
@@ -101,7 +131,12 @@ export class ReportsController {
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string
   ) {
-    const data = await this.reportsService.profitLossReport(req.tenantId, startDate, endDate);
+    const data = await this.reportsService.profitLossReport(
+      req.tenantId,
+      startDate,
+      endDate,
+      scopeOf(req)
+    );
     return { success: true, data };
   }
 }
@@ -126,7 +161,9 @@ export class AdvancedReportsController {
   ) {
     const data = await this.advanced.productProfitability(
       req.tenantId,
-      parseRange(startDate, endDate)
+      parseRange(startDate, endDate),
+      200,
+      scopeOf(req)
     );
     return { success: true, data };
   }
@@ -139,7 +176,11 @@ export class AdvancedReportsController {
   ) {
     return {
       success: true,
-      data: await this.advanced.byCashier(req.tenantId, parseRange(startDate, endDate)),
+      data: await this.advanced.byCashier(
+        req.tenantId,
+        parseRange(startDate, endDate),
+        scopeOf(req)
+      ),
     };
   }
 
@@ -151,19 +192,26 @@ export class AdvancedReportsController {
   ) {
     return {
       success: true,
-      data: await this.advanced.byPaymentMethod(req.tenantId, parseRange(startDate, endDate)),
+      data: await this.advanced.byPaymentMethod(
+        req.tenantId,
+        parseRange(startDate, endDate),
+        scopeOf(req)
+      ),
     };
   }
 
   @Get('inventory-valuation')
   async inventoryValuation(@Request() req) {
-    return { success: true, data: await this.advanced.inventoryValuation(req.tenantId) };
+    return {
+      success: true,
+      data: await this.advanced.inventoryValuation(req.tenantId, scopeOf(req)),
+    };
   }
 
   @Get('dead-stock')
   async deadStock(@Request() req, @Query('days') days?: string) {
     const d = Math.min(Math.max(parseInt(days || '60', 10) || 60, 7), 730);
-    return { success: true, data: await this.advanced.deadStock(req.tenantId, d) };
+    return { success: true, data: await this.advanced.deadStock(req.tenantId, d, scopeOf(req)) };
   }
 
   @Get('sales-heatmap')
@@ -174,7 +222,11 @@ export class AdvancedReportsController {
   ) {
     return {
       success: true,
-      data: await this.advanced.salesHeatmap(req.tenantId, parseRange(startDate, endDate)),
+      data: await this.advanced.salesHeatmap(
+        req.tenantId,
+        parseRange(startDate, endDate),
+        scopeOf(req)
+      ),
     };
   }
 
@@ -186,7 +238,11 @@ export class AdvancedReportsController {
   ) {
     return {
       success: true,
-      data: await this.advanced.topCustomers(req.tenantId, parseRange(startDate, endDate)),
+      data: await this.advanced.topCustomers(
+        req.tenantId,
+        parseRange(startDate, endDate),
+        scopeOf(req)
+      ),
     };
   }
 }

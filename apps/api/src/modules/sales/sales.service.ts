@@ -23,6 +23,12 @@ import { SuppliersService } from '@/modules/suppliers/suppliers.service';
 import { Product } from '@/modules/products/entities/product.entity';
 import { Warehouse } from '@/modules/inventory/entities/warehouse.entity';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
+import {
+  AccessScope,
+  UNRESTRICTED_SCOPE,
+  assertRowAllowed,
+  qbIn,
+} from '@/common/utils/access-scope';
 
 const HALF_WHOLESALE_FEATURE_CODE = 'half_wholesale_pricing';
 
@@ -76,13 +82,17 @@ export class SalesService {
 
   async findAll(
     tenantId: string,
-    options: { page?: number; limit?: number; search?: string; status?: string } = {}
+    options: { page?: number; limit?: number; search?: string; status?: string } = {},
+    scope: AccessScope = UNRESTRICTED_SCOPE
   ) {
     const page = Math.max(1, Number(options.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(options.limit) || 20));
     const query = this.salesRepository
       .createQueryBuilder('sale')
       .where('sale.tenantId = :tenantId', { tenantId });
+    // فرع/مخزن العمل + صلاحيات المستخدم
+    qbIn(query, 'sale.branchId', scope.branchIds, 'scopeBranchIds');
+    qbIn(query, 'sale.warehouseId', scope.warehouseIds, 'scopeWarehouseIds');
 
     if (options.search) {
       query.andWhere('sale.saleNumber ILIKE :search', { search: `%${options.search}%` });
@@ -98,6 +108,16 @@ export class SalesService {
       .getManyAndCount();
 
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  /** يتأكد إن الفاتورة/المرتجع تابع لفرع ومخزن مسموح للمستخدم. */
+  assertInScope(
+    table: 'sales' | 'sale_returns',
+    tenantId: string,
+    id: string,
+    scope: AccessScope
+  ): Promise<void> {
+    return assertRowAllowed(this.dataSource.manager, table, tenantId, id, scope);
   }
 
   async findById(tenantId: string, id: string): Promise<Sale> {
@@ -761,13 +781,15 @@ export class SalesService {
     return returnResult.saleReturn;
   }
 
-  async findReturns(tenantId: string, status?: string) {
+  async findReturns(tenantId: string, status?: string, scope: AccessScope = UNRESTRICTED_SCOPE) {
     const query = this.returnsRepository
       .createQueryBuilder('saleReturn')
       .leftJoinAndSelect('saleReturn.items', 'item')
       .leftJoinAndSelect('item.product', 'product')
       .leftJoinAndSelect('saleReturn.originalSale', 'sale')
       .where('saleReturn.tenantId = :tenantId', { tenantId });
+    qbIn(query, 'saleReturn.branchId', scope.branchIds, 'scopeBranchIds');
+    qbIn(query, 'saleReturn.warehouseId', scope.warehouseIds, 'scopeWarehouseIds');
     if (status) query.andWhere('saleReturn.status = :status', { status });
     return query.orderBy('saleReturn.returnDate', 'DESC').take(100).getMany();
   }

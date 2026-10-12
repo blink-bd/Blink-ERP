@@ -1,5 +1,6 @@
 import {
   Controller,
+  ForbiddenException,
   Get,
   Post,
   Put,
@@ -12,6 +13,12 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { CustomerDto, UpdateCustomerDto } from './dto/customer.dto';
+import {
+  intersectBranchFilter,
+  isBranchAllowed,
+  resolveBranchForWrite,
+  scopeOf,
+} from '@/common/utils/access-scope';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -31,6 +38,18 @@ import { CustomerPaymentDto } from './dto/customer-payment.dto';
 export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
+  /** فرع تسجيل السداد: المختار (لازم يكون مسموح) ← فرع العمل/الافتراضي. */
+  private paymentBranch(req: any, requested?: string): string | undefined {
+    const scope = scopeOf(req);
+    if (requested) {
+      if (!isBranchAllowed(scope, requested)) {
+        throw new ForbiddenException('مش مسموح لك تسجل على الفرع ده');
+      }
+      return requested;
+    }
+    return resolveBranchForWrite(scope, null, req.user?.branchId) ?? undefined;
+  }
+
   @Get()
   async findAll(
     @Request() req,
@@ -41,11 +60,8 @@ export class CustomersController {
       ?.split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    const selected = requested?.length
-      ? requested
-      : req.user?.branchId
-        ? [req.user.branchId]
-        : undefined;
+    // الفروع المطلوبة ∩ نطاق العمل؛ من غير طلب = فروع العمل الحالية (أو الكل).
+    const selected = intersectBranchFilter(scopeOf(req), requested);
     const result = await this.customersService.findAll(req.tenantId, search, selected);
     return { success: true, data: result.data, meta: { totalOwed: result.totalOwed } };
   }
@@ -70,11 +86,8 @@ export class CustomersController {
       ?.split(',')
       .map((value) => value.trim())
       .filter(Boolean);
-    const selected = requested?.length
-      ? requested
-      : req.user?.branchId
-        ? [req.user.branchId]
-        : undefined;
+    // الفروع المطلوبة ∩ نطاق العمل؛ من غير طلب = فروع العمل الحالية (أو الكل).
+    const selected = intersectBranchFilter(scopeOf(req), requested);
     return {
       success: true,
       data: await this.customersService.statement(req.tenantId, id, selected),
@@ -88,7 +101,7 @@ export class CustomersController {
       req.tenantId,
       dto,
       req.user?.id,
-      req.user?.branchId
+      resolveBranchForWrite(scopeOf(req), null, req.user?.branchId) ?? undefined
     );
     return { success: true, data: customer, message: 'تم إضافة العميل بنجاح' };
   }
@@ -103,7 +116,7 @@ export class CustomersController {
     const customer = await this.customersService.update(req.tenantId, id, {
       ...dto,
       updatedBy: req.user?.id,
-      branchId: req.user?.branchId,
+      branchId: resolveBranchForWrite(scopeOf(req), null, req.user?.branchId) ?? undefined,
     } as any);
     return { success: true, data: customer, message: 'تم تحديث بيانات العميل بنجاح' };
   }
@@ -122,7 +135,7 @@ export class CustomersController {
       dto.methodId,
       dto.notes,
       req.user.id,
-      dto.branchId || req.user.branchId
+      this.paymentBranch(req, dto.branchId)
     );
     return { success: true, data: customer, message: 'تم تسجيل السداد بنجاح' };
   }

@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useBranding } from '@/contexts/BrandingContext';
-import { Menu } from 'lucide-react';
+import { MapPin, Menu } from 'lucide-react';
+import { describeWorkspace, useWorkspace } from '@/contexts/WorkspaceContext';
 
 export function AppLayout() {
   const { user, logout } = useAuth();
   const { branding } = useBranding();
+  const { workspace, workspaceKey, loading: workspaceLoading } = useWorkspace();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
@@ -28,9 +30,22 @@ export function AppLayout() {
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
         <header className="border-b px-4 sm:px-6 py-3 flex items-center justify-between gap-3" style={{ backgroundColor: branding.headerColor }}>
-          <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="فتح القائمة">
-            <Menu className="h-5 w-5" />
-          </Button>
+          <div className="flex min-w-0 items-center gap-2">
+            <Button variant="ghost" size="icon" className="lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="فتح القائمة">
+              <Menu className="h-5 w-5" />
+            </Button>
+            {workspace?.showSelector && (
+              <Link
+                to="/workspace"
+                className="inline-flex min-w-0 items-center gap-2 rounded-full border bg-white px-3 py-1.5 text-sm text-gray-700 hover:border-primary hover:text-primary"
+                title="تغيير فرع/مخزن العمل"
+              >
+                <MapPin className="h-4 w-4 shrink-0 text-primary" />
+                <span className="hidden text-gray-500 sm:inline">شغال على:</span>
+                <span className="truncate font-medium">{describeWorkspace(workspace)}</span>
+              </Link>
+            )}
+          </div>
           <div className="flex min-w-0 items-center gap-2 sm:gap-4">
             <span className="hidden truncate text-sm text-gray-600 sm:inline">{user?.fullName}</span>
             <Button variant="outline" size="sm" onClick={logout}>
@@ -39,7 +54,12 @@ export function AppLayout() {
           </div>
         </header>
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
-          <Outlet />
+          {/* إعادة تحميل الصفحة تلقائياً لما فرع/مخزن العمل يتغير */}
+          {workspaceLoading && !workspace ? (
+            <p className="text-gray-400">جاري التحميل...</p>
+          ) : (
+            <Outlet key={workspaceKey} />
+          )}
         </main>
         <footer className="border-t bg-white px-6 py-3 text-center text-sm text-gray-500">
           {branding.footerLinkUrl ? (

@@ -116,7 +116,13 @@ export class MaintenanceService {
 
   async list(
     tenantId: string,
-    options: { startDate?: string; endDate?: string; branchIds?: string[] } = {}
+    options: {
+      startDate?: string;
+      endDate?: string;
+      branchIds?: string[];
+      /** فروع نطاق العمل (null = الكل) — فلتر إضافي مش شرط وجود. */
+      scopeBranchIds?: string[] | null;
+    } = {}
   ) {
     const branchIds = options.branchIds?.length ? options.branchIds : undefined;
     if (branchIds?.some((id) => !isUUID(id))) throw new BadRequestException('معرّف فرع غير صالح');
@@ -149,6 +155,10 @@ export class MaintenanceService {
     if (startDate) query.andWhere('invoice.maintenanceDate >= :startDate', { startDate });
     if (endDate) query.andWhere('invoice.maintenanceDate <= :endDate', { endDate });
     if (branchIds?.length) query.andWhere('invoice.branchId IN (:...branchIds)', { branchIds });
+    const scopeBranchIds = options.scopeBranchIds ?? null;
+    if (scopeBranchIds) {
+      query.andWhere('invoice.branchId = ANY(:scopeBranchIds)', { scopeBranchIds });
+    }
     const [data, summary] = await Promise.all([
       query.orderBy('invoice.maintenanceDate', 'DESC').take(500).getMany(),
       this.dataSource
@@ -161,8 +171,9 @@ export class MaintenanceService {
          WHERE tenant_id = $1 AND status = 'completed'
            AND ($2::timestamp IS NULL OR maintenance_date >= $2)
            AND ($3::timestamp IS NULL OR maintenance_date <= $3)
-           AND ($4::uuid[] IS NULL OR branch_id = ANY($4::uuid[]))`,
-          [tenantId, startDate || null, endDate || null, branchIds || null]
+           AND ($4::uuid[] IS NULL OR branch_id = ANY($4::uuid[]))
+           AND ($5::uuid[] IS NULL OR branch_id = ANY($5::uuid[]))`,
+          [tenantId, startDate || null, endDate || null, branchIds || null, scopeBranchIds]
         )
         .then((rows) => rows[0]),
     ]);

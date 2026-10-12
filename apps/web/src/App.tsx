@@ -5,11 +5,15 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AdminAuthProvider } from './contexts/AdminAuthContext';
 import { FeaturesProvider } from './contexts/FeaturesContext';
 import { BrandingProvider } from './contexts/BrandingContext';
+import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 
 const LoginPage = lazy(() => import('./pages/Login').then((m) => ({ default: m.LoginPage })));
+const WorkspacePage = lazy(() =>
+  import('./pages/Workspace').then((m) => ({ default: m.WorkspacePage }))
+);
 const DashboardPage = lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.DashboardPage })));
 const POSPage = lazy(() => import('./pages/POS').then((m) => ({ default: m.POSPage })));
 const SalesPage = lazy(() => import('./pages/Sales').then((m) => ({ default: m.SalesPage })));
@@ -74,6 +78,7 @@ function AppRoutes() {
           }
         >
           <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/pos" element={<POSPage />} />
           <Route path="/sales" element={<SalesPage />} />
           <Route path="/returns" element={<ReturnsPage />} />
@@ -126,9 +131,11 @@ function App() {
       <AdminAuthProvider>
         <AuthProvider>
           <FeaturesProvider>
-            <BrandingProvider>
-              <GuardedAppRoutes />
-            </BrandingProvider>
+            <WorkspaceProvider>
+              <BrandingProvider>
+                <GuardedAppRoutes />
+              </BrandingProvider>
+            </WorkspaceProvider>
           </FeaturesProvider>
         </AuthProvider>
       </AdminAuthProvider>
