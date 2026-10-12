@@ -59,11 +59,15 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Ip() ip: string,
     @Response({ passthrough: true }) res: ExpressResponse,
-    @Query('tenantId') tenantId: string,
+    @Query('tenantId') tenantId: string | undefined,
     @Headers('user-agent') userAgent?: string
   ) {
-    if (!tenantId || !isUUID(tenantId)) throw new BadRequestException('معرّف المتجر غير صحيح');
-    const result = await this.authService.login(dto, tenantId, ip, {
+    // معرّف المتجر اختياري: لو البريد مسجل في متجر واحد نشط يتم تحديده تلقائياً.
+    const providedTenantId = tenantId?.trim();
+    if (providedTenantId && !isUUID(providedTenantId)) {
+      throw new BadRequestException('معرّف المتجر غير صحيح');
+    }
+    const result = await this.authService.login(dto, providedTenantId || null, ip, {
       userAgent: String(userAgent || '').slice(0, 500),
     });
     this.setAuthCookies(res, result);

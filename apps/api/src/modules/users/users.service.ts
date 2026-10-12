@@ -48,6 +48,25 @@ export class UsersService {
     });
   }
 
+  /**
+   * المتاجر النشطة التي يوجد فيها مستخدم بهذا البريد.
+   * يُستخدم لتسجيل الدخول بدون كتابة معرّف المتجر: لو البريد مسجل في متجر واحد
+   * نشط نحدده تلقائياً، ولو مسجل في أكثر من متجر نطلب من المستخدم تحديد المتجر.
+   */
+  async findActiveTenantIdsByEmail(email: string): Promise<string[]> {
+    const rows = await this.usersRepository
+      .createQueryBuilder('user')
+      .innerJoin('user.tenant', 'tenant')
+      .select('DISTINCT user.tenantId', 'tenantId')
+      .where('user.email = :email', { email: email.toLowerCase().trim() })
+      .andWhere('user.deletedAt IS NULL')
+      .andWhere('tenant.isActive = true')
+      .andWhere('tenant.deletedAt IS NULL')
+      .limit(2)
+      .getRawMany<{ tenantId: string }>();
+    return rows.map((row) => row.tenantId);
+  }
+
   async create(input: CreateUserInput): Promise<User> {
     const email = input.email.toLowerCase().trim();
     const existing = await this.usersRepository.findOne({

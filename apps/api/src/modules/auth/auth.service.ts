@@ -1,4 +1,9 @@
-import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '@/modules/users/users.service';
@@ -30,8 +35,11 @@ export class AuthService {
    * extend findByEmailAndTenant to search across tenants by email uniqueness
    * rules appropriate to your product.
    */
-  async login(dto: LoginDto, tenantId: string, ip: string, meta: RequestMeta = {}) {
-    const user = await this.usersService.findByEmailAndTenant(dto.email, tenantId);
+  async login(dto: LoginDto, tenantId: string | null, ip: string, meta: RequestMeta = {}) {
+    const resolvedTenantId = tenantId || (await this.resolveTenantIdByEmail(dto.email));
+    const user = resolvedTenantId
+      ? await this.usersService.findByEmailAndTenant(dto.email, resolvedTenantId)
+      : null;
     const base = { tenantId: user?.tenantId, ip, userAgent: meta.userAgent, userEmail: dto.email };
 
     if (!user) {
@@ -72,6 +80,20 @@ export class AuthService {
     await this.audit.log({ ...base, userId: user.id, action: 'TENANT_LOGIN' });
 
     return this.issueSession(user);
+  }
+
+  /**
+   * يحدد المتجر من البريد لو المستخدم لم يكتب معرّف المتجر:
+   * متجر واحد نشط => نكمل، أكثر من متجر => نطلب تحديد المتجر، لا شيء => فشل عام.
+   */
+  private async resolveTenantIdByEmail(email: string): Promise<string | null> {
+    const tenantIds = await this.usersService.findActiveTenantIdsByEmail(email);
+    if (tenantIds.length > 1) {
+      throw new BadRequestException(
+        'هذا البريد مسجل في أكثر من متجر. أدخل معرّف المتجر (Tenant ID) لإكمال الدخول'
+      );
+    }
+    return tenantIds[0] || null;
   }
 
   /** يصدر توكنات جديدة (دخول أو بعد تغيير كلمة المرور). */
