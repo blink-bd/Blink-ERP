@@ -23,10 +23,12 @@ jobs:
           REMINDERS_JOB_TOKEN: ${{ secrets.REMINDERS_JOB_TOKEN }}
         run: |
           if [[ -z "$API_PUBLIC_URL" || -z "$REMINDERS_JOB_TOKEN" ]]; then
-            echo "API_PUBLIC_URL and REMINDERS_JOB_TOKEN repository secrets are required" >&2
+            echo "::error::Add the GitHub repository secrets API_PUBLIC_URL and REMINDERS_JOB_TOKEN (REMINDERS_JOB_TOKEN must match the Render value of the same name) — see docs/VERIFICATION_REPORT.md"
             exit 1
           fi
+          endpoint="${API_PUBLIC_URL%/}/api/v1/ops/balance-reminders/run"
+          echo "POST $endpoint"
           curl --fail --silent --show-error --max-time 240 \
-            -X POST "${API_PUBLIC_URL%/}/api/v1/ops/balance-reminders/run" \
+            -X POST "$endpoint" \
             -H "X-Reminder-Job-Token: ${REMINDERS_JOB_TOKEN}" \
             -H 'Content-Type: application/json'
