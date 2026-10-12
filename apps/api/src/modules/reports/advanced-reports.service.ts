@@ -76,7 +76,7 @@ export class AdvancedReportsService {
                SUM(ri.quantity * ri.unit_cost) AS cost
         FROM sale_return_items ri
         JOIN sale_returns r ON r.id = ri.return_id AND r.tenant_id = $1
-        WHERE ri.tenant_id = $1 AND r.status = 'completed'
+        WHERE ri.tenant_id = $1
           AND r.return_date >= $2 AND r.return_date < $3${rScope}
         GROUP BY ri.product_id
       )
@@ -162,7 +162,7 @@ export class AdvancedReportsService {
     );
     const returns = await this.db.query(
       `SELECT created_by AS "userId", COUNT(*)::int AS c, COALESCE(SUM(total), 0) AS t
-       FROM sale_returns WHERE tenant_id = $1 AND status = 'completed'
+       FROM sale_returns WHERE tenant_id = $1
          AND return_date >= $2 AND return_date < $3${rScope} GROUP BY created_by`,
       retParams
     );
@@ -182,6 +182,7 @@ export class AdvancedReportsService {
         cancelledTotal: round(n(r.cancelledTotal)),
         returnsCount: retMap.get(r.userId)?.c || 0,
         returnsTotal: round(n(retMap.get(r.userId)?.t)),
+        netTotal: round(n(r.total) - n(retMap.get(r.userId)?.t)),
       })),
     };
   }
@@ -207,17 +208,50 @@ export class AdvancedReportsService {
       `,
       params
     );
-    const grand = rows.reduce((s: number, r: any) => s + n(r.total), 0);
+    // المبالغ المردودة للعملاء من المرتجعات بتنزل من نفس طريقة الدفع (نقدي/تحويل/...).
+    const refundParams: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
+    const rScope = sqlIn('r.branch_id', scope.branchIds, refundParams);
+    const refundRows = await this.db.query(
+      `
+      SELECT pm.id AS "methodId", COALESCE(pm.name_ar, pm.name) AS "name", pm.code AS "code",
+             COUNT(r.id)::int AS "count", COALESCE(SUM(r.refund_paid), 0) AS "total"
+      FROM sale_returns r
+      JOIN payment_methods pm ON pm.id = r.refund_method_id AND pm.tenant_id = $1
+      WHERE r.tenant_id = $1 AND r.refund_paid > 0
+        AND r.return_date >= $2 AND r.return_date < $3${rScope}
+      GROUP BY pm.id, pm.name_ar, pm.name, pm.code
+      `,
+      refundParams
+    );
+    const merged = new Map<string, any>();
+    for (const r of rows) {
+      merged.set(r.methodId, { ...r, received: n(r.total), refunds: 0, refundsCount: 0 });
+    }
+    for (const r of refundRows) {
+      const row = merged.get(r.methodId) || { ...r, count: 0, received: 0 };
+      row.refunds = n(r.total);
+      row.refundsCount = r.count;
+      merged.set(r.methodId, row);
+    }
+    const list = Array.from(merged.values())
+      .map((r) => ({ ...r, net: r.received - r.refunds }))
+      .sort((a, b) => b.net - a.net);
+    const grand = list.reduce((s: number, r: any) => s + r.net, 0);
     return {
       period: { from: range.from, to: range.to },
       total: round(grand),
-      items: rows.map((r: any) => ({
+      refunds: round(list.reduce((s: number, r: any) => s + r.refunds, 0)),
+      items: list.map((r: any) => ({
         methodId: r.methodId,
         name: r.name,
         code: r.code,
         count: r.count,
-        total: round(n(r.total)),
-        share: grand > 0 ? round((n(r.total) / grand) * 100, 1) : 0,
+        received: round(r.received),
+        refunds: round(r.refunds),
+        refundsCount: r.refundsCount || 0,
+        // الصافي بعد المردودات
+        total: round(r.net),
+        share: grand > 0 ? round((r.net / grand) * 100, 1) : 0,
       })),
     };
   }

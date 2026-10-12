@@ -62,6 +62,16 @@ export class MaintenanceInvoice {
   @Column({ length: 20, default: 'completed' })
   status: string;
 
+  /** manual = فاتورة صيانة لعميل، sale_return = صيانة داخلية لصنف مرتجع. */
+  @Column({ length: 30, default: 'manual' })
+  source: string;
+
+  @Column({ name: 'sale_return_id', type: 'uuid', nullable: true })
+  saleReturnId?: string;
+
+  @Column({ name: 'sale_return_item_id', type: 'uuid', nullable: true })
+  saleReturnItemId?: string;
+
   @Column({ name: 'maintenance_date', type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   maintenanceDate: Date;
 

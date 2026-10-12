@@ -57,6 +57,7 @@ describe('SalesService - createReturn', () => {
 
     mockDataSource = {
       transaction: jest.fn((cb) => cb(mockManager)),
+      query: jest.fn().mockResolvedValue([]),
     };
 
     mockSalesRepo = {
@@ -188,7 +189,9 @@ describe('SalesService - createReturn', () => {
     mockManager.query.mockImplementation(async (sql: string) => {
       if (sql.includes('FROM sale_return_items')) return previousRows;
       if (sql.includes('INSERT INTO document_counters')) return [{ value: 1 }];
-      if (sql.includes('FROM sale_returns')) return [{ total: 0 }];
+      if (sql.includes('FROM sale_returns')) return [{ total: 0, credited: 0 }];
+      if (sql.includes('FROM branches')) return [{ id: 'branch-123' }];
+      if (sql.includes('FROM customers c')) return [{ total: 1000, branch: 1000 }];
       return [];
     });
   };
@@ -229,6 +232,11 @@ describe('SalesService - createReturn', () => {
 
     expect(result).toBeDefined();
     expect(result.total).toBe(100);
+    // فاتورة آجلة: القيمة كلها بتتخصم من المتبقي عليها، ومفيش مبلغ مردود
+    expect(mockManager.create).toHaveBeenCalledWith(
+      SaleReturn,
+      expect.objectContaining({ total: 100, invoiceCredit: 100, refundPaid: 0, accountCredit: 0 })
+    );
     expect(sale.total).toBe(100);
     expect(sale.cogs).toBe(60);
     expect(sale.status).toBe('completed');

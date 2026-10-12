@@ -70,7 +70,7 @@ export function CashRegisterPage() {
 
   const closeShift = async () => {
     if (!shift) return;
-    await api.post(`/cash-register/shifts/${shift.id}/close`, { actualCash: summary?.remaining.cash || 0, actualCard: summary?.sales.card || 0 });
+    await api.post(`/cash-register/shifts/${shift.id}/close`, { actualCash: summary?.remaining.cash || 0, actualCard: summary?.remaining.card ?? summary?.sales.card ?? 0 });
     toast.success('تم إغلاق الوردية بنجاح');
     load();
   };
@@ -148,8 +148,34 @@ export function CashRegisterPage() {
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات بطاقة</p><p className="text-xl font-bold">{summary.sales.card.toFixed(2)}</p></div>
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات تحويل</p><p className="text-xl font-bold">{summary.sales.bankTransfer.toFixed(2)}</p></div>
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مبيعات آجل</p><p className="text-xl font-bold text-orange-600">{summary.sales.credit.toFixed(2)}</p></div>
+              {summary.collections && summary.collections.total > 0 && (
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-gray-500">تحصيلات (فواتير سابقة / حساب العملاء)</p>
+                  <p className="text-xl font-bold text-green-700">{summary.collections.total.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">نقدي {summary.collections.cash.toFixed(2)} · بطاقة {summary.collections.card.toFixed(2)} · تحويل {summary.collections.bankTransfer.toFixed(2)}</p>
+                </div>
+              )}
+              {summary.returns && (
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-sm text-gray-500">مرتجعات الوردية ({summary.returns.count})</p>
+                  <p className="text-xl font-bold text-red-600">{summary.returns.total.toFixed(2)}</p>
+                  <p className="text-xs text-gray-500">
+                    مردود نقدي {summary.returns.refunds.cash.toFixed(2)} · تحويل {summary.returns.refunds.bankTransfer.toFixed(2)} · بطاقة {summary.returns.refunds.card.toFixed(2)}
+                    {summary.returns.invoiceCredit + summary.returns.accountCredit > 0 && ` · خصم من الآجل ${(summary.returns.invoiceCredit + summary.returns.accountCredit).toFixed(2)}`}
+                  </p>
+                </div>
+              )}
               <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">المصروفات</p><p className="text-xl font-bold text-red-600">{summary.expenses.toFixed(2)}</p></div>
-              <div className="bg-white rounded-lg shadow p-4 sm:col-span-2 bg-primary/5"><p className="text-sm text-gray-500">المتبقي نقدي بالخزينة</p><p className="text-2xl font-bold text-primary">{summary.remaining.cash.toFixed(2)}</p></div>
+              {summary.sales.net !== undefined && (
+                <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">صافي المبيعات بعد المرتجعات</p><p className="text-xl font-bold">{summary.sales.net.toFixed(2)}</p></div>
+              )}
+              <div className="bg-white rounded-lg shadow p-4 sm:col-span-2 bg-primary/5"><p className="text-sm text-gray-500">المتبقي نقدي بالخزينة</p><p className="text-2xl font-bold text-primary">{summary.remaining.cash.toFixed(2)}</p><p className="text-xs text-gray-500">الافتتاحي + المبيعات والتحصيلات النقدي + الإيداعات − المسحوبات − المصروفات − المردود النقدي</p></div>
+              {summary.remaining.bankTransfer !== undefined && (
+                <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">صافي التحويلات</p><p className="text-xl font-bold">{summary.remaining.bankTransfer.toFixed(2)}</p></div>
+              )}
+              {summary.remaining.card !== undefined && (
+                <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">صافي البطاقة</p><p className="text-xl font-bold">{summary.remaining.card.toFixed(2)}</p></div>
+              )}
             </div>
           )}
         </div>

@@ -237,7 +237,8 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
       return (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <Card label="عدد الفواتير" value={num(r.summary.salesCount)} />
-          <Card label="إجمالي المبيعات" value={money(r.summary.totalSales)} />
+          <Card label="صافي المبيعات (بعد المرتجعات)" value={money(r.summary.totalSales)} />
+          <Card label="المرتجعات" value={money(r.summary.returnsTotal || 0)} tone="text-red-600" />
           <Card label="إجمالي الربح" value={money(r.summary.grossProfit)} tone="text-green-600" />
           <Card label="إجمالي الضريبة" value={money(r.summary.totalTax)} />
         </div>
@@ -291,8 +292,17 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
         ['إجمالي المبيعات (بعد الخصم)', r.revenue.grossSales],
         ['(-) المرتجعات', -Math.abs(r.revenue.returns), 'text-red-600'],
         ['صافي المبيعات', r.revenue.total, 'font-semibold'],
-        ['(-) تكلفة البضاعة المباعة', -Math.abs(r.cogs), 'text-red-600'],
+        ['(-) تكلفة البضاعة المباعة (بعد المرتجعات)', -r.cogs, 'text-red-600'],
         ['مجمل الربح', r.grossProfit, 'font-semibold'],
+        ...((r.maintenance && (r.maintenance.count > 0 || r.maintenance.profit !== 0)
+          ? [
+              [
+                `(+) ربح الصيانة (${num(r.maintenance.count)} فاتورة${r.maintenance.returnRepairs ? `، منها ${num(r.maintenance.returnRepairs)} صيانة مرتجعات` : ''})`,
+                r.maintenance.profit,
+                profitTone(r.maintenance.profit),
+              ],
+            ]
+          : []) as [string, number, string?][]),
         ['(-) المصروفات', -Math.abs(r.expenses.total), 'text-red-600'],
         ['صافي الربح', r.netProfit, `font-bold text-lg ${profitTone(r.netProfit)}`],
       ];
@@ -423,7 +433,12 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                 </div>
               </Td>
               <Td>{num(i.salesCount)}</Td>
-              <Td className="font-medium">{money(i.total)}</Td>
+              <Td className="font-medium">
+                {money(i.total)}
+                {i.returnsTotal > 0 && (
+                  <div className="text-xs text-gray-500">صافي {money(i.netTotal)}</div>
+                )}
+              </Td>
               <Td>{money(i.averageTicket)}</Td>
               <Td className="text-green-600">{money(i.grossProfit)}</Td>
               <Td>{money(i.discounts)}</Td>
@@ -440,16 +455,25 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
       return (
         <>
           <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Card label="إجمالي المتحصلات" value={money(r.total)} />
+            <Card label="صافي المتحصلات (بعد المردود)" value={money(r.total)} />
+            <Card
+              label="مبالغ مردودة للعملاء (مرتجعات)"
+              value={money(r.refunds || 0)}
+              tone="text-red-600"
+            />
           </div>
           <Table
-            head={['طريقة الدفع', 'عدد العمليات', 'الإجمالي', 'النسبة']}
+            head={['طريقة الدفع', 'عدد العمليات', 'المقبوض', 'المردود', 'الصافي', 'النسبة']}
             empty={!r.items.length}
           >
             {r.items.map((i: any) => (
               <tr key={i.methodId} className="border-t">
                 <Td>{i.name}</Td>
                 <Td>{num(i.count)}</Td>
+                <Td>{money(i.received ?? i.total)}</Td>
+                <Td className={i.refunds ? 'text-red-600' : ''}>
+                  {i.refunds ? money(i.refunds) : '—'}
+                </Td>
                 <Td className="font-medium">{money(i.total)}</Td>
                 <Td>
                   <div className="flex items-center gap-2">

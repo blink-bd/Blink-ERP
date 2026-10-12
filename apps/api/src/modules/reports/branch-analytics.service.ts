@@ -73,20 +73,15 @@ export class BranchAnalyticsService {
           params
         ),
         this.dataSource.query(
-          `SELECT return_rows."branchId", COUNT(*)::int AS count,
-                COALESCE(SUM(return_rows.total), 0) AS total,
-                COALESCE(SUM(return_rows."cogsAdjustment"), 0) AS "cogsAdjustment"
-         FROM (
-           SELECT sr.id, sr.branch_id AS "branchId", sr.total,
-                  COALESCE(SUM(CASE WHEN sri.disposition IN ('supplier', 'restocked')
-                    THEN sri.quantity * sri.unit_cost ELSE 0 END), 0) AS "cogsAdjustment"
-           FROM sale_returns sr
-           LEFT JOIN sale_return_items sri ON sri.return_id = sr.id AND sri.tenant_id = sr.tenant_id
-           WHERE sr.tenant_id = $1 AND sr.branch_id = ANY($2::uuid[])
-             AND sr.return_date >= $3 AND sr.return_date <= $4
-           GROUP BY sr.id, sr.branch_id, sr.total
-         ) AS return_rows
-         GROUP BY return_rows."branchId"`,
+          // تكلفة البضاعة المرتجعة بتتعكس من وقت تسجيل المرتجع (زي تقرير الأرباح).
+          `SELECT branch_id AS "branchId", COUNT(*)::int AS count,
+                COALESCE(SUM(total), 0) AS total,
+                COALESCE(SUM(cogs_adjustment), 0) AS "cogsAdjustment",
+                COALESCE(SUM(refund_paid), 0) AS refunded
+         FROM sale_returns
+         WHERE tenant_id = $1 AND branch_id = ANY($2::uuid[])
+           AND return_date >= $3 AND return_date <= $4
+         GROUP BY branch_id`,
           params
         ),
         this.dataSource.query(
@@ -159,7 +154,11 @@ export class BranchAnalyticsService {
           paid: Number(p.paid || 0),
         },
         expenses: { count: Number(e.count || 0), total: expenseTotal },
-        returns: { count: Number(r.count || 0), total: returnsTotal },
+        returns: {
+          count: Number(r.count || 0),
+          total: returnsTotal,
+          refunded: Number(r.refunded || 0),
+        },
         maintenance: {
           count: Number(m.count || 0),
           revenue: Number(m.revenue || 0),
@@ -258,7 +257,9 @@ export class BranchAnalyticsService {
         this.dataSource.query(
           `SELECT sr.id, sr.branch_id AS "branchId", b.name AS "branchName",
                 sr.return_number AS number, sr.return_date AS date, sr.total,
-                sr.status, sr.reason, s.sale_number AS "originalSaleNumber"
+                sr.status, sr.reason, s.sale_number AS "originalSaleNumber",
+                sr.invoice_credit AS "invoiceCredit", sr.refund_paid AS "refundPaid",
+                sr.account_credit AS "accountCredit"
          FROM sale_returns sr
          JOIN branches b ON b.id = sr.branch_id AND b.tenant_id = sr.tenant_id
          JOIN sales s ON s.id = sr.original_sale_id AND s.tenant_id = sr.tenant_id
@@ -271,7 +272,7 @@ export class BranchAnalyticsService {
           `SELECT m.id, m.branch_id AS "branchId", b.name AS "branchName",
                 m.invoice_number AS number, m.maintenance_date AS date, m.customer_name AS "customerName",
                 m.product_name AS "productName", m.maintenance_description AS description,
-                m.service_price AS "servicePrice", m.parts_cost AS "partsCost", m.profit
+                m.service_price AS "servicePrice", m.parts_cost AS "partsCost", m.profit, m.source
          FROM maintenance_invoices m
          JOIN branches b ON b.id = m.branch_id AND b.tenant_id = m.tenant_id
          WHERE m.tenant_id = $1 AND m.branch_id = ANY($2::uuid[]) AND m.status = 'completed'

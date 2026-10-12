@@ -56,6 +56,9 @@ export class SaleReturnItem {
   @Column({ name: 'repair_expense', type: 'decimal', precision: 15, scale: 4, default: 0 })
   repairExpense: number;
 
+  @Column({ name: 'waste_expense', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  wasteExpense: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

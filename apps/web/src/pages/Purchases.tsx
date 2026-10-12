@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { Plus, X, Trash2, Paperclip, Printer } from 'lucide-react';
 import { InvoiceAttachments } from '@/components/InvoiceAttachments';
 import { escapeHtml } from '@/lib/escape';
+import { useIsDesktop } from '@/lib/useMediaQuery';
 import { keepIfValid, useWorkingWarehouses } from '@/contexts/WorkspaceContext';
 
 interface Purchase {
@@ -27,6 +28,7 @@ export function PurchasesPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
+  const isDesktop = useIsDesktop();
 
   const [supplierId, setSupplierId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
@@ -182,6 +184,42 @@ export function PurchasesPage() {
         </form>
       )}
 
+      {/* الموبايل: كروت بدل الجدول عشان أزرار المرفقات والطباعة تبان من غير تمرير جانبي */}
+      {!isDesktop && (
+        <div className="space-y-3">
+          {loading && <p className="py-8 text-center text-gray-400">جاري التحميل...</p>}
+          {!loading && purchases.length === 0 && <p className="py-8 text-center text-gray-400">لا توجد أوامر شراء بعد</p>}
+          {purchases.map((p) => (
+            <div key={p.id} className="rounded-lg border bg-white p-3 text-sm shadow-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="font-semibold">{p.purchaseNumber}</div>
+                  <div className="text-xs text-gray-500">{new Date(p.purchaseDate).toLocaleDateString('ar')}</div>
+                </div>
+                <div className="text-left">
+                  <div className="font-bold">{Number(p.total).toFixed(2)}</div>
+                  <div className="text-xs text-gray-500">{p.paymentStatus}</div>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap justify-end gap-2">
+                <Button type="button" size="sm" variant="outline" onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}>
+                  <Paperclip className="ml-1 h-4 w-4" /> مرفقات
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}>
+                  <Printer className="h-4 w-4 ml-1" /> طباعة
+                </Button>
+              </div>
+              {attachmentsFor === p.id && (
+                <div className="mt-3">
+                  <InvoiceAttachments entityType="purchases" invoiceId={p.id} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {isDesktop && (
       <div className="bg-white rounded-lg shadow overflow-x-auto">
         <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-gray-50">
@@ -231,6 +269,7 @@ export function PurchasesPage() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }

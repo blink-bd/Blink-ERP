@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { Download, Paperclip, Trash2, Upload } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Download, Eye, Paperclip, Trash2, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Modal } from '@/components/ui/modal';
 import toast from 'react-hot-toast';
+
+// عارض الـ PDF (pdf.js) بيتحمّل بس لما حد يفتح ملف PDF على الموبايل.
+const PdfPagesViewer = lazy(() => import('./PdfPagesViewer'));
 
 interface InvoiceAttachmentItem {
   id: string;
@@ -10,6 +14,31 @@ interface InvoiceAttachmentItem {
   mimeType: string;
   sizeBytes: number;
   createdAt: string;
+}
+
+interface PreviewState {
+  item: InvoiceAttachmentItem;
+  blob: Blob;
+  url: string;
+}
+
+const isImage = (mime: string) => mime.startsWith('image/');
+const isPdf = (mime: string) => mime === 'application/pdf';
+
+/** الموبايل/التابلت: متصفحاتهم مابتعرضش PDF جوه iframe، فبنرسمه بـ pdf.js. */
+const prefersCanvasPdf = () =>
+  typeof window !== 'undefined' &&
+  (window.matchMedia?.('(pointer: coarse)').matches || window.innerWidth < 768);
+
+function saveBlob(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
 }
 
 export function InvoiceAttachments({
@@ -23,6 +52,8 @@ export function InvoiceAttachments({
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -62,24 +93,52 @@ export function InvoiceAttachments({
     }
   };
 
+  const fetchBlob = async (item: InvoiceAttachmentItem): Promise<Blob> => {
+    const response = await api.get(`/invoice-attachments/files/${item.id}/content`, {
+      responseType: 'blob',
+    });
+    const data: Blob = response.data;
+    // نتأكد إن نوع الملف مضبوط عشان المتصفح يعرضه صح.
+    return data.type === item.mimeType ? data : new Blob([data], { type: item.mimeType });
+  };
+
   const download = async (item: InvoiceAttachmentItem) => {
     try {
-      const response = await api.get(`/invoice-attachments/files/${item.id}/content`, {
-        responseType: 'blob',
-      });
-      const url = URL.createObjectURL(response.data);
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = item.originalName;
-      anchor.target = '_blank';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      const blob = preview?.item.id === item.id ? preview.blob : await fetchBlob(item);
+      saveBlob(blob, item.originalName);
     } catch {
-      toast.error('تعذر فتح المرفق');
+      toast.error('تعذر تنزيل المرفق');
     }
   };
+
+  const view = async (item: InvoiceAttachmentItem) => {
+    setOpeningId(item.id);
+    try {
+      const blob = await fetchBlob(item);
+      setPreview({ item, blob, url: URL.createObjectURL(blob) });
+    } catch {
+      toast.error('تعذر فتح المرفق');
+    } finally {
+      setOpeningId(null);
+    }
+  };
+
+  const closePreview = useCallback(() => {
+    setPreview((current) => {
+      if (current) URL.revokeObjectURL(current.url);
+      return null;
+    });
+  }, []);
+
+  // تنظيف رابط المعاينة لو المكوّن اتقفل والمعاينة مفتوحة.
+  const previewUrl = useRef<string | null>(null);
+  previewUrl.current = preview?.url ?? null;
+  useEffect(
+    () => () => {
+      if (previewUrl.current) URL.revokeObjectURL(previewUrl.current);
+    },
+    []
+  );
 
   const remove = async (item: InvoiceAttachmentItem) => {
     if (!window.confirm(`حذف المرفق «${item.originalName}»؟`)) return;
@@ -131,31 +190,44 @@ export function InvoiceAttachments({
           {items.map((item) => (
             <li
               key={item.id}
-              className="flex flex-wrap items-center justify-between gap-3 p-2 text-sm"
+              className="flex flex-wrap items-center justify-between gap-2 p-2 text-sm"
             >
-              <div className="min-w-0">
-                <div className="truncate font-medium">{item.originalName}</div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-medium" title={item.originalName}>
+                  {item.originalName}
+                </div>
                 <div className="text-xs text-gray-500">
                   {(item.sizeBytes / 1024 / 1024).toFixed(2)} م.ب ·{' '}
                   {new Date(item.createdAt).toLocaleString('ar-EG')}
                 </div>
               </div>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
                 <Button
                   type="button"
                   size="sm"
-                  variant="ghost"
-                  onClick={() => download(item)}
-                  aria-label="فتح المرفق"
+                  variant="outline"
+                  onClick={() => view(item)}
+                  disabled={openingId === item.id}
+                  aria-label={`عرض المرفق ${item.originalName}`}
                 >
-                  <Download className="h-4 w-4" />
+                  <Eye className="ml-1 h-4 w-4" />
+                  {openingId === item.id ? 'جاري الفتح...' : 'عرض'}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => download(item)}
+                  aria-label={`تنزيل المرفق ${item.originalName}`}
+                >
+                  <Download className="ml-1 h-4 w-4" /> تنزيل
                 </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant="ghost"
                   onClick={() => remove(item)}
-                  aria-label="حذف المرفق"
+                  aria-label={`حذف المرفق ${item.originalName}`}
                 >
                   <Trash2 className="h-4 w-4 text-red-500" />
                 </Button>
@@ -164,6 +236,53 @@ export function InvoiceAttachments({
           ))}
         </ul>
       )}
+
+      <Modal
+        open={!!preview}
+        title={preview?.item.originalName || 'عرض المرفق'}
+        onClose={closePreview}
+        wide
+        footer={
+          preview && (
+            <>
+              <Button type="button" variant="outline" onClick={() => download(preview.item)}>
+                <Download className="ml-2 h-4 w-4" /> تنزيل
+              </Button>
+              <Button type="button" onClick={closePreview}>
+                إغلاق
+              </Button>
+            </>
+          )
+        }
+      >
+        {preview && isImage(preview.item.mimeType) && (
+          <img
+            src={preview.url}
+            alt={preview.item.originalName}
+            className="mx-auto max-h-[70vh] w-auto max-w-full rounded object-contain"
+          />
+        )}
+        {preview &&
+          isPdf(preview.item.mimeType) &&
+          (prefersCanvasPdf() ? (
+            <Suspense
+              fallback={<p className="py-6 text-center text-sm text-gray-500">جاري عرض الملف...</p>}
+            >
+              <PdfPagesViewer data={preview.blob} />
+            </Suspense>
+          ) : (
+            <iframe
+              src={preview.url}
+              title={preview.item.originalName}
+              className="h-[70vh] w-full rounded border"
+            />
+          ))}
+        {preview && !isImage(preview.item.mimeType) && !isPdf(preview.item.mimeType) && (
+          <p className="py-6 text-center text-sm text-gray-500">
+            نوع الملف ده مايتعرضش هنا. تقدر تنزّله وتفتحه من الجهاز.
+          </p>
+        )}
+      </Modal>
     </div>
   );
 }

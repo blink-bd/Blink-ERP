@@ -71,10 +71,22 @@ export class ResolveReturnItemDto {
   @IsUUID()
   supplierId?: string;
 
+  /** تكلفة صيانة الصنف المرتجع — بتتسجل فاتورة صيانة داخلية في «إدارة الصيانة». */
   @IsOptional()
   @IsNumber()
   @Min(0)
   repairExpense?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  repairDescription?: string;
+
+  /** هالك/خسارة في الصنف المرتجع — بيتسجل مصروف «صيانة وهالك المرتجعات». */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  wasteExpense?: number;
 
   @IsOptional()
   @ValidateNested()

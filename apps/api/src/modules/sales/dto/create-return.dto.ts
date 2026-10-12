@@ -1,5 +1,6 @@
 import {
   IsArray,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -21,4 +22,14 @@ export class CreateReturnDto {
   items: ReturnItemInputDto[];
 
   @IsOptional() @IsString() reason?: string;
+
+  /**
+   * الجزء المدفوع من قيمة المرتجع (لو الفاتورة كانت متحصّلة):
+   * - refund: يترد للعميل فلوس بطريقة الدفع refundMethodId (الافتراضي: طريقة دفع الفاتورة).
+   * - account: يتضاف رصيد لحساب العميل (لازم الفاتورة تكون على عميل).
+   * الجزء الآجل من الفاتورة بيتخصم دايماً من المتبقي عليها.
+   */
+  @IsOptional() @IsIn(['refund', 'account']) refundMode?: 'refund' | 'account';
+
+  @IsOptional() @IsUUID() refundMethodId?: string;
 }

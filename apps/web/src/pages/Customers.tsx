@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
 import { Plus, X, Pencil, Trash2, FileText } from 'lucide-react';
+import { SaleReturnDialog } from '@/components/SaleReturnDialog';
 
 interface Customer {
   id: string;
@@ -34,9 +35,7 @@ export function CustomersPage() {
   const [paying, setPaying] = useState(false);
   const [methods, setMethods] = useState<any[]>([]);
 
-  const [returnSale, setReturnSale] = useState<any>(null);
-  const [returnQtys, setReturnQtys] = useState<Record<string, string>>({});
-  const [returning, setReturning] = useState(false);
+  const [returnSaleId, setReturnSaleId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -130,28 +129,9 @@ export function CustomersPage() {
     } finally { setPaying(false); }
   };
 
-  const openReturnById = async (saleId: string) => {
-    const res = await api.get(`/sales/${saleId}`);
-    setReturnSale(res.data.data);
-    setReturnQtys({});
-  };
-
-  const submitReturn = async () => {
-    if (!returnSale) return;
-    const items = Object.entries(returnQtys)
-      .filter(([, q]) => Number(q) > 0)
-      .map(([saleItemId, q]) => ({ saleItemId, quantity: Number(q) }));
-    if (items.length === 0) { toast.error('حدد كمية صنف واحد على الأقل للاسترجاع'); return; }
-    setReturning(true);
-    try {
-      await api.post(`/sales/${returnSale.id}/return`, { items, reason: 'استرجاع من كشف حساب العميل' });
-      toast.success('تم الاسترجاع وإعادة المنتج للمخزون وتعديل رصيد العميل بنجاح');
-      setReturnSale(null);
-      if (statementFor) await openStatement(statementFor);
-      load();
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || 'حدث خطأ أثناء الاسترجاع');
-    } finally { setReturning(false); }
+  const afterReturn = async () => {
+    if (statementFor) await openStatement(statementFor);
+    load();
   };
 
   const exportPdf = () => {
@@ -227,7 +207,7 @@ export function CustomersPage() {
               <tbody>{statement.entries.map((entry: any, i: number) => <tr key={i} className="border-b">
                 <td className="p-2">{new Date(entry.date).toLocaleDateString('ar')}</td><td className="p-2">{entry.description} {entry.referenceNumber}</td>
                 <td className="p-2">{entry.debit ? Number(entry.debit).toFixed(2) : '-'}</td><td className="p-2">{entry.credit ? Number(entry.credit).toFixed(2) : '-'}</td><td className="p-2 font-medium">{Number(entry.balance).toFixed(2)}</td>
-                <td className="p-2">{entry.type === 'sale' && <Button size="sm" variant="outline" onClick={() => openReturnById(entry.id)}>استرجاع</Button>}</td>
+                <td className="p-2">{entry.type === 'sale' && <Button size="sm" variant="outline" onClick={() => setReturnSaleId(entry.id)}>استرجاع</Button>}</td>
               </tr>)}</tbody>
             </table>
             <div className="flex items-center justify-between bg-gray-50 rounded p-3 mb-4"><span className="font-bold">الرصيد الحالي المستحق</span><span className="text-xl font-bold text-red-600">{Number(statement.currentBalance).toFixed(2)}</span></div>
@@ -236,43 +216,12 @@ export function CustomersPage() {
         </div>
       )}
 
-      {returnSale && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setReturnSale(null)}>
-          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold">استرجاع من فاتورة {returnSale.saleNumber}</h2><p className="text-xs text-gray-400">حدد الكمية المطلوب استرجاعها لكل صنف</p>
-            <div className="space-y-2 max-h-72 overflow-y-auto">
-              {returnSale.items?.map((it: any) => {
-                const remaining = it.remainingQuantity !== undefined ? Number(it.remainingQuantity) : Number(it.quantity);
-                const isFullyReturned = remaining <= 0;
-                return (
-                  <div key={it.id} className="flex items-center justify-between border-b pb-2">
-                    <div>
-                      <p className="text-sm font-medium">{it.productName}</p>
-                      <p className="text-xs text-gray-500">
-                        الكمية المباعة: {it.quantity} — المتبقي: {remaining} — السعر: {Number(it.unitPrice).toFixed(2)}
-                      </p>
-                      {isFullyReturned && (
-                        <span className="text-xs text-amber-600 font-medium">تم استرجاع كامل الكمية</span>
-                      )}
-                    </div>
-                    <Input
-                      type="number"
-                      className="w-20"
-                      min="0"
-                      max={remaining}
-                      disabled={isFullyReturned}
-                      placeholder="0"
-                      value={returnQtys[it.id] || ''}
-                      onChange={(e) => setReturnQtys({ ...returnQtys, [it.id]: e.target.value })}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-            <div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setReturnSale(null)}>إلغاء</Button><Button onClick={submitReturn} disabled={returning}>{returning ? 'جاري التنفيذ...' : 'تأكيد الاسترجاع'}</Button></div>
-          </div>
-        </div>
-      )}
+      <SaleReturnDialog
+        saleId={returnSaleId}
+        reason="استرجاع من كشف حساب العميل"
+        onClose={() => setReturnSaleId(null)}
+        onDone={afterReturn}
+      />
     </div>
   );
 }
