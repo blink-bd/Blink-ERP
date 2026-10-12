@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -17,6 +18,12 @@ import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { CreateTransferDto, RejectTransferDto } from './dto/create-transfer.dto';
 import { TransfersService } from './transfers.service';
 import { actorFromRequest } from '@/modules/audit/audit.service';
+import {
+  AccessScope,
+  assertWarehouseInWorkingScope,
+  isWarehouseAllowed,
+  scopeOf,
+} from '@/common/utils/access-scope';
 
 @ApiTags('inventory-transfers')
 @ApiBearerAuth()
@@ -26,18 +33,39 @@ import { actorFromRequest } from '@/modules/audit/audit.service';
 export class TransfersController {
   constructor(private readonly transfers: TransfersService) {}
 
+  /** التحويل مسموح لو المستخدم له صلاحية على مخزن المصدر أو الوجهة. */
+  private async findAllowed(tenantId: string, id: string, scope: AccessScope) {
+    const transfer = await this.transfers.findById(tenantId, id);
+    if (
+      !isWarehouseAllowed(scope, transfer.sourceWarehouseId) &&
+      !isWarehouseAllowed(scope, transfer.destinationWarehouseId)
+    ) {
+      throw new ForbiddenException('مش مسموح لك تتعامل مع التحويل ده');
+    }
+    return transfer;
+  }
+
   @Get()
   async list(@Request() req, @Query('status') status?: string) {
-    return { success: true, data: await this.transfers.list(req.tenantId, status) };
+    return {
+      success: true,
+      data: await this.transfers.list(req.tenantId, status, scopeOf(req).warehouseIds),
+    };
   }
 
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
-    return { success: true, data: await this.transfers.findById(req.tenantId, id) };
+    return { success: true, data: await this.findAllowed(req.tenantId, id, scopeOf(req)) };
   }
 
   @Post()
   async create(@Request() req, @Body() dto: CreateTransferDto) {
+    const scope = scopeOf(req);
+    // المصدر لازم يكون جوه نطاق العمل، والوجهة لازم تكون من المخازن المسموحة.
+    assertWarehouseInWorkingScope(scope, dto.sourceWarehouseId);
+    if (!isWarehouseAllowed(scope, dto.destinationWarehouseId)) {
+      throw new ForbiddenException('مش مسموح لك تحوّل للمخزن ده');
+    }
     const transfer = await this.transfers.create(
       req.tenantId,
       req.user.id,
@@ -53,6 +81,7 @@ export class TransfersController {
 
   @Post(':id/approve')
   async approve(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await this.findAllowed(req.tenantId, id, scopeOf(req));
     const transfer = await this.transfers.approve(
       req.tenantId,
       id,
@@ -68,6 +97,7 @@ export class TransfersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectTransferDto
   ) {
+    await this.findAllowed(req.tenantId, id, scopeOf(req));
     const transfer = await this.transfers.reject(
       req.tenantId,
       id,

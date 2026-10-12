@@ -10,6 +10,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   USER_UPDATED: 'تعديل مستخدم',
   USER_DELETED: 'حذف مستخدم',
   USER_ROLES_CHANGED: 'تغيير أدوار مستخدم',
+  USER_BRANCH_ACCESS_CHANGED: 'تغيير فروع ومخازن مستخدم',
   USER_PASSWORD_RESET: 'إعادة تعيين كلمة مرور مستخدم',
   USER_SESSIONS_REVOKED: 'تسجيل خروج مستخدم من كل الأجهزة',
   ROLE_CREATED: 'إنشاء دور',

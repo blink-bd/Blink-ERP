@@ -10,6 +10,11 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  assertWarehouseInWorkingScope,
+  resolveBranchForWrite,
+  scopeOf,
+} from '@/common/utils/access-scope';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
@@ -30,23 +35,27 @@ export class PurchasesController {
 
   @Get()
   async findAll(@Request() req, @Query('page') page?: number, @Query('limit') limit?: number) {
-    const result = await this.purchasesService.findAll(req.tenantId, page, limit);
+    const result = await this.purchasesService.findAll(req.tenantId, page, limit, scopeOf(req));
     return { success: true, ...result };
   }
 
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await this.purchasesService.assertInScope(req.tenantId, id, scopeOf(req));
     return { success: true, data: await this.purchasesService.findById(req.tenantId, id) };
   }
 
   @Post()
   @RequirePermission('purchases.create')
   async create(@Request() req, @Body() dto: CreatePurchaseDto) {
+    const scope = scopeOf(req);
+    // الاستلام لازم يكون في مخزن ضمن فرع/مخزن العمل الحالي والمسموح للمستخدم.
+    assertWarehouseInWorkingScope(scope, dto.warehouseId);
     const purchase = await this.purchasesService.create(
       req.tenantId,
       dto,
       req.user.id,
-      req.user.branchId
+      resolveBranchForWrite(scope, null, req.user.branchId) || undefined
     );
     return { success: true, data: purchase, message: 'تم إنشاء أمر الشراء بنجاح' };
   }

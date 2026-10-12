@@ -1,5 +1,15 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+  ForbiddenException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { isBranchAllowed, resolveBranchForWrite, scopeOf } from '@/common/utils/access-scope';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
@@ -19,13 +29,25 @@ export class CashRegisterController {
 
   @Get('registers')
   async listRegisters(@Request() req) {
-    return { success: true, data: await this.service.findAllRegisters(req.tenantId) };
+    return {
+      success: true,
+      data: await this.service.findAllRegisters(req.tenantId, scopeOf(req)),
+    };
   }
 
   @Post('registers')
   @RequirePermission('cash_register.manage')
   async createRegister(@Request() req, @Body() dto: any) {
-    const register = await this.service.createRegister(req.tenantId, dto, req.user?.id);
+    const scope = scopeOf(req);
+    if (dto?.branchId && !isBranchAllowed(scope, dto.branchId)) {
+      throw new ForbiddenException('مش مسموح لك تضيف كاشير على الفرع ده');
+    }
+    const branchId = dto?.branchId || resolveBranchForWrite(scope, null, req.user?.branchId);
+    const register = await this.service.createRegister(
+      req.tenantId,
+      { ...dto, branchId: branchId || undefined },
+      req.user?.id
+    );
     return { success: true, data: register, message: 'تم إضافة الكاشير بنجاح' };
   }
 
@@ -46,6 +68,11 @@ export class CashRegisterController {
     @Request() req,
     @Body() dto: { cashRegisterId: string; openingBalance: number; notes?: string }
   ) {
+    await this.service.assertRegisterAllowed(
+      req.tenantId,
+      { registerId: dto.cashRegisterId },
+      scopeOf(req)
+    );
     const shift = await this.service.openShift(
       req.tenantId,
       dto.cashRegisterId,
@@ -58,6 +85,7 @@ export class CashRegisterController {
 
   @Get('shifts/:id/summary')
   async shiftSummary(@Request() req, @Param('id') id: string) {
+    await this.service.assertRegisterAllowed(req.tenantId, { shiftId: id }, scopeOf(req));
     return { success: true, data: await this.service.shiftSummary(req.tenantId, id) };
   }
 
@@ -68,6 +96,7 @@ export class CashRegisterController {
     @Param('id') id: string,
     @Body() dto: { actualCash: number; actualCard: number; notes?: string }
   ) {
+    await this.service.assertRegisterAllowed(req.tenantId, { shiftId: id }, scopeOf(req));
     const shift = await this.service.closeShift(
       req.tenantId,
       id,
@@ -90,6 +119,7 @@ export class CashRegisterController {
       description?: string;
     }
   ) {
+    await this.service.assertRegisterAllowed(req.tenantId, { shiftId: dto.shiftId }, scopeOf(req));
     const transaction = await this.service.addCashTransaction(
       req.tenantId,
       dto.shiftId,

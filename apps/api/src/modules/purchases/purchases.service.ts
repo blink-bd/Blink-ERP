@@ -2,7 +2,7 @@ import { assertWarehouseUsable } from '@/modules/inventory/location-limits';
 import { FeaturesService } from '@/modules/features/features.service';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { EntityManager, Repository, DataSource, IsNull } from 'typeorm';
+import { EntityManager, Repository, DataSource, IsNull, In } from 'typeorm';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
 import { WebhooksService } from '@/modules/integrations/webhooks.service';
 import { Purchase } from './entities/purchase.entity';
@@ -14,6 +14,7 @@ import { Product } from '@/modules/products/entities/product.entity';
 import { Warehouse } from '@/modules/inventory/entities/warehouse.entity';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
+import { AccessScope, UNRESTRICTED_SCOPE, assertRowAllowed } from '@/common/utils/access-scope';
 
 @Injectable()
 export class PurchasesService {
@@ -41,16 +42,24 @@ export class PurchasesService {
     return `PO-${year}-${String(Number(row.value)).padStart(4, '0')}`;
   }
 
-  async findAll(tenantId: string, page = 1, limit = 20) {
+  async findAll(tenantId: string, page = 1, limit = 20, scope: AccessScope = UNRESTRICTED_SCOPE) {
     page = Math.max(1, Number(page) || 1);
     limit = Math.min(100, Math.max(1, Number(limit) || 20));
+    // فرع/مخزن العمل + صلاحيات المستخدم
+    const where: Record<string, unknown> = { tenantId };
+    if (scope.branchIds) where.branchId = In(scope.branchIds);
+    if (scope.warehouseIds) where.warehouseId = In(scope.warehouseIds);
     const [data, total] = await this.purchasesRepository.findAndCount({
-      where: { tenantId },
+      where,
       order: { purchaseDate: 'DESC' },
       skip: (page - 1) * limit,
       take: limit,
     });
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  assertInScope(tenantId: string, id: string, scope: AccessScope): Promise<void> {
+    return assertRowAllowed(this.dataSource.manager, 'purchases', tenantId, id, scope);
   }
 
   async findById(tenantId: string, id: string): Promise<Purchase> {

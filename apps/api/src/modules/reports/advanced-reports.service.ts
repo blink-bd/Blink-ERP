@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { AccessScope, UNRESTRICTED_SCOPE, sqlIn } from '@/common/utils/access-scope';
 
 export interface DateRange {
   from: string; // inclusive (YYYY-MM-DD)
@@ -46,7 +47,19 @@ export class AdvancedReportsService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
 
   /** ربحية المنتجات: الكمية والإيراد والتكلفة والربح والهامش (صافي بعد المرتجعات). */
-  async productProfitability(tenantId: string, range: DateRange, limit = 200) {
+  async productProfitability(
+    tenantId: string,
+    range: DateRange,
+    limit = 200,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ) {
+    const params: any[] = [tenantId, range.fromTs, range.toExclusiveTs, limit];
+    const sScope =
+      sqlIn('s.branch_id', scope.branchIds, params) +
+      sqlIn('s.warehouse_id', scope.warehouseIds, params);
+    const rScope =
+      sqlIn('r.branch_id', scope.branchIds, params) +
+      sqlIn('r.warehouse_id', scope.warehouseIds, params);
     const rows = await this.db.query(
       `
       WITH sold AS (
@@ -55,7 +68,7 @@ export class AdvancedReportsService {
         FROM sale_items si
         JOIN sales s ON s.id = si.sale_id AND s.tenant_id = $1
         WHERE si.tenant_id = $1 AND s.status IN ('completed', 'returned')
-          AND s.sale_date >= $2 AND s.sale_date < $3
+          AND s.sale_date >= $2 AND s.sale_date < $3${sScope}
         GROUP BY si.product_id
       ),
       returned AS (
@@ -64,7 +77,7 @@ export class AdvancedReportsService {
         FROM sale_return_items ri
         JOIN sale_returns r ON r.id = ri.return_id AND r.tenant_id = $1
         WHERE ri.tenant_id = $1 AND r.status = 'completed'
-          AND r.return_date >= $2 AND r.return_date < $3
+          AND r.return_date >= $2 AND r.return_date < $3${rScope}
         GROUP BY ri.product_id
       )
       SELECT COALESCE(s.product_id, r.product_id) AS "productId",
@@ -80,7 +93,7 @@ export class AdvancedReportsService {
       ORDER BY (COALESCE(s.revenue, 0) - COALESCE(r.revenue, 0)) - (COALESCE(s.cost, 0) - COALESCE(r.cost, 0)) DESC
       LIMIT $4
       `,
-      [tenantId, range.fromTs, range.toExclusiveTs, limit]
+      params
     );
     const items = rows.map((r: any) => {
       const revenue = n(r.revenue);
@@ -121,7 +134,15 @@ export class AdvancedReportsService {
   }
 
   /** أداء الكاشير/الموظفين: عدد الفواتير والإجمالي ومتوسط الفاتورة والخصومات والإلغاءات. */
-  async byCashier(tenantId: string, range: DateRange) {
+  async byCashier(tenantId: string, range: DateRange, scope: AccessScope = UNRESTRICTED_SCOPE) {
+    const params: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
+    const sScope =
+      sqlIn('s.branch_id', scope.branchIds, params) +
+      sqlIn('s.warehouse_id', scope.warehouseIds, params);
+    const retParams: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
+    const rScope =
+      sqlIn('branch_id', scope.branchIds, retParams) +
+      sqlIn('warehouse_id', scope.warehouseIds, retParams);
     const rows = await this.db.query(
       `
       SELECT s.created_by AS "userId", COALESCE(u.full_name, 'مستخدم محذوف') AS "name", u.email,
@@ -133,17 +154,17 @@ export class AdvancedReportsService {
              COALESCE(SUM(s.total) FILTER (WHERE s.status = 'cancelled'), 0) AS "cancelledTotal"
       FROM sales s
       LEFT JOIN users u ON u.id = s.created_by AND u.tenant_id = $1
-      WHERE s.tenant_id = $1 AND s.sale_date >= $2 AND s.sale_date < $3
+      WHERE s.tenant_id = $1 AND s.sale_date >= $2 AND s.sale_date < $3${sScope}
       GROUP BY s.created_by, u.full_name, u.email
       ORDER BY "total" DESC
       `,
-      [tenantId, range.fromTs, range.toExclusiveTs]
+      params
     );
     const returns = await this.db.query(
       `SELECT created_by AS "userId", COUNT(*)::int AS c, COALESCE(SUM(total), 0) AS t
        FROM sale_returns WHERE tenant_id = $1 AND status = 'completed'
-         AND return_date >= $2 AND return_date < $3 GROUP BY created_by`,
-      [tenantId, range.fromTs, range.toExclusiveTs]
+         AND return_date >= $2 AND return_date < $3${rScope} GROUP BY created_by`,
+      retParams
     );
     const retMap = new Map<string, any>(returns.map((r: any) => [r.userId, r]));
     return {
@@ -166,7 +187,13 @@ export class AdvancedReportsService {
   }
 
   /** المتحصلات حسب طريقة الدفع (كاش / فيزا / محافظ...). */
-  async byPaymentMethod(tenantId: string, range: DateRange) {
+  async byPaymentMethod(
+    tenantId: string,
+    range: DateRange,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ) {
+    const params: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
+    const pScope = sqlIn('p.branch_id', scope.branchIds, params);
     const rows = await this.db.query(
       `
       SELECT pm.id AS "methodId", COALESCE(pm.name_ar, pm.name) AS "name", pm.code AS "code",
@@ -174,11 +201,11 @@ export class AdvancedReportsService {
       FROM payments p
       JOIN payment_methods pm ON pm.id = p.payment_method_id AND pm.tenant_id = $1
       WHERE p.tenant_id = $1 AND p.status = 'completed' AND p.cancelled_at IS NULL
-        AND p.payment_date >= $2 AND p.payment_date < $3
+        AND p.payment_date >= $2 AND p.payment_date < $3${pScope}
       GROUP BY pm.id, pm.name_ar, pm.name, pm.code
       ORDER BY "total" DESC
       `,
-      [tenantId, range.fromTs, range.toExclusiveTs]
+      params
     );
     const grand = rows.reduce((s: number, r: any) => s + n(r.total), 0);
     return {
@@ -196,7 +223,11 @@ export class AdvancedReportsService {
   }
 
   /** تقييم المخزون بالتكلفة وبسعر البيع لكل مخزن ولكل قسم. */
-  async inventoryValuation(tenantId: string) {
+  async inventoryValuation(tenantId: string, scope: AccessScope = UNRESTRICTED_SCOPE) {
+    const whParams: any[] = [tenantId];
+    const whScope = sqlIn('w.id', scope.warehouseIds, whParams);
+    const catParams: any[] = [tenantId];
+    const catScope = sqlIn('i.warehouse_id', scope.warehouseIds, catParams);
     const byWarehouse = await this.db.query(
       `
       SELECT w.id AS "warehouseId", w.name AS "warehouse", w.is_main AS "isMain",
@@ -207,11 +238,11 @@ export class AdvancedReportsService {
       FROM warehouses w
       LEFT JOIN inventory i ON i.warehouse_id = w.id AND i.tenant_id = $1
       LEFT JOIN products p ON p.id = i.product_id AND p.tenant_id = $1 AND p.deleted_at IS NULL
-      WHERE w.tenant_id = $1 AND w.deleted_at IS NULL
+      WHERE w.tenant_id = $1 AND w.deleted_at IS NULL${whScope}
       GROUP BY w.id, w.name, w.is_main
       ORDER BY w.is_main DESC, w.name
       `,
-      [tenantId]
+      whParams
     );
     const byCategory = await this.db.query(
       `
@@ -223,11 +254,11 @@ export class AdvancedReportsService {
       FROM inventory i
       JOIN products p ON p.id = i.product_id AND p.tenant_id = $1 AND p.deleted_at IS NULL
       LEFT JOIN categories c ON c.id = p.category_id AND c.tenant_id = $1
-      WHERE i.tenant_id = $1
+      WHERE i.tenant_id = $1${catScope}
       GROUP BY c.name
       ORDER BY "costValue" DESC
       `,
-      [tenantId]
+      catParams
     );
     const map = (r: any) => {
       const cost = n(r.costValue);
@@ -262,17 +293,22 @@ export class AdvancedReportsService {
   }
 
   /** البضاعة الراكدة: منتجات عليها رصيد وماتباعتش من N يوم — فلوس مجمدة. */
-  async deadStock(tenantId: string, days: number) {
+  async deadStock(tenantId: string, days: number, scope: AccessScope = UNRESTRICTED_SCOPE) {
+    const params: any[] = [tenantId, String(days)];
+    const stockScope = sqlIn('warehouse_id', scope.warehouseIds, params);
+    const saleScope =
+      sqlIn('s.branch_id', scope.branchIds, params) +
+      sqlIn('s.warehouse_id', scope.warehouseIds, params);
     const rows = await this.db.query(
       `
       WITH stock AS (
         SELECT product_id, SUM(quantity) AS qty, SUM(quantity * weighted_avg_cost) AS value
-        FROM inventory WHERE tenant_id = $1 GROUP BY product_id HAVING SUM(quantity) > 0
+        FROM inventory WHERE tenant_id = $1${stockScope} GROUP BY product_id HAVING SUM(quantity) > 0
       ),
       last_sale AS (
         SELECT si.product_id, MAX(s.sale_date) AS last_sold
         FROM sale_items si JOIN sales s ON s.id = si.sale_id AND s.tenant_id = $1
-        WHERE si.tenant_id = $1 AND s.status IN ('completed', 'returned')
+        WHERE si.tenant_id = $1 AND s.status IN ('completed', 'returned')${saleScope}
         GROUP BY si.product_id
       )
       SELECT p.id AS "productId", p.name AS "productName", p.sku, p.barcode, c.name AS "category",
@@ -285,7 +321,7 @@ export class AdvancedReportsService {
       ORDER BY st.value DESC
       LIMIT 500
       `,
-      [tenantId, String(days)]
+      params
     );
     const items = rows.map((r: any) => ({
       ...r,
@@ -305,13 +341,17 @@ export class AdvancedReportsService {
   }
 
   /** خريطة المبيعات بالساعة وأيام الأسبوع (بتوقيت التاجر) لتنظيم الورديات. */
-  async salesHeatmap(tenantId: string, range: DateRange) {
+  async salesHeatmap(tenantId: string, range: DateRange, scope: AccessScope = UNRESTRICTED_SCOPE) {
     const [tenant] = await this.db.query(`SELECT timezone FROM tenants WHERE id = $1`, [tenantId]);
     let tz = tenant?.timezone || 'Africa/Cairo';
     const [valid] = await this.db.query(`SELECT 1 AS ok FROM pg_timezone_names WHERE name = $1`, [
       tz,
     ]);
     if (!valid) tz = 'UTC';
+    const params: any[] = [tenantId, range.fromTs, range.toExclusiveTs, tz];
+    const sScope =
+      sqlIn('s.branch_id', scope.branchIds, params) +
+      sqlIn('s.warehouse_id', scope.warehouseIds, params);
     const rows = await this.db.query(
       `
       SELECT EXTRACT(DOW FROM (s.sale_date AT TIME ZONE 'UTC' AT TIME ZONE $4))::int AS "dow",
@@ -319,10 +359,10 @@ export class AdvancedReportsService {
              COUNT(*)::int AS "count", COALESCE(SUM(s.total), 0) AS "total"
       FROM sales s
       WHERE s.tenant_id = $1 AND s.status IN ('completed', 'returned')
-        AND s.sale_date >= $2 AND s.sale_date < $3
+        AND s.sale_date >= $2 AND s.sale_date < $3${sScope}
       GROUP BY 1, 2
       `,
-      [tenantId, range.fromTs, range.toExclusiveTs, tz]
+      params
     );
     return {
       period: { from: range.from, to: range.to },
@@ -337,7 +377,11 @@ export class AdvancedReportsService {
   }
 
   /** أفضل العملاء في الفترة + المديونيات الحالية. */
-  async topCustomers(tenantId: string, range: DateRange) {
+  async topCustomers(tenantId: string, range: DateRange, scope: AccessScope = UNRESTRICTED_SCOPE) {
+    const params: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
+    const sScope =
+      sqlIn('s.branch_id', scope.branchIds, params) +
+      sqlIn('s.warehouse_id', scope.warehouseIds, params);
     const rows = await this.db.query(
       `
       SELECT c.id AS "customerId", c.name, c.phone, c.balance AS "balance",
@@ -346,18 +390,29 @@ export class AdvancedReportsService {
       FROM sales s
       JOIN customers c ON c.id = s.customer_id AND c.tenant_id = $1
       WHERE s.tenant_id = $1 AND s.status IN ('completed', 'returned')
-        AND s.sale_date >= $2 AND s.sale_date < $3
+        AND s.sale_date >= $2 AND s.sale_date < $3${sScope}
       GROUP BY c.id, c.name, c.phone, c.balance
       ORDER BY "total" DESC
       LIMIT 100
       `,
-      [tenantId, range.fromTs, range.toExclusiveTs]
+      params
     );
-    const [debt] = await this.db.query(
-      `SELECT COUNT(*)::int AS "count", COALESCE(SUM(balance), 0) AS "total"
-       FROM customers WHERE tenant_id = $1 AND deleted_at IS NULL AND balance > 0`,
-      [tenantId]
-    );
+    // المديونيات: لو شغال على فروع معينة نجمع أرصدة العملاء في الفروع دي بس.
+    const [debt] = scope.branchIds
+      ? await this.db.query(
+          `SELECT COUNT(*)::int AS "count", COALESCE(SUM(x.balance), 0) AS "total"
+           FROM (
+             SELECT party_id, SUM(balance) AS balance FROM branch_party_balances
+             WHERE tenant_id = $1 AND party_type = 'customer' AND branch_id = ANY($2::uuid[])
+             GROUP BY party_id
+           ) x WHERE x.balance > 0`,
+          [tenantId, scope.branchIds]
+        )
+      : await this.db.query(
+          `SELECT COUNT(*)::int AS "count", COALESCE(SUM(balance), 0) AS "total"
+           FROM customers WHERE tenant_id = $1 AND deleted_at IS NULL AND balance > 0`,
+          [tenantId]
+        );
     return {
       period: { from: range.from, to: range.to },
       receivables: { customers: debt?.count || 0, total: round(n(debt?.total)) },

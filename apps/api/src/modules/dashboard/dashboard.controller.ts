@@ -1,5 +1,6 @@
 import { Controller, Get, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import { scopeOf } from '@/common/utils/access-scope';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
@@ -16,6 +17,9 @@ export class DashboardController {
 
   @Get('summary')
   async summary(@Request() req) {
-    return { success: true, data: await this.dashboardService.getSummary(req.tenantId) };
+    return {
+      success: true,
+      data: await this.dashboardService.getSummary(req.tenantId, scopeOf(req)),
+    };
   }
 }

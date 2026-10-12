@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { qbIn } from '@/common/utils/access-scope';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, EntityManager } from 'typeorm';
 import { NotificationsService } from '@/modules/notifications/notifications.service';
@@ -41,7 +42,13 @@ export class InventoryService {
 
   async getSummary(
     tenantId: string,
-    options: { warehouseId?: string; search?: string; categoryId?: string } = {}
+    options: {
+      warehouseId?: string;
+      search?: string;
+      categoryId?: string;
+      /** مخازن نطاق العمل (null = الكل). */
+      warehouseIds?: string[] | null;
+    } = {}
   ) {
     // نستخدم INNER JOIN للمنتج والمخزن حتى لا تُرجع أي سجلات مخزون "يتيمة"
     // مرتبطة بمنتج أو مخزن محذوف (حذفًا منطقيًا) أو مفقود — كانت هذه السجلات
@@ -56,6 +63,7 @@ export class InventoryService {
       .leftJoinAndSelect('product.category', 'category')
       .where('inv.tenantId = :tenantId', { tenantId });
 
+    qbIn(query, 'inv.warehouseId', options.warehouseIds ?? null, 'scopeWarehouseIds');
     if (options.warehouseId) {
       query.andWhere('inv.warehouseId = :warehouseId', { warehouseId: options.warehouseId });
     }
@@ -93,13 +101,19 @@ export class InventoryService {
     });
   }
 
-  async getTransactions(tenantId: string, productId?: string, warehouseId?: string) {
+  async getTransactions(
+    tenantId: string,
+    productId?: string,
+    warehouseId?: string,
+    warehouseIds: string[] | null = null
+  ) {
     const query = this.transactionsRepository
       .createQueryBuilder('txn')
       .where('txn.tenantId = :tenantId', { tenantId });
 
     if (productId) query.andWhere('txn.productId = :productId', { productId });
     if (warehouseId) query.andWhere('txn.warehouseId = :warehouseId', { warehouseId });
+    qbIn(query, 'txn.warehouseId', warehouseIds, 'scopeWarehouseIds');
 
     return query.orderBy('txn.createdAt', 'DESC').limit(200).getMany();
   }

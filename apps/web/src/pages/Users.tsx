@@ -33,6 +33,9 @@ interface TenantUser {
   isActive: boolean;
   branchId?: string | null;
   warehouseId?: string | null;
+  accessAllBranches?: boolean;
+  allowedBranchIds?: string[];
+  allowedWarehouseIds?: string[];
   lastLoginAt?: string | null;
   lastLoginIp?: string | null;
   lockedUntil?: string | null;
@@ -57,6 +60,8 @@ interface Location {
   id: string;
   name: string;
   isMain?: boolean;
+  isActive?: boolean;
+  branchId?: string | null;
 }
 
 const emptyUser = {
@@ -68,6 +73,10 @@ const emptyUser = {
   roleIds: [] as string[],
   branchId: '',
   warehouseId: '',
+  // الوصول للفروع/المخازن: كل الفروع (زي التاجر الأساسي) أو فروع ومخازن محددة
+  accessAllBranches: true,
+  allowedBranchIds: [] as string[],
+  allowedWarehouseIds: [] as string[],
 };
 const emptyRole = { id: '', name: '', nameAr: '', description: '', permissions: [] as string[] };
 
@@ -171,14 +180,84 @@ function UsersTab() {
       roleIds: u.roles.map((r) => r.id),
       branchId: u.branchId || '',
       warehouseId: u.warehouseId || '',
+      accessAllBranches: u.accessAllBranches !== false,
+      allowedBranchIds: u.allowedBranchIds || [],
+      allowedWarehouseIds: u.allowedWarehouseIds || [],
     });
     setShowForm(true);
+  };
+
+  const branchName = useMemo(() => new Map(branches.map((b) => [b.id, b.name])), [branches]);
+  const warehouseName = useMemo(() => new Map(warehouses.map((w) => [w.id, w.name])), [warehouses]);
+  const ownerRoleId = roles.find((r) => r.name === 'owner')?.id;
+  const formIsOwner = !!ownerRoleId && form.roleIds.includes(ownerRoleId);
+  const showAccess = branches.length > 1 || warehouses.length > 1;
+
+  // اختيار فرع بيختار مخازنه تلقائياً، وإلغاؤه بيشيل مخازنه
+  const toggleBranch = (branchId: string, checked: boolean) => {
+    const own = warehouses.filter((w) => w.branchId === branchId).map((w) => w.id);
+    setForm((f) =>
+      checked
+        ? {
+            ...f,
+            allowedBranchIds: Array.from(new Set([...f.allowedBranchIds, branchId])),
+            allowedWarehouseIds: Array.from(new Set([...f.allowedWarehouseIds, ...own])),
+          }
+        : {
+            ...f,
+            allowedBranchIds: f.allowedBranchIds.filter((id) => id !== branchId),
+            allowedWarehouseIds: f.allowedWarehouseIds.filter((id) => !own.includes(id)),
+            branchId: f.branchId === branchId ? '' : f.branchId,
+            warehouseId: own.includes(f.warehouseId) ? '' : f.warehouseId,
+          }
+    );
+  };
+  const toggleWarehouse = (warehouseId: string, checked: boolean) => {
+    setForm((f) => ({
+      ...f,
+      allowedWarehouseIds: checked
+        ? Array.from(new Set([...f.allowedWarehouseIds, warehouseId]))
+        : f.allowedWarehouseIds.filter((id) => id !== warehouseId),
+      warehouseId: !checked && f.warehouseId === warehouseId ? '' : f.warehouseId,
+    }));
+  };
+
+  const describeAccess = (u: TenantUser) => {
+    if (u.roles.some((r) => r.name === 'owner'))
+      return <span className="text-xs font-medium text-amber-700">كل الفروع (مالك)</span>;
+    if (u.accessAllBranches !== false) return <span className="text-xs">كل الفروع والمخازن</span>;
+    const b = (u.allowedBranchIds || []).map((id) => branchName.get(id)).filter(Boolean);
+    const w = (u.allowedWarehouseIds || []).map((id) => warehouseName.get(id)).filter(Boolean);
+    return (
+      <div className="text-xs leading-5">
+        <div>
+          <span className="text-gray-500">الفروع:</span> {b.length ? b.join('، ') : '—'}
+        </div>
+        <div>
+          <span className="text-gray-500">المخازن:</span>{' '}
+          {w.length ? w.join('، ') : <span className="text-orange-600">ولا مخزن</span>}
+        </div>
+      </div>
+    );
   };
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.roleIds.length) {
       toast.error('اختار دور واحد على الأقل');
+      return;
+    }
+    const restricted = showAccess && !formIsOwner && !form.accessAllBranches;
+    if (restricted && form.allowedBranchIds.length === 0) {
+      toast.error('اختار فرع واحد على الأقل، أو اختار «كل الفروع والمخازن»');
+      return;
+    }
+    if (restricted && form.branchId && !form.allowedBranchIds.includes(form.branchId)) {
+      toast.error('الفرع الافتراضي لازم يكون من الفروع المسموحة');
+      return;
+    }
+    if (restricted && form.warehouseId && !form.allowedWarehouseIds.includes(form.warehouseId)) {
+      toast.error('المخزن الافتراضي لازم يكون من المخازن المسموحة');
       return;
     }
     setSaving(true);
@@ -189,6 +268,13 @@ function UsersTab() {
         roleIds: form.roleIds,
         branchId: form.branchId || null,
         warehouseId: form.warehouseId || null,
+        ...(showAccess && !formIsOwner
+          ? {
+              accessAllBranches: form.accessAllBranches,
+              allowedBranchIds: form.accessAllBranches ? [] : form.allowedBranchIds,
+              allowedWarehouseIds: form.accessAllBranches ? [] : form.allowedWarehouseIds,
+            }
+          : {}),
       };
       if (form.id) {
         await api.put(`/users/${form.id}`, common);
@@ -292,6 +378,7 @@ function UsersTab() {
               <th className="p-3 text-right">الاسم</th>
               <th className="p-3 text-right">البريد</th>
               <th className="p-3 text-right">الأدوار</th>
+              {showAccess && <th className="p-3 text-right">الفروع والمخازن</th>}
               <th className="p-3 text-right">آخر دخول</th>
               <th className="p-3 text-right">الحالة</th>
               <th className="p-3 text-right">إجراءات</th>
@@ -325,6 +412,7 @@ function UsersTab() {
                       ))}
                     </div>
                   </td>
+                  {showAccess && <td className="p-3">{describeAccess(u)}</td>}
                   <td className="p-3 text-xs text-gray-500">
                     {formatDate(u.lastLoginAt)}
                     {u.lastLoginIp && <div dir="ltr">{u.lastLoginIp}</div>}
@@ -405,7 +493,7 @@ function UsersTab() {
             })}
             {!users.length && (
               <tr>
-                <td colSpan={6} className="p-6 text-center text-gray-400">
+                <td colSpan={showAccess ? 7 : 6} className="p-6 text-center text-gray-400">
                   لا يوجد مستخدمين
                 </td>
               </tr>
@@ -518,6 +606,86 @@ function UsersTab() {
               </select>
             </div>
           )}
+          {showAccess &&
+            (formIsOwner ? (
+              <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-sm">
+                <ShieldCheck className="h-4 w-4 text-primary" /> المالك بيشوف كل الفروع والمخازن
+                دايماً.
+              </div>
+            ) : (
+              <div className="space-y-3 rounded-md border p-3">
+                <p className="text-sm font-medium">يتعامل على أنهي فروع ومخازن؟</p>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={form.accessAllBranches}
+                    onChange={() => setForm({ ...form, accessAllBranches: true })}
+                  />
+                  <span>
+                    <strong>كل الفروع والمخازن</strong>
+                    <span className="block text-xs text-gray-500">
+                      يشوف بيانات كل الفروع والمخازن زي التاجر الأساسي (حسب صلاحيات أدواره)
+                    </span>
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    checked={!form.accessAllBranches}
+                    onChange={() => setForm({ ...form, accessAllBranches: false })}
+                  />
+                  <span>
+                    <strong>فروع ومخازن محددة</strong>
+                    <span className="block text-xs text-gray-500">
+                      مش هيشوف ولا يسجل أي بيانات غير بتاعة الفروع والمخازن اللي هتختارها
+                    </span>
+                  </span>
+                </label>
+                {!form.accessAllBranches && (
+                  <div className="space-y-2 ps-6">
+                    {branches.map((b) => {
+                      const own = warehouses.filter((w) => w.branchId === b.id);
+                      const checked = form.allowedBranchIds.includes(b.id);
+                      return (
+                        <div key={b.id} className="rounded border p-2">
+                          <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => toggleBranch(b.id, e.target.checked)}
+                            />
+                            {b.name}
+                            {b.isMain && (
+                              <span className="text-[11px] font-normal text-gray-500">(رئيسي)</span>
+                            )}
+                          </label>
+                          {own.length > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 ps-6">
+                              {own.map((w) => (
+                                <label
+                                  key={w.id}
+                                  className={`flex cursor-pointer items-center gap-1.5 text-xs ${checked ? '' : 'opacity-50'}`}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    disabled={!checked}
+                                    checked={form.allowedWarehouseIds.includes(w.id)}
+                                    onChange={(e) => toggleWarehouse(w.id, e.target.checked)}
+                                  />
+                                  {w.name}
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
         </form>
         <div className="mt-4 flex justify-end gap-2">
           <Button variant="outline" type="button" onClick={() => setShowForm(false)}>

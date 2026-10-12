@@ -40,6 +40,7 @@ npm run dev
 - [نظام الهوية التجارية](./docs/BRANDING_SYSTEM.md)
 - [نظام الترجمة](./docs/I18N_SYSTEM.md)
 - [سجل تعديلات المرحلة الثانية](./docs/CHANGELOG_PHASE2.md)
+- [سجل تعديلات المرحلة الثالثة — فرع العمل وصلاحيات الفروع والمخازن](./docs/CHANGELOG_PHASE3_BRANCHES.md)
 - [تشغيل Cookies والتنبيهات والتحويلات وWebhooks والنسخ الاحتياطي والإيصال الإلكتروني](./docs/OPERATIONS_FEATURES.md)
 - [حالة المشروع وخطة التنفيذ](./docs/PROJECT_STATUS.md)
 

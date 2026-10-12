@@ -11,6 +11,11 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  assertWarehouseInWorkingScope,
+  resolveBranchForWrite,
+  scopeOf,
+} from '@/common/utils/access-scope';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
@@ -55,12 +60,16 @@ export class SalesController {
     @Query('search') search?: string,
     @Query('status') status?: string
   ) {
-    const result = await this.salesService.findAll(req.tenantId, {
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-      search,
-      status,
-    });
+    const result = await this.salesService.findAll(
+      req.tenantId,
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        search,
+        status,
+      },
+      scopeOf(req)
+    );
     return { success: true, data: result.data, meta: result.meta };
   }
 
@@ -72,11 +81,15 @@ export class SalesController {
   @Get('returns')
   @RequireFeature('return_disposition')
   async findReturns(@Request() req, @Query('status') status?: string) {
-    return { success: true, data: await this.salesService.findReturns(req.tenantId, status) };
+    return {
+      success: true,
+      data: await this.salesService.findReturns(req.tenantId, status, scopeOf(req)),
+    };
   }
 
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));
     return { success: true, data: await this.salesService.findById(req.tenantId, id) };
   }
 
@@ -84,7 +97,15 @@ export class SalesController {
   @RequirePermission('sales.create')
   async create(@Request() req, @Body() dto: CreateSaleDto) {
     if (req.user?.authType !== 'api_key') await this.assertFeature(req.tenantId, 'pos');
-    const sale = await this.salesService.create(req.tenantId, dto, req.user.id, req.user.branchId);
+    const scope = scopeOf(req);
+    // البيع لازم يكون من مخزن ضمن فرع/مخزن العمل الحالي والمسموح للمستخدم.
+    assertWarehouseInWorkingScope(scope, dto.warehouseId);
+    const sale = await this.salesService.create(
+      req.tenantId,
+      dto,
+      req.user.id,
+      resolveBranchForWrite(scope, null, req.user.branchId) || undefined
+    );
     return { success: true, data: sale, message: 'تم إنشاء الفاتورة بنجاح' };
   }
 
@@ -95,6 +116,7 @@ export class SalesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddSalePaymentDto
   ) {
+    await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));
     const result = await this.salesService.addPayment(
       req.tenantId,
       id,
@@ -109,6 +131,7 @@ export class SalesController {
   @Post(':id/void')
   @RequirePermission('sales.void')
   async void(@Request() req, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSaleDto) {
+    await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));
     await this.salesService.voidSale(req.tenantId, id, dto.reason, req.user.id);
     return { success: true, message: 'تم إلغاء الفاتورة بنجاح' };
   }
@@ -121,6 +144,7 @@ export class SalesController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateReturnDto
   ) {
+    await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));
     const result = await this.salesService.createReturn(req.tenantId, id, dto, req.user.id);
     return { success: true, data: result, message: 'تم تسجيل الاسترجاع وإرساله إلى الفحص' };
   }
@@ -134,6 +158,7 @@ export class SalesController {
     @Param('itemId', ParseUUIDPipe) itemId: string,
     @Body() dto: ResolveReturnItemDto
   ) {
+    await this.salesService.assertInScope('sale_returns', req.tenantId, returnId, scopeOf(req));
     return {
       success: true,
       data: await this.salesService.resolveReturnItem(

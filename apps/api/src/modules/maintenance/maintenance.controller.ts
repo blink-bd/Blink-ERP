@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   ParseUUIDPipe,
@@ -10,12 +11,20 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { CreateMaintenanceInvoiceDto } from './dto/create-maintenance-invoice.dto';
 import { MaintenanceService } from './maintenance.service';
+import {
+  assertRowAllowed,
+  isBranchAllowed,
+  resolveBranchForWrite,
+  scopeOf,
+} from '@/common/utils/access-scope';
 
 @ApiTags('maintenance')
 @ApiBearerAuth()
@@ -23,7 +32,10 @@ import { MaintenanceService } from './maintenance.service';
 @RequireFeature('maintenance_management')
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
 export class MaintenanceController {
-  constructor(private readonly maintenance: MaintenanceService) {}
+  constructor(
+    private readonly maintenance: MaintenanceService,
+    @InjectDataSource() private readonly dataSource: DataSource
+  ) {}
 
   @Get()
   async list(
@@ -36,27 +48,43 @@ export class MaintenanceController {
       ?.split(',')
       .map((value) => value.trim())
       .filter(Boolean);
+    const scope = scopeOf(req);
+    if (selectedBranches?.some((id) => !isBranchAllowed(scope, id))) {
+      throw new ForbiddenException('مش مسموح لك تشوف بيانات الفرع ده');
+    }
     return {
       success: true,
       data: await this.maintenance.list(req.tenantId, {
         startDate,
         endDate,
         branchIds: selectedBranches,
+        scopeBranchIds: scope.branchIds,
       }),
     };
   }
 
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await assertRowAllowed(
+      this.dataSource.manager,
+      'maintenance_invoices',
+      req.tenantId,
+      id,
+      scopeOf(req)
+    );
     return { success: true, data: await this.maintenance.findById(req.tenantId, id) };
   }
 
   @Post()
   async create(@Request() req, @Body() dto: CreateMaintenanceInvoiceDto) {
+    const scope = scopeOf(req);
+    if (dto.branchId && !isBranchAllowed(scope, dto.branchId)) {
+      throw new ForbiddenException('مش مسموح لك تسجل على الفرع ده');
+    }
     const invoice = await this.maintenance.create(
       req.tenantId,
       req.user.id,
-      req.user.branchId,
+      resolveBranchForWrite(scope, null, req.user.branchId) ?? undefined,
       dto
     );
     return { success: true, data: invoice, message: 'تم حفظ فاتورة الصيانة بنجاح' };

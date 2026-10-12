@@ -184,4 +184,16 @@ export class UsersService {
   async revokeSessions(userId: string): Promise<void> {
     await this.usersRepository.increment({ id: userId }, 'sessionVersion', 1);
   }
+
+  /** يحفظ «فرع العمل» للمستخدم (NULL = كل الفروع/المخازن المسموح بيها). */
+  async setActiveLocation(
+    userId: string,
+    branchId: string | null,
+    warehouseId: string | null
+  ): Promise<void> {
+    await this.usersRepository.update(userId, {
+      activeBranchId: branchId,
+      activeWarehouseId: warehouseId,
+    });
+  }
 }

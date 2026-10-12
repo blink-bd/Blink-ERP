@@ -1,5 +1,11 @@
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { AccessScope, UNRESTRICTED_SCOPE, isBranchAllowed } from '@/common/utils/access-scope';
 import { stripProtected } from '@/common/utils/sanitize';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CashRegister } from './entities/cash-register.entity';
@@ -153,8 +159,37 @@ export class CashRegisterService {
     });
   }
 
-  async findAllRegisters(tenantId: string): Promise<CashRegister[]> {
-    return this.registersRepository.find({ where: { tenantId } });
+  async findAllRegisters(
+    tenantId: string,
+    scope: AccessScope = UNRESTRICTED_SCOPE
+  ): Promise<CashRegister[]> {
+    const all = await this.registersRepository.find({ where: { tenantId } });
+    // كاشير مش مربوط بفرع بيظهر للكل؛ غير كده لازم يكون في فرع العمل/الفروع المسموحة.
+    if (!scope.branchIds) return all;
+    return all.filter((r) => !r.branchId || scope.branchIds!.includes(r.branchId));
+  }
+
+  /** يتأكد إن الكاشير (أو كاشير الوردية) تابع لفرع مسموح للمستخدم. */
+  async assertRegisterAllowed(
+    tenantId: string,
+    ids: { registerId?: string; shiftId?: string },
+    scope: AccessScope
+  ): Promise<void> {
+    if (scope.accessAll) return;
+    const [row] = ids.registerId
+      ? await this.registersRepository.manager.query(
+          `SELECT branch_id AS "branchId" FROM cash_registers WHERE id = $1 AND tenant_id = $2`,
+          [ids.registerId, tenantId]
+        )
+      : await this.registersRepository.manager.query(
+          `SELECT r.branch_id AS "branchId" FROM cash_register_shifts s
+           JOIN cash_registers r ON r.id = s.cash_register_id
+           WHERE s.id = $1 AND s.tenant_id = $2`,
+          [ids.shiftId, tenantId]
+        );
+    if (row && row.branchId && !isBranchAllowed(scope, row.branchId)) {
+      throw new ForbiddenException('الكاشير ده تابع لفرع مش مسموح لك');
+    }
   }
 
   async createRegister(

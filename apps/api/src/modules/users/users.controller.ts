@@ -54,6 +54,14 @@ export class UsersController {
         lastLoginAt: user.lastLoginAt,
         lastLoginIp: user.lastLoginIp,
         passwordChangedAt: user.passwordChangedAt,
+        branchId: user.branchId ?? null,
+        warehouseId: user.warehouseId ?? null,
+        // نطاق الفروع/المخازن المحسوب للطلب ده (من JwtStrategy)
+        accessAllBranches: req.user.scope ? !!req.user.scope.accessAll : true,
+        allowedBranchIds: req.user.scope?.allowedBranchIds ?? null,
+        allowedWarehouseIds: req.user.scope?.allowedWarehouseIds ?? null,
+        activeBranchId: req.user.scope?.activeBranchId ?? null,
+        activeWarehouseId: req.user.scope?.activeWarehouseId ?? null,
         roles: (user.roles || []).map((role) => ({
           id: role.id,
           name: role.name,

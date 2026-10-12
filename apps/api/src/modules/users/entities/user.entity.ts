@@ -28,6 +28,23 @@ export class User extends BaseEntity {
   @Column({ name: 'warehouse_id', type: 'uuid', nullable: true })
   warehouseId?: string;
 
+  /** true = يشوف كل الفروع والمخازن (زي المالك). false = الفروع/المخازن المحددة بس. */
+  @Column({ name: 'access_all_branches', default: true })
+  accessAllBranches: boolean;
+
+  @Column({ name: 'allowed_branch_ids', type: 'uuid', array: true, default: () => "'{}'" })
+  allowedBranchIds: string[];
+
+  @Column({ name: 'allowed_warehouse_ids', type: 'uuid', array: true, default: () => "'{}'" })
+  allowedWarehouseIds: string[];
+
+  /** «فرع العمل» اللي المستخدم اختاره (NULL = كل الفروع المسموح بيها). */
+  @Column({ name: 'active_branch_id', type: 'uuid', nullable: true })
+  activeBranchId?: string | null;
+
+  @Column({ name: 'active_warehouse_id', type: 'uuid', nullable: true })
+  activeWarehouseId?: string | null;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

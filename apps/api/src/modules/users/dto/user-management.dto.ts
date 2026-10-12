@@ -19,6 +19,18 @@ export class CreateTenantUserDto {
   @IsArray() @ArrayMaxSize(20) @IsUUID(undefined, { each: true }) roleIds: string[];
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() branchId?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() warehouseId?: string | null;
+  /** true = كل الفروع والمخازن. false = الفروع/المخازن المحددة بس. */
+  @IsOptional() @IsBoolean() accessAllBranches?: boolean;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID(undefined, { each: true })
+  allowedBranchIds?: string[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID(undefined, { each: true })
+  allowedWarehouseIds?: string[];
 }
 
 export class UpdateTenantUserDto {
@@ -28,6 +40,18 @@ export class UpdateTenantUserDto {
   @IsOptional() @IsArray() @ArrayMaxSize(20) @IsUUID(undefined, { each: true }) roleIds?: string[];
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() branchId?: string | null;
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() warehouseId?: string | null;
+  /** true = كل الفروع والمخازن. false = الفروع/المخازن المحددة بس. */
+  @IsOptional() @IsBoolean() accessAllBranches?: boolean;
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID(undefined, { each: true })
+  allowedBranchIds?: string[];
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID(undefined, { each: true })
+  allowedWarehouseIds?: string[];
 }
 
 export class ResetUserPasswordDto {
