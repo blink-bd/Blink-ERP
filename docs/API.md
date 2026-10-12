@@ -25,8 +25,11 @@
 ## Authentication
 
 ### Login
+`tenantId` في الـ query **اختياري**: لو البريد مسجل في متجر واحد نشط يتم تحديد المتجر تلقائياً،
+ولو مسجل في أكثر من متجر يلزم إرسال `tenantId` وإلا يُرجع 400 مع رسالة توضح ذلك.
+
 ```http
-POST /auth/login
+POST /auth/login?tenantId=tenant-uuid
 Content-Type: application/json
 
 {
