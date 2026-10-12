@@ -16,7 +16,7 @@ import { FeaturesService } from '@/modules/features/features.service';
 import {
   AccessScope,
   UNRESTRICTED_SCOPE,
-  assertWarehouseInWorkingScope,
+  assertWarehouseAllowed,
 } from '@/common/utils/access-scope';
 
 const HALF_WHOLESALE_FEATURE_CODE = 'half_wholesale_pricing';
@@ -174,7 +174,7 @@ export class ProductsService {
   }
 
   /**
-   * المخزن اللي هتتسجل عليه الكمية الافتتاحية: المبعوث (لازم يكون جوه نطاق العمل) ←
+   * المخزن اللي هتتسجل عليه الكمية الافتتاحية: المبعوث (لازم يكون مسموح للمستخدم) ←
    * مخزن العمل الحالي ← المخزن الرئيسي لو ضمن نطاق العمل ← أول مخزن في النطاق ← الرئيسي.
    */
   private async resolveStockWarehouse(
@@ -184,16 +184,28 @@ export class ProductsService {
     userId?: string
   ) {
     if (warehouseId) {
-      assertWarehouseInWorkingScope(scope, warehouseId);
+      assertWarehouseAllowed(scope, warehouseId);
       return this.warehousesService.findUsable(tenantId, warehouseId);
     }
-    if (scope.activeWarehouseId) {
-      return this.warehousesService.findUsable(tenantId, scope.activeWarehouseId);
-    }
     const main = await this.warehousesService.findOrCreateDefault(tenantId, userId);
-    if (!scope.warehouseIds || scope.warehouseIds.includes(main.id)) return main;
-    if (scope.warehouseIds.length) {
-      return this.warehousesService.findUsable(tenantId, scope.warehouseIds[0]);
+    // بالترتيب: مخزن العمل ← الرئيسي (لو جوه النطاق) ← باقي مخازن النطاق. أول مخزن صالح
+    // للاستخدام هو اللي بيتاخد، فمخزن اتقفل أو ميزة اتوقفت مايوقعش صفحة المنتجات.
+    const ordered = scope.warehouseIds
+      ? [
+          scope.activeWarehouseId,
+          ...(scope.warehouseIds.includes(main.id) ? [main.id] : []),
+          ...scope.warehouseIds,
+        ]
+      : [scope.activeWarehouseId, main.id];
+    const tried = new Set<string>();
+    for (const id of ordered) {
+      if (!id || tried.has(id)) continue;
+      tried.add(id);
+      try {
+        return await this.warehousesService.findUsable(tenantId, id);
+      } catch {
+        // جرّب اللي بعده
+      }
     }
     return main;
   }

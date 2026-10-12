@@ -18,7 +18,7 @@ import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InventoryService } from './inventory.service';
 import { WarehousesService } from './warehouses.service';
 import { AdjustInventoryDto } from './dto/inventory-movement.dto';
-import { assertWarehouseInWorkingScope, scopeOf } from '@/common/utils/access-scope';
+import { assertWarehouseAllowed, scopeOf } from '@/common/utils/access-scope';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -71,7 +71,7 @@ export class InventoryController {
   @RequirePermission('inventory.adjust')
   async adjust(@Request() req, @Body() dto: AdjustInventoryDto) {
     await this.warehousesService.findUsable(req.tenantId, dto.warehouseId);
-    assertWarehouseInWorkingScope(scopeOf(req), dto.warehouseId);
+    assertWarehouseAllowed(scopeOf(req), dto.warehouseId);
     const transaction = await this.inventoryService.adjustManual(
       req.tenantId,
       dto.productId,

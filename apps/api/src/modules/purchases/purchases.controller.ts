@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import {
-  assertWarehouseInWorkingScope,
+  assertWarehouseAllowed,
   resolveBranchForWrite,
   scopeOf,
 } from '@/common/utils/access-scope';
@@ -49,8 +49,8 @@ export class PurchasesController {
   @RequirePermission('purchases.create')
   async create(@Request() req, @Body() dto: CreatePurchaseDto) {
     const scope = scopeOf(req);
-    // الاستلام لازم يكون في مخزن ضمن فرع/مخزن العمل الحالي والمسموح للمستخدم.
-    assertWarehouseInWorkingScope(scope, dto.warehouseId);
+    // الاستلام لازم يكون في مخزن مسموح للمستخدم (فرع الفاتورة = فرع المخزن).
+    assertWarehouseAllowed(scope, dto.warehouseId);
     const purchase = await this.purchasesService.create(
       req.tenantId,
       dto,

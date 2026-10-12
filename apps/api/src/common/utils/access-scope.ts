@@ -64,27 +64,14 @@ export function isBranchInWorkingScope(
   return !!branchId && scope.branchIds.includes(branchId);
 }
 
-/** المخزن لازم يكون ضمن فرع/مخزن العمل الحالي (للبيع والشراء وتعديل المخزون). */
-export function assertWarehouseInWorkingScope(scope: AccessScope, warehouseId: string): void {
-  if (!isWarehouseInWorkingScope(scope, warehouseId)) {
-    throw new ForbiddenException(
-      'المخزن ده مش ضمن الفرع/المخزن اللي شغال عليه حالياً. غيّر فرع العمل أو اختار مخزن تاني'
-    );
-  }
-}
-
+/**
+ * عمليات الكتابة (بيع/شراء/تعديل مخزون/تحويل/رصيد افتتاحي) بتتحقق من صلاحيات المستخدم
+ * على المخزن مش من فرع العمل: فرع العمل فلتر عرض والواجهة بتختار مخزنه افتراضياً، وفرع
+ * الفاتورة بيتحدد من فرع المخزن. كده اختيار قديم محفوظ على الجهاز مايوقفش البيع أبداً.
+ */
 export function assertWarehouseAllowed(scope: AccessScope, warehouseId: string): void {
   if (!isWarehouseAllowed(scope, warehouseId)) {
     throw new ForbiddenException('مش مسموح لك تتعامل على المخزن ده');
-  }
-}
-
-export function assertBranchInWorkingScope(
-  scope: AccessScope,
-  branchId: string | null | undefined
-): void {
-  if (!isBranchInWorkingScope(scope, branchId)) {
-    throw new ForbiddenException('العملية دي تابعة لفرع مش مسموح لك أو مش شغال عليه حالياً');
   }
 }
 

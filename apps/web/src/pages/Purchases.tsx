@@ -7,6 +7,7 @@ import toast from 'react-hot-toast';
 import { Plus, X, Trash2, Paperclip, Printer } from 'lucide-react';
 import { InvoiceAttachments } from '@/components/InvoiceAttachments';
 import { escapeHtml } from '@/lib/escape';
+import { keepIfValid, useWorkingWarehouses } from '@/contexts/WorkspaceContext';
 
 interface Purchase {
   id: string;
@@ -21,7 +22,6 @@ interface Line { productId: string; productName: string; quantity: string; unitC
 export function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
-  const [warehouses, setWarehouses] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -30,23 +30,31 @@ export function PurchasesPage() {
 
   const [supplierId, setSupplierId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
+  // الاستلام بيبقى في مخزن من مخازن فرع العمل الحالي (الافتراضي = مخزن العمل).
+  const { ready: warehousesReady, warehouses, defaultWarehouseId } = useWorkingWarehouses();
+  useEffect(() => {
+    if (!warehousesReady) return;
+    setWarehouseId((prev) => keepIfValid(warehouses, prev, defaultWarehouseId));
+  }, [warehousesReady, warehouses, defaultWarehouseId]);
   const [paidAmount, setPaidAmount] = useState('');
   const [lines, setLines] = useState<Line[]>([{ productId: '', productName: '', quantity: '1', unitCost: '' }]);
 
   const load = async () => {
     setLoading(true);
-    const [p, s, w, pr] = await Promise.all([
-      api.get('/purchases'),
-      api.get('/suppliers'),
-      api.get('/warehouses'),
-      api.get('/products'),
-    ]);
-    setPurchases(p.data.data);
-    setSuppliers(s.data.data);
-    setWarehouses(w.data.data);
-    setProducts(pr.data.data);
-    if (w.data.data[0]) setWarehouseId((w.data.data.find((x: any) => x.isMain) || w.data.data[0]).id);
-    setLoading(false);
+    try {
+      const [p, s, pr] = await Promise.all([
+        api.get('/purchases'),
+        api.get('/suppliers'),
+        api.get('/products'),
+      ]);
+      setPurchases(p.data.data);
+      setSuppliers(s.data.data);
+      setProducts(pr.data.data);
+    } catch {
+      // رسالة الخطأ بتظهر من api
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
 
@@ -79,7 +87,14 @@ export function PurchasesPage() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supplierId || !warehouseId) { toast.error('اختر المورد والمخزن'); return; }
+    if (!supplierId || !warehouseId) {
+      toast.error(
+        warehousesReady && warehouses.length === 0
+          ? 'مفيش مخزن متاح في فرع العمل الحالي. غيّر فرع العمل من صفحة «فرع العمل».'
+          : 'اختر المورد والمخزن'
+      );
+      return;
+    }
     const items = lines.filter((l) => l.productId && Number(l.quantity) > 0).map((l) => ({
       productId: l.productId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) || 0,
     }));
