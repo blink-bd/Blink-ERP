@@ -2,12 +2,15 @@ import { Controller, Get, Post, Put, Param, Body, UseGuards, Request } from '@ne
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { WarehousesService } from './warehouses.service';
 
 @ApiTags('warehouses')
 @ApiBearerAuth()
 @Controller({ path: 'warehouses', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard)
+@RequireFeature('warehouses')
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
 export class WarehousesController {
   constructor(private readonly warehousesService: WarehousesService) {}
 

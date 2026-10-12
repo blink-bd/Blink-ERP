@@ -1,27 +1,31 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import { toast } from 'react-hot-toast';
+import { getCsrfToken } from './csrf';
 
-// استخدم مساراً نسبياً افتراضياً حتى يعمل التطبيق خلف نفس النطاق (ومن خلال proxy في التطوير).
+// استخدم مساراً نسبياً افتراضياً حتى يعمل التطبيق من نفس النطاق أو خلف proxy.
 const API_URL = (import.meta as any).env?.VITE_API_URL || '/api/v1';
+const SAFE_METHODS = new Set(['get', 'head', 'options']);
+const NO_REFRESH_PATHS = ['/auth/login', '/auth/refresh', '/auth/csrf'];
 
 class ApiClient {
   private client: AxiosInstance;
+  private refreshPromise: Promise<void> | null = null;
 
   constructor() {
     this.client = axios.create({
       baseURL: API_URL,
+      withCredentials: true,
       headers: { 'Content-Type': 'application/json' },
     });
-
     this.setupInterceptors();
   }
 
   private setupInterceptors() {
     this.client.interceptors.request.use(
-      (config) => {
-        const token = localStorage.getItem('accessToken');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
+      async (config) => {
+        const method = (config.method || 'get').toLowerCase();
+        if (!SAFE_METHODS.has(method)) {
+          config.headers['X-CSRF-Token'] = await getCsrfToken();
         }
         return config;
       },
@@ -32,29 +36,35 @@ class ApiClient {
       (response) => response,
       async (error: AxiosError) => {
         const originalRequest = error.config as any;
+        const requestUrl = String(originalRequest?.url || '');
+        const isAuthEndpoint = NO_REFRESH_PATHS.some((path) => requestUrl.includes(path));
 
-        if (error.response?.status === 401 && !originalRequest._retry) {
+        if (
+          error.response?.status === 401 &&
+          originalRequest &&
+          !originalRequest._retry &&
+          !isAuthEndpoint
+        ) {
           originalRequest._retry = true;
           try {
-            const refreshToken = localStorage.getItem('refreshToken');
-            if (refreshToken) {
-              const response = await axios.post(`${API_URL}/auth/refresh`, { refreshToken });
-              const { accessToken } = response.data.data;
-              localStorage.setItem('accessToken', accessToken);
-              originalRequest.headers.Authorization = `Bearer ${accessToken}`;
-              return this.client(originalRequest);
+            if (!this.refreshPromise) {
+              this.refreshPromise = this.client
+                .post('/auth/refresh')
+                .then(() => undefined)
+                .finally(() => {
+                  this.refreshPromise = null;
+                });
             }
+            await this.refreshPromise;
+            return this.client(originalRequest);
           } catch (refreshError) {
-            localStorage.removeItem('accessToken');
-            localStorage.removeItem('refreshToken');
-            window.location.href = '/login';
             return Promise.reject(refreshError);
           }
         }
 
         const message = (error.response?.data as any)?.error?.message || 'حدث خطأ غير متوقع';
-        toast.error(message);
-
+        // أخطاء جلسة الدخول الأولية لا تظهر كرسالة منبثقة للمستخدم.
+        if (!isAuthEndpoint || requestUrl.includes('/auth/login')) toast.error(message);
         return Promise.reject(error);
       }
     );

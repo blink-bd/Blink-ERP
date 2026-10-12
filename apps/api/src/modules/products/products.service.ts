@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, EntityManager } from 'typeorm';
 import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { InventoryService } from '@/modules/inventory/inventory.service';
@@ -231,6 +231,29 @@ export class ProductsService {
     }
 
     return saved;
+  }
+
+  async applyPurchaseCostChangeInTransaction(
+    manager: EntityManager,
+    tenantId: string,
+    id: string,
+    unitCost: number,
+    userId: string
+  ): Promise<boolean> {
+    const product = await manager.findOne(Product, {
+      where: { id, tenantId, deletedAt: IsNull() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!product) throw new NotFoundException('المنتج غير موجود');
+    const oldCost = Number(product.costPrice);
+    if (Math.abs(oldCost - unitCost) <= 0.0001) return false;
+
+    product.costPrice = unitCost;
+    product.needsPriceReview = true;
+    product.priceReviewNote = `تغيّر سعر التكلفة من ${oldCost.toFixed(2)} إلى ${unitCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر البيع القطاعي والجملة`;
+    product.updatedBy = userId;
+    await manager.save(product);
+    return true;
   }
 
   async update(

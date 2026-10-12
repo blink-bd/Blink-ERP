@@ -12,6 +12,7 @@ import { SalesController } from './sales.controller';
 import { ProductsModule } from '@/modules/products/products.module';
 import { InventoryModule } from '@/modules/inventory/inventory.module';
 import { CustomersModule } from '@/modules/customers/customers.module';
+import { SuppliersModule } from '@/modules/suppliers/suppliers.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { CustomersModule } from '@/modules/customers/customers.module';
     ProductsModule,
     InventoryModule,
     CustomersModule,
+    SuppliersModule,
   ],
   controllers: [SalesController],
   providers: [SalesService],

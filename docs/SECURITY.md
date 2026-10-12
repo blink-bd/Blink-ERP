@@ -1,6 +1,7 @@
 # Security Guidelines
 
 ## Overview
+
 This document outlines security best practices and requirements for the ERP/POS system. Security is implemented at multiple layers: network, application, database, and data.
 
 ---
@@ -8,10 +9,12 @@ This document outlines security best practices and requirements for the ERP/POS 
 ## Authentication Security
 
 ### Password Requirements
+
 - Minimum length: 8 characters
 - At least one uppercase, one lowercase, one number, one special character
 
 ### Password Storage
+
 ```typescript
 import * as argon2 from 'argon2';
 
@@ -37,6 +40,7 @@ async function verifyPassword(hash: string, password: string): Promise<boolean> 
 ```
 
 ### Account Lockout
+
 ```typescript
 class AccountLockoutService {
   private static readonly MAX_FAILED_ATTEMPTS = 5;
@@ -50,7 +54,11 @@ class AccountLockoutService {
     if (user.failedLoginAttempts >= this.MAX_FAILED_ATTEMPTS) {
       user.lockedUntil = new Date(Date.now() + this.LOCKOUT_DURATION_MINUTES * 60 * 1000);
       await this.auditLogger.log({ action: 'ACCOUNT_LOCKED', userId: user.id });
-      await this.notificationService.send({ to: user.email, template: 'account-locked', data: { unlockTime: user.lockedUntil } });
+      await this.notificationService.send({
+        to: user.email,
+        template: 'account-locked',
+        data: { unlockTime: user.lockedUntil },
+      });
     }
     await this.usersRepository.save(user);
   }
@@ -62,10 +70,19 @@ class AccountLockoutService {
 ## JWT Token Security
 
 ### Token Configuration
+
 ```typescript
 const JWT_CONFIG = {
-  accessToken: { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '15m', algorithm: 'HS256' as const },
-  refreshToken: { secret: process.env.JWT_REFRESH_SECRET, expiresIn: '7d', algorithm: 'HS256' as const },
+  accessToken: {
+    secret: process.env.JWT_ACCESS_SECRET,
+    expiresIn: '15m',
+    algorithm: 'HS256' as const,
+  },
+  refreshToken: {
+    secret: process.env.JWT_REFRESH_SECRET,
+    expiresIn: '7d',
+    algorithm: 'HS256' as const,
+  },
 };
 
 interface JWTPayload {
@@ -80,7 +97,7 @@ interface JWTPayload {
 }
 ```
 
-Access tokens are short-lived (15m); refresh tokens are stored hashed in DB for revocation capability. Tenant status and subscription are checked on every request validation.
+Access tokens are short-lived (15m). Browser clients keep access/refresh JWTs in `HttpOnly`, `Secure` cookies and never write them to `localStorage` or return them in login JSON. A double-submit CSRF token cookie/header pair is required for state-changing requests. Refresh JWTs are currently stateless; logout clears browser cookies, but a stolen refresh token remains usable until expiry. Tenant status and subscription are checked on every request validation.
 
 ---
 
@@ -89,6 +106,7 @@ Access tokens are short-lived (15m); refresh tokens are stored hashed in DB for 
 ### Tenant Isolation Enforcement
 
 #### Database Level
+
 ```sql
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_policy ON products
@@ -97,6 +115,7 @@ SET LOCAL app.current_tenant_id = '{tenant_id}';
 ```
 
 #### Application Level
+
 ```typescript
 @Injectable()
 export class TenantContextGuard implements CanActivate {
@@ -113,6 +132,7 @@ export class TenantContextGuard implements CanActivate {
 ```
 
 #### Never accept tenant_id from client
+
 ```typescript
 // ❌ WRONG
 @Post('products')
@@ -128,6 +148,7 @@ async createProduct(@Body() dto: CreateProductDto, @Request() req) {
 ```
 
 ### Testing Tenant Isolation
+
 Comprehensive tests must verify: cross-tenant read is blocked (404), tenant_id injection in create is ignored (uses JWT tenant), and list endpoints never leak other tenants' data.
 
 ---
@@ -135,23 +156,30 @@ Comprehensive tests must verify: cross-tenant read is blocked (404), tenant_id i
 ## Input Validation
 
 ### DTO Validation
+
 ```typescript
 export class CreateProductDto {
-  @IsString() @Length(1, 500) @Transform(({ value }) => value?.trim())
+  @IsString()
+  @Length(1, 500)
+  @Transform(({ value }) => value?.trim())
   name: string;
 
-  @IsNumber() @Min(0)
+  @IsNumber()
+  @Min(0)
   costPrice: number;
 
-  @IsNumber() @Min(0.01)
+  @IsNumber()
+  @Min(0.01)
   sellingPrice: number;
 }
 ```
 
 ### SQL Injection Prevention
+
 Always use parameterized queries via QueryBuilder / TypeORM repositories; never concatenate user input into raw SQL.
 
 ### XSS Prevention
+
 Use DOMPurify to sanitize any HTML content before storage/rendering; escape plain text for display.
 
 ---
@@ -214,17 +242,19 @@ Never commit `.env`. Validate required env vars on startup and fail fast if miss
 
 ```typescript
 import helmet from 'helmet';
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      objectSrc: ["'none'"],
-      frameSrc: ["'none'"],
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameSrc: ["'none'"],
+      },
     },
-  },
-  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
-}));
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  })
+);
 ```
 
 ---
@@ -242,6 +272,7 @@ app.use(helmet({
 ## Security Checklist
 
 ### Development
+
 - [ ] Env vars for secrets
 - [ ] Input validation everywhere
 - [ ] Parameterized queries
@@ -249,6 +280,7 @@ app.use(helmet({
 - [ ] HTTPS everywhere
 
 ### Authentication
+
 - [ ] Strong password policy
 - [ ] Argon2 hashing
 - [ ] Account lockout
@@ -256,24 +288,28 @@ app.use(helmet({
 - [ ] Secure refresh token storage + revocation
 
 ### Authorization
+
 - [ ] Tenant isolation enforced
 - [ ] Permissions checked on every endpoint
 - [ ] Feature flags checked
 - [ ] Never trust client-side data
 
 ### Data Protection
+
 - [ ] TLS in transit
 - [ ] Encrypted backups
 - [ ] Secure file uploads
 - [ ] Sanitized user content
 
 ### Monitoring
+
 - [ ] Comprehensive audit logging
 - [ ] Failed login monitoring
 - [ ] Alerting on anomalies
 - [ ] Regular security reviews
 
 ### Dependencies
+
 - [ ] Regular updates
 - [ ] Vulnerability scanning
 - [ ] Lock files committed

@@ -18,17 +18,33 @@ export class ExpensesController {
   async findAll(
     @Request() req,
     @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string
+    @Query('endDate') endDate?: string,
+    @Query('branchIds') branchIds?: string
   ) {
+    const selected = branchIds
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
     return {
       success: true,
-      data: await this.expensesService.findAll(req.tenantId, startDate, endDate),
+      data: await this.expensesService.findAll(req.tenantId, startDate, endDate, selected),
     };
   }
 
   @Get('summary')
-  async summary(@Request() req, @Query('period') period?: 'day' | 'month' | 'year') {
-    return { success: true, data: await this.expensesService.summary(req.tenantId, period) };
+  async summary(
+    @Request() req,
+    @Query('period') period?: 'day' | 'month' | 'year',
+    @Query('branchIds') branchIds?: string
+  ) {
+    const selected = branchIds
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return {
+      success: true,
+      data: await this.expensesService.summary(req.tenantId, period, selected),
+    };
   }
 
   @Get('categories')

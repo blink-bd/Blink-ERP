@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -7,6 +17,7 @@ import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { SalesService } from './sales.service';
 import { CreateSaleDto } from './dto/create-sale.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
+import { ResolveReturnItemDto } from './dto/resolve-return-item.dto';
 
 @ApiTags('sales')
 @ApiBearerAuth()
@@ -38,6 +49,12 @@ export class SalesController {
     return { success: true, data: await this.salesService.getDefaultPaymentMethods(req.tenantId) };
   }
 
+  @Get('returns')
+  @RequireFeature('return_disposition')
+  async findReturns(@Request() req, @Query('status') status?: string) {
+    return { success: true, data: await this.salesService.findReturns(req.tenantId, status) };
+  }
+
   @Get(':id')
   async findOne(@Request() req, @Param('id') id: string) {
     return { success: true, data: await this.salesService.findById(req.tenantId, id) };
@@ -45,7 +62,7 @@ export class SalesController {
 
   @Post()
   async create(@Request() req, @Body() dto: CreateSaleDto) {
-    const sale = await this.salesService.create(req.tenantId, dto, req.user.id);
+    const sale = await this.salesService.create(req.tenantId, dto, req.user.id, req.user.branchId);
     return { success: true, data: sale, message: 'تم إنشاء الفاتورة بنجاح' };
   }
 
@@ -73,8 +90,30 @@ export class SalesController {
   }
 
   @Post(':id/return')
+  @RequireFeature('return_disposition')
   async createReturn(@Request() req, @Param('id') id: string, @Body() dto: CreateReturnDto) {
     const result = await this.salesService.createReturn(req.tenantId, id, dto, req.user.id);
-    return { success: true, data: result, message: 'تم تسجيل الاسترجاع وتحديث المخزون بنجاح' };
+    return { success: true, data: result, message: 'تم تسجيل الاسترجاع وإرساله إلى الفحص' };
+  }
+
+  @Post('returns/:returnId/items/:itemId/disposition')
+  @RequireFeature('return_disposition')
+  async resolveReturnItem(
+    @Request() req,
+    @Param('returnId', ParseUUIDPipe) returnId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: ResolveReturnItemDto
+  ) {
+    return {
+      success: true,
+      data: await this.salesService.resolveReturnItem(
+        req.tenantId,
+        returnId,
+        itemId,
+        req.user.id,
+        dto
+      ),
+      message: 'تم حفظ قرار فحص المرتجع',
+    };
   }
 }

@@ -5,7 +5,8 @@ import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { FeaturesService } from './features.service';
 import { MasterAdminGuard } from '@/modules/master-admin/master-admin.guard';
 import { MasterAdminService } from '@/modules/master-admin/master-admin.service';
-import { IsArray, IsBoolean, IsUUID, ValidateNested } from 'class-validator';
+import { BalanceRemindersService } from '@/modules/balance-reminders/balance-reminders.service';
+import { IsArray, IsBoolean, IsUUID, ValidateNested, IsOptional, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 
 @ApiTags('features')
@@ -25,6 +26,7 @@ export class FeaturesController {
 class FeatureToggleDto {
   @IsUUID() featureId: string;
   @IsBoolean() isEnabled: boolean;
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
 }
 
 class UpdateTenantFeaturesDto {
@@ -41,7 +43,8 @@ class UpdateTenantFeaturesDto {
 export class AdminFeaturesController {
   constructor(
     private readonly featuresService: FeaturesService,
-    private readonly master: MasterAdminService
+    private readonly master: MasterAdminService,
+    private readonly balanceReminders: BalanceRemindersService
   ) {}
 
   @Get()
@@ -57,8 +60,14 @@ export class AdminFeaturesController {
     @Body() dto: UpdateTenantFeaturesDto
   ) {
     for (const f of dto.features) {
-      await this.featuresService.setFeatureStatus(tenantId, f.featureId, f.isEnabled);
+      await this.featuresService.setFeatureStatus(
+        tenantId,
+        f.featureId,
+        f.isEnabled,
+        f.config ? { config: f.config } : undefined
+      );
     }
+    await this.balanceReminders.checkSupplierPayablesLimitSafely(tenantId);
     await this.master.audit(
       req.masterAdmin.email,
       'TENANT_FEATURES_UPDATED',

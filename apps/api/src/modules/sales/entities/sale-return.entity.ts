@@ -1,4 +1,14 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
+import { Sale } from './sale.entity';
+import { SaleReturnItem } from './sale-return-item.entity';
 
 @Entity('sale_returns')
 export class SaleReturn {
@@ -19,6 +29,9 @@ export class SaleReturn {
 
   @Column({ name: 'warehouse_id', type: 'uuid' })
   warehouseId: string;
+
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string;
 
   @Column({ name: 'return_date', type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   returnDate: Date;
@@ -49,4 +62,11 @@ export class SaleReturn {
 
   @Column({ name: 'created_by', type: 'uuid' })
   createdBy: string;
+
+  @OneToMany(() => SaleReturnItem, (item) => item.saleReturn)
+  items: SaleReturnItem[];
+
+  @ManyToOne(() => Sale)
+  @JoinColumn({ name: 'original_sale_id' })
+  originalSale: Sale;
 }

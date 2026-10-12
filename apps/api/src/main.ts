@@ -4,7 +4,9 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import { AppModule } from './app.module';
+import { CsrfMiddleware } from './common/middleware/csrf.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -13,43 +15,55 @@ async function bootstrap() {
 
   const configService = app.get(ConfigService);
 
-  // خلف Render/Cloudflare: اعتبر أول Proxy موثوق (عشان الـ IP الحقيقي وحدود الطلبات)
+  // خلف Render/Cloudflare: استخدم قيمة Render الموثوقة لعنوان العميل وحدود الطلبات.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
-  // Security
+  app.use(cookieParser());
   app.use(helmet());
-
-  // Compression
   app.use(compression());
 
-  // CORS
+  const isProduction = configService.get('NODE_ENV') === 'production';
+  const configuredOrigins = [
+    configService.get<string>('FRONTEND_URL'),
+    ...(configService.get<string>('CORS_ORIGINS') || '').split(','),
+  ]
+    .map((origin) => origin?.trim().replace(/\/$/, ''))
+    .filter((origin): origin is string => Boolean(origin));
+  if (!isProduction) {
+    configuredOrigins.push('http://localhost:5173', 'tauri://localhost', 'http://tauri.localhost');
+  }
+  const allowedOrigins = new Set(configuredOrigins);
+
   app.enableCors({
-    origin: configService.get('FRONTEND_URL') || 'http://localhost:5173',
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin.replace(/\/$/, ''))) {
+        callback(null, true);
+      } else {
+        callback(new Error('Origin is not allowed by CORS'));
+      }
+    },
     credentials: true,
+    methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Backup-Alert-Token'],
+    maxAge: 600,
   });
 
-  // Global prefix
+  // كل طلب يغيّر البيانات يحتاج رمز CSRF مطابقاً للكوكي والـ header.
+  const csrfMiddleware = new CsrfMiddleware();
+  app.use((req, res, next) => csrfMiddleware.use(req, res, next));
+
   app.setGlobalPrefix('api');
+  app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
 
-  // Versioning
-  app.enableVersioning({
-    type: VersioningType.URI,
-    defaultVersion: '1',
-  });
-
-  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
-      transformOptions: {
-        enableImplicitConversion: true,
-      },
+      transformOptions: { enableImplicitConversion: true },
     })
   );
 
-  // Swagger documentation
   if (configService.get('NODE_ENV') !== 'production') {
     const config = new DocumentBuilder()
       .setTitle('ERP/POS API')
@@ -58,24 +72,20 @@ async function bootstrap() {
       .addBearerAuth()
       .addTag('auth', 'Authentication endpoints')
       .addTag('tenants', 'Tenant management')
-      .addTag('users', 'User management')
       .addTag('products', 'Product catalog')
       .addTag('sales', 'Sales management')
-      .addTag('inventory', 'Inventory management')
-      .addTag('customers', 'Customer management')
-      .addTag('suppliers', 'Supplier management')
-      .addTag('reports', 'Reports and analytics')
+      .addTag('inventory', 'Inventory management and approved transfers')
+      .addTag('webhooks', 'Signed outbound webhooks')
+      .addTag('electronic-receipts', 'Public receipt verification')
       .build();
-
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  const port = configService.get('PORT') || 3000;
-  await app.listen(port);
+  const port = Number(configService.get('PORT') || 3000);
+  await app.listen(port, '0.0.0.0');
 
-  console.log(`🚀 Application is running on: http://localhost:${port}`);
-  console.log(`📚 API Documentation: http://localhost:${port}/api/docs`);
+  console.log(`🚀 Application is running on port ${port}`);
 }
 
 bootstrap();

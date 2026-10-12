@@ -13,6 +13,13 @@ import {
   Wallet,
   Receipt,
   BarChart3,
+  ArrowRightLeft,
+  Settings,
+  BellRing,
+  FileText,
+  RotateCcw,
+  Building2,
+  Wrench,
 } from 'lucide-react';
 
 interface NavItem {
@@ -25,14 +32,31 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
   { to: '/pos', labelKey: 'pos', icon: ShoppingCart, feature: 'pos' },
+  { to: '/sales', labelKey: 'sales', icon: FileText, feature: 'sales' },
+  { to: '/returns', labelKey: 'returns', icon: RotateCcw, feature: 'return_disposition' },
+  { to: '/maintenance', labelKey: 'maintenance', icon: Wrench, feature: 'maintenance_management' },
   { to: '/products', labelKey: 'products', icon: Package, feature: 'products' },
   { to: '/inventory', labelKey: 'inventory', icon: Warehouse, feature: 'inventory' },
+  { to: '/transfers', labelKey: 'transfers', icon: ArrowRightLeft, feature: 'inventory' },
   { to: '/customers', labelKey: 'customers', icon: Users, feature: 'customers' },
   { to: '/suppliers', labelKey: 'suppliers', icon: Truck, feature: 'suppliers' },
   { to: '/purchases', labelKey: 'purchases', icon: ShoppingBag, feature: 'purchases' },
   { to: '/expenses', labelKey: 'expenses', icon: Wallet, feature: 'expenses' },
   { to: '/cash-register', labelKey: 'cashRegister', icon: Receipt, feature: 'cash_register' },
   { to: '/reports', labelKey: 'reports', icon: BarChart3, feature: 'reports' },
+  {
+    to: '/branch-reports',
+    labelKey: 'branchReports',
+    icon: Building2,
+    feature: 'branch_analytics',
+  },
+  {
+    to: '/balance-reminders',
+    labelKey: 'balanceReminders',
+    icon: BellRing,
+    feature: 'balance_reminders',
+  },
+  { to: '/settings', labelKey: 'settings', icon: Settings },
 ];
 
 function NavItemLink({ item }: { item: NavItem }) {
@@ -61,9 +85,18 @@ export function Sidebar() {
   const { branding } = useBranding();
 
   return (
-    <aside className="w-64 shrink-0 h-screen sticky top-0 flex flex-col" style={{ backgroundColor: branding.sidebarColor }}>
+    <aside
+      className="w-64 shrink-0 h-screen sticky top-0 flex flex-col"
+      style={{ backgroundColor: branding.sidebarColor }}
+    >
       <div className="px-4 py-5 border-b border-white/10 flex items-center gap-3">
-        {branding.logoUrl && <img src={branding.logoUrl} alt="الشعار" className="h-9 w-9 object-contain rounded bg-white/10" />}
+        {branding.logoUrl && (
+          <img
+            src={branding.logoUrl}
+            alt="الشعار"
+            className="h-9 w-9 object-contain rounded bg-white/10"
+          />
+        )}
         <h1 className="text-white text-lg font-bold truncate">{branding.appName}</h1>
       </div>
       <nav className="flex-1 overflow-y-auto p-3 space-y-1">

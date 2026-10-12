@@ -1,5 +1,6 @@
 import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 import { MasterAdminService } from './master-admin.service';
+import { MASTER_TOKEN_COOKIE } from '@/common/utils/auth-cookies';
 
 @Injectable()
 export class MasterAdminGuard implements CanActivate {
@@ -8,10 +9,11 @@ export class MasterAdminGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const header: string | undefined = request.headers.authorization;
-    if (!header || !header.startsWith('Bearer ')) {
-      throw new UnauthorizedException('مطلوب تسجيل دخول المدير العام');
-    }
-    const admin = await this.masterAdminService.authenticate(header.substring(7));
+    const token = header?.startsWith('Bearer ')
+      ? header.substring(7)
+      : request.cookies?.[MASTER_TOKEN_COOKIE];
+    if (!token) throw new UnauthorizedException('مطلوب تسجيل دخول المدير العام');
+    const admin = await this.masterAdminService.authenticate(token);
     request.masterAdmin = { id: admin.id, email: admin.email, fullName: admin.fullName };
     return true;
   }

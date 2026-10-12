@@ -14,6 +14,10 @@
 - ✅ متابعة مبيعات ومشتريات
 - ✅ إدارة عملاء وموردين
 - ✅ تقارير وتحليلات متقدمة
+- ✅ تحويلات بين الفروع بحجز مخزون وموافقة مستخدم آخر
+- ✅ مصادقة HttpOnly Cookies مع حماية CSRF
+- ✅ تنبيهات البريد وWhatsApp وWebhooks
+- ✅ إيصال إلكتروني برابط تحقق وQR، ونسخ PostgreSQL احتياطي خارجي
 
 ## Tech Stack
 
@@ -27,6 +31,7 @@
 راجع **[docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md)** لو عايز تنشر النظام كـ **Web App** على الإنترنت (GitHub + Render + Vercel) بحيث أي حد يفتحه من المتصفح بلينك.
 
 ملخص سريع:
+
 ```bash
 npm install
 cd apps/api && npm install && cd ../..
@@ -72,10 +77,12 @@ cd apps/desktop && npm run tauri dev
 - **[دليل تسطيب Web App خطوة بخطوة (GitHub + Supabase + Render + Cloudflare)](./docs/WEBAPP_SETUP_GUIDE.md)** ⭐ ابدأ من هنا للنشر أونلاين
 - [دليل نشر بديل (Render + Vercel)](./docs/DEPLOYMENT.md)
 - [ملاحظات إضافية (Supabase + Cloudflare)](./docs/DEPLOY_SUPABASE_CLOUDFLARE.md)
+- **[تشغيل Cookies والتنبيهات والتحويلات وWebhooks والنسخ الاحتياطي والإيصال الإلكتروني](./docs/OPERATIONS_FEATURES.md)**
 
 ## حالة الكود المرفق
 
 هذه الحزمة تحتوي على:
+
 - ✅ بنية Monorepo كاملة وقابلة للتشغيل (npm workspaces + turbo)
 - ✅ Backend NestJS شغّال فعلياً: `AuthModule`, `TenantsModule`, `UsersModule` مع JWT + Argon2 + Guards + Migrations + Seeds
 - ✅ Desktop App React + Tauri شغّال فعلياً: Login, Dashboard, Auth/Features/Branding Contexts, i18n عربي RTL

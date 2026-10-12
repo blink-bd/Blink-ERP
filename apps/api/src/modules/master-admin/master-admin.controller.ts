@@ -9,8 +9,16 @@ import {
   Put,
   Query,
   Request,
+  Response,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Response as ExpressResponse } from 'express';
+import {
+  MASTER_TOKEN_COOKIE,
+  authCookieOptions,
+  durationToMilliseconds,
+} from '@/common/utils/auth-cookies';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { MasterAdminService } from './master-admin.service';
@@ -26,12 +34,34 @@ import {
 @ApiTags('master-auth')
 @Controller({ path: 'admin/auth', version: '1' })
 export class MasterAuthController {
-  constructor(private readonly service: MasterAdminService) {}
+  constructor(
+    private readonly service: MasterAdminService,
+    private readonly config: ConfigService
+  ) {}
 
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  async login(@Body() dto: MasterLoginDto, @Ip() ip: string) {
-    return { success: true, data: await this.service.login(dto.email, dto.password, ip) };
+  async login(
+    @Body() dto: MasterLoginDto,
+    @Ip() ip: string,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
+    const result = await this.service.login(dto.email, dto.password, ip);
+    res.cookie(
+      MASTER_TOKEN_COOKIE,
+      result.accessToken,
+      authCookieOptions(this.config, {
+        path: '/api/v1/admin',
+        maxAge: durationToMilliseconds('8h', 8 * 60 * 60 * 1000),
+      })
+    );
+    return { success: true, data: { admin: result.admin } };
+  }
+
+  @Post('logout')
+  logout(@Response({ passthrough: true }) res: ExpressResponse) {
+    res.clearCookie(MASTER_TOKEN_COOKIE, authCookieOptions(this.config, { path: '/api/v1/admin' }));
+    return { success: true, message: 'تم تسجيل الخروج' };
   }
 
   @Get('me')

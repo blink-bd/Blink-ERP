@@ -2,6 +2,8 @@ import { Controller, Get, Post, Put, Param, Body, UseGuards, Request } from '@ne
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { BranchesService } from './branches.service';
 
 @ApiTags('branches')

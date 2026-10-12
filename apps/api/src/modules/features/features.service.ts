@@ -145,6 +145,7 @@ export class FeaturesService {
       isCore: f.isCore,
       requiresPlan: f.requiresPlan,
       isEnabled: f.isCore || !!map.get(f.id)?.isEnabled,
+      config: map.get(f.id)?.config || {},
     }));
   }
 }

@@ -10,6 +10,9 @@ export class Sale extends BaseEntity {
   @Column({ name: 'sale_number', length: 100 })
   saleNumber: string;
 
+  @Column({ name: 'receipt_token', length: 64, unique: true })
+  receiptToken: string;
+
   @Column({ name: 'customer_id', type: 'uuid', nullable: true })
   customerId?: string;
 

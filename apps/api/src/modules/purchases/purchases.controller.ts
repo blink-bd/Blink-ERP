@@ -31,7 +31,12 @@ export class PurchasesController {
 
   @Post()
   async create(@Request() req, @Body() dto: any) {
-    const purchase = await this.purchasesService.create(req.tenantId, dto, req.user.id);
+    const purchase = await this.purchasesService.create(
+      req.tenantId,
+      dto,
+      req.user.id,
+      req.user.branchId
+    );
     return { success: true, data: purchase, message: 'تم إنشاء أمر الشراء بنجاح' };
   }
 }

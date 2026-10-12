@@ -1,4 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn } from 'typeorm';
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  JoinColumn,
+  ManyToOne,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
+import { Product } from '@/modules/products/entities/product.entity';
+import { SaleReturn } from './sale-return.entity';
 
 @Entity('sale_return_items')
 export class SaleReturnItem {
@@ -35,6 +44,26 @@ export class SaleReturnItem {
   @Column({ name: 'unit_cost', type: 'decimal', precision: 15, scale: 4 })
   unitCost: number;
 
+  @Column({ length: 20, default: 'pending' })
+  disposition: 'pending' | 'supplier' | 'restocked';
+
+  @Column({ name: 'supplier_id', type: 'uuid', nullable: true })
+  supplierId?: string;
+
+  @Column({ name: 'new_product_id', type: 'uuid', nullable: true })
+  newProductId?: string;
+
+  @Column({ name: 'repair_expense', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  repairExpense: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
+  @ManyToOne(() => SaleReturn, (saleReturn) => saleReturn.items, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'return_id' })
+  saleReturn: SaleReturn;
+
+  @ManyToOne(() => Product)
+  @JoinColumn({ name: 'product_id' })
+  product: Product;
 }

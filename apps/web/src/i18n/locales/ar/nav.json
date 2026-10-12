@@ -1,14 +1,19 @@
 {
   "dashboard": "لوحة التحكم",
   "sales": "المبيعات",
+  "returns": "فحص المرتجعات",
+  "maintenance": "إدارة الصيانة",
   "pos": "نقطة البيع",
   "products": "المنتجات",
   "inventory": "المخزون",
+  "transfers": "تحويلات الفروع",
   "customers": "العملاء",
   "suppliers": "الموردون",
   "purchases": "المشتريات",
   "expenses": "المصروفات",
   "cashRegister": "الخزينة",
   "reports": "التقارير",
+  "branchReports": "تقارير الفروع",
+  "balanceReminders": "تنبيهات الأرصدة",
   "settings": "الإعدادات"
 }

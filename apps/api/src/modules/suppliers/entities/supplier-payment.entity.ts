@@ -11,6 +11,9 @@ export class SupplierPayment {
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;
 
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string;
+
   @Column({ type: 'decimal', precision: 15, scale: 4 })
   amount: number;
 

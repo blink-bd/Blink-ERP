@@ -26,9 +26,26 @@ export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
-  async findAll(@Request() req, @Query('search') search?: string) {
-    const result = await this.suppliersService.findAll(req.tenantId, search);
+  async findAll(
+    @Request() req,
+    @Query('search') search?: string,
+    @Query('branchIds') branchIds?: string
+  ) {
+    const selected = branchIds
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const result = await this.suppliersService.findAll(req.tenantId, search, selected);
     return { success: true, data: result.data, meta: { totalOwed: result.totalOwed } };
+  }
+
+  @Get('payables-limit/status')
+  @RequireFeature('supplier_balance_limit')
+  async payablesLimitStatus(@Request() req) {
+    return {
+      success: true,
+      data: await this.suppliersService.getSupplierPayablesLimitStatus(req.tenantId),
+    };
   }
 
   @Get(':id')
@@ -37,8 +54,15 @@ export class SuppliersController {
   }
 
   @Get(':id/statement')
-  async statement(@Request() req, @Param('id') id: string) {
-    return { success: true, data: await this.suppliersService.statement(req.tenantId, id) };
+  async statement(@Request() req, @Param('id') id: string, @Query('branchIds') branchIds?: string) {
+    const selected = branchIds
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    return {
+      success: true,
+      data: await this.suppliersService.statement(req.tenantId, id, selected),
+    };
   }
 
   @Post()
@@ -60,7 +84,7 @@ export class SuppliersController {
   async settle(
     @Request() req,
     @Param('id') id: string,
-    @Body() dto: { amount: number; method: string; notes?: string }
+    @Body() dto: { amount: number; method: string; notes?: string; branchId?: string }
   ) {
     const result = await this.suppliersService.settle(
       req.tenantId,
@@ -68,7 +92,8 @@ export class SuppliersController {
       dto.amount,
       dto.method,
       dto.notes,
-      req.user?.id
+      req.user?.id,
+      dto.branchId || req.user?.branchId
     );
     return { success: true, data: result, message: 'تم تسجيل السداد بنجاح' };
   }

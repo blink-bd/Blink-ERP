@@ -12,6 +12,9 @@ export class Payment extends BaseEntity {
   @Column({ name: 'sale_id', type: 'uuid', nullable: true })
   saleId?: string;
 
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string;
+
   @Column({ name: 'customer_id', type: 'uuid', nullable: true })
   customerId?: string;
 

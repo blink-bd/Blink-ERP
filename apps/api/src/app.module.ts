@@ -23,6 +23,13 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { MasterAdminModule } from './modules/master-admin/master-admin.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { ReceiptsModule } from './modules/receipts/receipts.module';
+import { HealthModule } from './modules/health/health.module';
+import { BalanceRemindersModule } from './modules/balance-reminders/balance-reminders.module';
+import { InvoiceAttachmentsModule } from './modules/invoice-attachments/invoice-attachments.module';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -52,6 +59,13 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
 
     // Core: identity, tenancy, access control
     MasterAdminModule,
+    NotificationsModule,
+    BalanceRemindersModule,
+    InvoiceAttachmentsModule,
+    MaintenanceModule,
+    IntegrationsModule,
+    ReceiptsModule,
+    HealthModule,
     DashboardModule,
     AuthModule,
     TenantsModule,

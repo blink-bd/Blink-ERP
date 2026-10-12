@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+  GoneException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -56,19 +65,8 @@ export class InventoryController {
   }
 
   @Post('transfer')
-  async transfer(
-    @Request() req,
-    @Body()
-    dto: { productId: string; fromWarehouseId: string; toWarehouseId: string; quantity: number }
-  ) {
-    const result = await this.inventoryService.transfer(
-      req.tenantId,
-      dto.productId,
-      dto.fromWarehouseId,
-      dto.toWarehouseId,
-      dto.quantity,
-      req.user?.id
-    );
-    return { success: true, data: result, message: 'تم نقل المخزون بنجاح' };
+  transfer() {
+    // نمنع التحويل الفوري القديم حتى لا يتجاوز مسار الطلب والموافقة الجديد.
+    throw new GoneException('استخدم POST /inventory/transfers لإنشاء طلب تحويل يحتاج إلى موافقة');
   }
 }

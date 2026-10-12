@@ -9,6 +9,10 @@ import { AppLayout } from './components/layout/AppLayout';
 import { LoginPage } from './pages/Login';
 import { DashboardPage } from './pages/Dashboard';
 import { POSPage } from './pages/POS';
+import { SalesPage } from './pages/Sales';
+import { ReturnsPage } from './pages/Returns';
+import { BranchReportsPage } from './pages/BranchReports';
+import { MaintenancePage } from './pages/Maintenance';
 import { ProductsPage } from './pages/Products';
 import { InventoryPage } from './pages/Inventory';
 import { CustomersPage } from './pages/Customers';
@@ -17,6 +21,10 @@ import { PurchasesPage } from './pages/Purchases';
 import { ExpensesPage } from './pages/Expenses';
 import { CashRegisterPage } from './pages/CashRegister';
 import { ReportsPage } from './pages/Reports';
+import { TransfersPage } from './pages/Transfers';
+import { ReceiptPage } from './pages/Receipt';
+import { SettingsPage } from './pages/Settings';
+import { BalanceRemindersPage } from './pages/BalanceReminders';
 import { AdminLoginPage } from './pages/admin/AdminLogin';
 import { AdminLayout } from './pages/admin/AdminLayout';
 import { AdminDashboardPage } from './pages/admin/AdminDashboard';
@@ -25,7 +33,8 @@ import { AdminTenantDetailPage } from './pages/admin/AdminTenantDetail';
 
 function ProtectedRoute({ children }: { children: JSX.Element }) {
   const { isAuthenticated, isLoading } = useAuth();
-  if (isLoading) return <div className="flex items-center justify-center h-screen">جاري التحميل...</div>;
+  if (isLoading)
+    return <div className="flex items-center justify-center h-screen">جاري التحميل...</div>;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return children;
 }
@@ -34,6 +43,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/receipt/:token" element={<ReceiptPage />} />
 
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route path="/admin" element={<AdminLayout />}>
@@ -50,6 +60,9 @@ function AppRoutes() {
       >
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/pos" element={<POSPage />} />
+        <Route path="/sales" element={<SalesPage />} />
+        <Route path="/returns" element={<ReturnsPage />} />
+        <Route path="/maintenance" element={<MaintenancePage />} />
         <Route path="/products" element={<ProductsPage />} />
         <Route path="/inventory" element={<InventoryPage />} />
         <Route path="/customers" element={<CustomersPage />} />
@@ -58,6 +71,10 @@ function AppRoutes() {
         <Route path="/expenses" element={<ExpensesPage />} />
         <Route path="/cash-register" element={<CashRegisterPage />} />
         <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/branch-reports" element={<BranchReportsPage />} />
+        <Route path="/balance-reminders" element={<BalanceRemindersPage />} />
+        <Route path="/transfers" element={<TransfersPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         {/* إعدادات الهوية البصرية ملك للمدير العام فقط، لذلك لا يوجد مسار للتاجر. */}
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

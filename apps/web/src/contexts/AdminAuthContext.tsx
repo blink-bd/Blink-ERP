@@ -1,7 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { adminApi } from '@/lib/adminApi';
 
-interface Admin { id: string; email: string; fullName: string }
+interface Admin {
+  id: string;
+  email: string;
+  fullName: string;
+}
 interface Ctx {
   admin: Admin | null;
   isLoading: boolean;
@@ -10,32 +15,44 @@ interface Ctx {
 }
 
 const AdminAuthContext = createContext<Ctx>({
-  admin: null, isLoading: true, login: async () => {}, logout: () => {},
+  admin: null,
+  isLoading: true,
+  login: async () => {},
+  logout: () => {},
 });
 export const useAdminAuth = () => useContext(AdminAuthContext);
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
-    if (!localStorage.getItem('masterToken')) { setIsLoading(false); return; }
-    adminApi.get('/admin/auth/me')
-      .then((r) => setAdmin(r.data.data))
-      .catch(() => localStorage.removeItem('masterToken'))
+    if (!location.pathname.startsWith('/admin') || location.pathname === '/admin/login') {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(true);
+    adminApi
+      .get('/admin/auth/me')
+      .then((response) => setAdmin(response.data.data))
+      .catch(() => setAdmin(null))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [location.pathname]);
 
   const login = async (email: string, password: string) => {
-    const r = await adminApi.post('/admin/auth/login', { email, password });
-    localStorage.setItem('masterToken', r.data.data.accessToken);
-    setAdmin(r.data.data.admin);
+    const response = await adminApi.post('/admin/auth/login', { email, password });
+    setAdmin(response.data.data.admin);
   };
 
   const logout = () => {
-    localStorage.removeItem('masterToken');
+    void adminApi.post('/admin/auth/logout').catch(() => undefined);
     setAdmin(null);
   };
 
-  return <AdminAuthContext.Provider value={{ admin, isLoading, login, logout }}>{children}</AdminAuthContext.Provider>;
+  return (
+    <AdminAuthContext.Provider value={{ admin, isLoading, login, logout }}>
+      {children}
+    </AdminAuthContext.Provider>
+  );
 };

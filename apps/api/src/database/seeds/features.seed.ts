@@ -159,6 +159,48 @@ export async function seedFeatures(dataSource: DataSource): Promise<void> {
       isDefault: false,
       requiresPlan: true,
     },
+    {
+      code: 'branch_analytics',
+      name: 'Branch Analytics',
+      nameAr: 'تقارير الفروع وحساباتها',
+      category: 'advanced',
+      isDefault: false,
+    },
+    {
+      code: 'return_disposition',
+      name: 'Return Inspection and Disposition',
+      nameAr: 'فحص ومعالجة المرتجعات',
+      category: 'sales',
+      isDefault: false,
+    },
+    {
+      code: 'balance_reminders',
+      name: 'Customer and Supplier Balance Reminders',
+      nameAr: 'تنبيهات أرصدة العملاء والموردين',
+      category: 'accounting',
+      isDefault: false,
+    },
+    {
+      code: 'invoice_attachments',
+      name: 'Invoice Evidence Attachments',
+      nameAr: 'مرفقات إثبات الفواتير',
+      category: 'accounting',
+      isDefault: false,
+    },
+    {
+      code: 'supplier_balance_limit',
+      name: 'Supplier Payables Limit Alert',
+      nameAr: 'تنبيه حد أرصدة الموردين',
+      category: 'accounting',
+      isDefault: false,
+    },
+    {
+      code: 'maintenance_management',
+      name: 'Maintenance Management',
+      nameAr: 'إدارة الصيانة وفواتيرها',
+      category: 'sales',
+      isDefault: false,
+    },
   ];
 
   for (const feature of features) {
