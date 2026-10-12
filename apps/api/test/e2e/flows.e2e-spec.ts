@@ -1135,6 +1135,50 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const response = await tenantA.get(api('/backup/export'));
       expect([200, 201]).toContain(response.status);
     });
+
+    it('exports a complete tenant backup (inventory, branch balances, transfers...) without secrets', async () => {
+      const response = await tenantA.get(api('/backup/export'));
+      expect([200, 201]).toContain(response.status);
+      const backup = response.body.data;
+      expect(backup.meta.skippedTables).toEqual([]);
+
+      // جدول المخزون مافيهوش created_at — كان بيطلع فاضي قبل الإصلاح.
+      expect(backup.tables.inventory.length).toBeGreaterThan(0);
+      expect(
+        backup.tables.inventory.some(
+          (row: any) =>
+            row.product_id === state.productId && row.warehouse_id === state.warehouse1Id
+        )
+      ).toBe(true);
+
+      // جداول اتضافت بعد كده لازم تدخل تلقائياً.
+      for (const table of [
+        'branch_party_balances',
+        'inventory_transfers',
+        'inventory_transfer_items',
+        'maintenance_invoices',
+        'invoice_attachments',
+        'document_counters',
+      ]) {
+        expect(Array.isArray(backup.tables[table])).toBe(true);
+      }
+      expect(backup.tables.branch_party_balances.length).toBeGreaterThan(0);
+      expect(backup.tables.inventory_transfers.length).toBeGreaterThan(0);
+      expect(backup.meta.rowCounts.inventory).toBe(backup.tables.inventory.length);
+
+      // بيانات المتجر ده بس، ومن غير أسرار أو محتوى ملفات.
+      for (const [table, rows] of Object.entries(backup.tables) as [string, any[]][]) {
+        for (const row of rows) {
+          if ('tenant_id' in row)
+            expect(`${table}:${row.tenant_id}`).toBe(`${table}:${state.tenantAId}`);
+          for (const key of Object.keys(row))
+            expect(key).not.toMatch(/password|token|secret|hash/i);
+        }
+      }
+      expect(backup.tables.invoice_attachments.every((row: any) => !('content' in row))).toBe(true);
+      expect(backup.tables.audit_logs).toBeUndefined();
+      expect(backup.tables.api_keys).toBeUndefined();
+    });
   });
 
   // -------------------------------------------------------------- auth security

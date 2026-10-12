@@ -87,7 +87,16 @@ export function SettingsPage() {
         type: 'application/json;charset=utf-8',
       });
       saveBlob(blob, `blink-erp-backup-${new Date().toISOString().slice(0, 10)}.json`);
-      toast.success('تم تنزيل النسخة الاحتياطية بنجاح');
+      const skipped: { table: string }[] = backup?.meta?.skippedTables || [];
+      if (skipped.length) {
+        // النسخة اتنزلت بس مش كاملة — لازم التاجر يعرف بدل ما يفتكرها سليمة.
+        toast.error(
+          `النسخة اتنزلت لكن فيه جداول ماتصدّرتش: ${skipped.map((s) => s.table).join('، ')}. كلّم الدعم الفني.`,
+          { duration: 10000 }
+        );
+      } else {
+        toast.success('تم تنزيل النسخة الاحتياطية بنجاح');
+      }
     } catch {
       // يعرض عميل API رسالة الخطأ.
     } finally {
