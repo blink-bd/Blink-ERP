@@ -5,6 +5,12 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
+import {
+  defaultWorkingBranchId,
+  keepIfValid,
+  useWorkspace,
+  workingBranches,
+} from '@/contexts/WorkspaceContext';
 
 interface Customer {
   id: string;
@@ -57,7 +63,13 @@ const money = (value: unknown) =>
 
 export function MaintenancePage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
+  const { workspace, loading: workspaceLoading } = useWorkspace();
+  // احتياطي لو بيانات فرع العمل ماتحمّلتش.
+  const [fallbackBranches, setFallbackBranches] = useState<Branch[]>([]);
+  // كل الفروع المسموحة (لعرض اسم الفرع في الجدول).
+  const allBranches: Branch[] = workspace ? workspace.branches : fallbackBranches;
+  // فروع نطاق العمل الحالي (للفاتورة الجديدة وللفلتر).
+  const branches: Branch[] = workspace ? workingBranches(workspace) : fallbackBranches;
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(
     new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
@@ -89,18 +101,35 @@ export function MaintenancePage() {
   }, [endDate, selectedBranches, startDate]);
 
   useEffect(() => {
-    Promise.all([api.get('/customers'), api.get('/branches')])
-      .then(([customerResponse, branchResponse]) => {
-        setCustomers(customerResponse.data.data);
-        const activeBranches = branchResponse.data.data.filter(
-          (branch: Branch) => branch.isActive !== false
-        );
-        setBranches(activeBranches);
-        const mainBranch = activeBranches.find((branch: Branch) => branch.isMain);
-        if (mainBranch) setForm((current) => ({ ...current, branchId: mainBranch.id }));
-      })
-      .catch(() => toast.error('تعذر تحميل بيانات العملاء والفروع'));
+    api
+      .get('/customers')
+      .then((customerResponse) => setCustomers(customerResponse.data.data))
+      .catch(() => toast.error('تعذر تحميل بيانات العملاء'));
   }, []);
+
+  useEffect(() => {
+    if (workspaceLoading || workspace) return;
+    api
+      .get('/branches')
+      .then((response) =>
+        setFallbackBranches(
+          (response.data.data || []).filter((branch: Branch) => branch.isActive !== false)
+        )
+      )
+      .catch(() => setFallbackBranches([]));
+  }, [workspaceLoading, workspace]);
+
+  // الفرع الافتراضي للفاتورة = فرع العمل الحالي (أو الافتراضي/الرئيسي).
+  const defaultBranchId = workspace
+    ? defaultWorkingBranchId(workspace)
+    : (branches.find((branch) => branch.isMain) || branches[0])?.id || null;
+  useEffect(() => {
+    setForm((current) => {
+      const branchId = keepIfValid(branches, current.branchId, defaultBranchId);
+      return branchId === current.branchId ? current : { ...current, branchId };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultBranchId, branches.map((branch) => branch.id).join(',')]);
 
   useEffect(() => {
     load();
@@ -453,7 +482,8 @@ export function MaintenancePage() {
                         </div>
                         <div>
                           <strong>الفرع:</strong>{' '}
-                          {branches.find((branch) => branch.id === invoice.branchId)?.name || '—'}
+                          {allBranches.find((branch) => branch.id === invoice.branchId)?.name ||
+                            '—'}
                         </div>
                       </td>
                     </tr>

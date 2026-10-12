@@ -6,6 +6,8 @@ import toast from 'react-hot-toast';
 import { Trash2, Plus, Minus, FilePlus2, FolderOpen, X } from 'lucide-react';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { escapeHtml } from '@/lib/escape';
+import { useAuth } from '@/contexts/AuthContext';
+import { keepIfValid, useWorkingWarehouses, useWorkspace } from '@/contexts/WorkspaceContext';
 
 type PriceTier = 'retail' | 'half_wholesale' | 'wholesale';
 
@@ -53,17 +55,42 @@ interface StoredPosState {
   drafts: PosDraft[];
 }
 
-const POS_STORAGE_KEY = 'blink-pos-state';
-const readStoredState = (): Partial<StoredPosState> => {
+// المفتاح القديم كان مشترك بين كل المستخدمين على نفس الجهاز، وكان بيحتفظ بمخزن ممكن
+// مايبقاش ضمن فرع العمل. دلوقتي الحالة محفوظة لكل مستخدم لوحده.
+const LEGACY_POS_STORAGE_KEY = 'blink-pos-state';
+const posStorageKey = (tenantId?: string, userId?: string) =>
+  userId ? `${LEGACY_POS_STORAGE_KEY}:${tenantId || '-'}:${userId}` : LEGACY_POS_STORAGE_KEY;
+
+const readStoredState = (key: string): Partial<StoredPosState> => {
   try {
-    return JSON.parse(localStorage.getItem(POS_STORAGE_KEY) || '{}');
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+    if (key !== LEGACY_POS_STORAGE_KEY) {
+      const legacy = localStorage.getItem(LEGACY_POS_STORAGE_KEY);
+      if (legacy) {
+        // نقل الفاتورة المفتوحة من المفتاح القديم، من غير المخزن القديم
+        // (المفتاح القديم بيتمسح بعد أول حفظ بالمفتاح الجديد).
+        const parsed = JSON.parse(legacy) as Partial<StoredPosState>;
+        delete parsed.warehouseId;
+        return parsed;
+      }
+    }
+    return {};
   } catch {
     return {};
   }
 };
 
 export function POSPage() {
-  const stored = readStoredState();
+  const { user } = useAuth();
+  const { workspace, reload: reloadWorkspace } = useWorkspace();
+  const storageKey = posStorageKey(user?.tenantId, user?.id);
+  const [stored] = useState(() => readStoredState(storageKey));
+  const {
+    ready: warehousesReady,
+    warehouses: saleWarehouses,
+    defaultWarehouseId,
+  } = useWorkingWarehouses();
   const [query, setQuery] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [cart, setCart] = useState<CartLine[]>(stored.cart || []);
@@ -94,14 +121,14 @@ export function POSPage() {
       .get('/sales/payment-methods')
       .then((r) => setPaymentMethods(r.data.data))
       .catch(() => {});
-    api
-      .get('/warehouses')
-      .then((r) => {
-        const main = r.data.data.find((w: any) => w.isMain) || r.data.data[0];
-        if (main) setWarehouseId((previous) => previous || main.id);
-      })
-      .catch(() => {});
   }, []);
+
+  // مخزن البيع لازم يكون دايماً من مخازن فرع العمل الحالي: لو المحفوظ لسه صالح بنسيبه،
+  // غير كده بناخد مخزن العمل/الافتراضي. الفاتورة المفتوحة نفسها مابتتمسحش.
+  useEffect(() => {
+    if (!warehousesReady) return;
+    setWarehouseId((previous) => keepIfValid(saleWarehouses, previous, defaultWarehouseId));
+  }, [warehousesReady, saleWarehouses, defaultWarehouseId]);
 
   useEffect(() => {
     const state: StoredPosState = {
@@ -114,8 +141,14 @@ export function POSPage() {
       warehouseId,
       drafts,
     };
-    localStorage.setItem(POS_STORAGE_KEY, JSON.stringify(state));
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(state));
+      if (storageKey !== LEGACY_POS_STORAGE_KEY) localStorage.removeItem(LEGACY_POS_STORAGE_KEY);
+    } catch {
+      // التخزين المحلي ممكن يكون ممتلي أو مقفول؛ البيع نفسه مايتأثرش.
+    }
   }, [
+    storageKey,
     cart,
     priceTier,
     discount,
@@ -323,8 +356,12 @@ export function POSPage() {
       toast.error('الرجاء إضافة أصناف أولاً');
       return;
     }
-    if (!warehouseId) {
-      toast.error('لا يوجد مخزن افتراضي');
+    if (!warehousesReady) {
+      toast('لحظة، جاري تحميل المخازن...');
+      return;
+    }
+    if (!warehouseId || !saleWarehouses.some((w) => w.id === warehouseId)) {
+      toast.error('مفيش مخزن متاح للبيع في فرع العمل الحالي. غيّر فرع العمل من صفحة «فرع العمل».');
       return;
     }
     setLoading(true);
@@ -346,6 +383,11 @@ export function POSPage() {
       toast.success(methodId ? 'تمت عملية البيع بنجاح' : 'تم تسجيل الفاتورة آجلة على العميل بنجاح');
       printReceipt(response.data.data);
       clearCurrent();
+    } catch (error: any) {
+      // الرسالة بتظهر من api. لو الرفض بسبب الصلاحيات/المخزن بنزامن فرع العمل
+      // عشان الاختيار يتصلّح تلقائياً، والفاتورة تفضل زي ما هي.
+      const status = error?.response?.status;
+      if (status === 403 || status === 400) reloadWorkspace();
     } finally {
       setLoading(false);
       setConfirmMethod(null);
@@ -425,6 +467,35 @@ export function POSPage() {
               جملة
             </button>
           </div>
+          {saleWarehouses.length > 1 ? (
+            <label className="flex h-14 items-center gap-2 rounded-lg border bg-white px-3 text-sm">
+              <span className="whitespace-nowrap text-gray-500">البيع من</span>
+              <select
+                className="h-10 max-w-[12rem] rounded border px-2"
+                value={warehouseId}
+                onChange={(e) => setWarehouseId(e.target.value)}
+                aria-label="مخزن البيع"
+              >
+                {saleWarehouses.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            workspace?.showSelector &&
+            saleWarehouses[0] && (
+              <span className="flex h-14 items-center rounded-lg border bg-white px-3 text-sm text-gray-600">
+                البيع من: <b className="mr-1">{saleWarehouses[0].name}</b>
+              </span>
+            )
+          )}
+          {warehousesReady && saleWarehouses.length === 0 && (
+            <span className="flex h-14 items-center rounded-lg border border-amber-300 bg-amber-50 px-3 text-sm text-amber-800">
+              مفيش مخزن نشط في فرع العمل الحالي
+            </span>
+          )}
           <Button
             variant="outline"
             onClick={createNewInvoice}

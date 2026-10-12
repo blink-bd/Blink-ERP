@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import {
-  assertWarehouseInWorkingScope,
+  assertWarehouseAllowed,
   resolveBranchForWrite,
   scopeOf,
 } from '@/common/utils/access-scope';
@@ -98,8 +98,8 @@ export class SalesController {
   async create(@Request() req, @Body() dto: CreateSaleDto) {
     if (req.user?.authType !== 'api_key') await this.assertFeature(req.tenantId, 'pos');
     const scope = scopeOf(req);
-    // البيع لازم يكون من مخزن ضمن فرع/مخزن العمل الحالي والمسموح للمستخدم.
-    assertWarehouseInWorkingScope(scope, dto.warehouseId);
+    // البيع لازم يكون من مخزن مسموح للمستخدم (فرع الفاتورة = فرع المخزن).
+    assertWarehouseAllowed(scope, dto.warehouseId);
     const sale = await this.salesService.create(
       req.tenantId,
       dto,

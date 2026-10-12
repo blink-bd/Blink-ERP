@@ -14,6 +14,7 @@ import {
 import { api } from '@/lib/api';
 import { usePermissions } from '@/lib/permissions';
 import { useAuth } from '@/contexts/AuthContext';
+import { useWorkspace } from '@/contexts/WorkspaceContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -155,14 +156,25 @@ function UsersTab() {
       .then((r) => setRoles(r.data.data))
       .catch(() => {});
     api
-      .get('/branches')
-      .then((r) => setBranches(r.data.data))
-      .catch(() => {});
-    api
       .get('/warehouses', { params: { all: 1 } })
       .then((r) => setWarehouses(r.data.data))
       .catch(() => {});
   }, []);
+
+  // الفروع من بيانات فرع العمل (الفروع المسموحة للمستخدم الحالي) — مش محتاجة ميزة
+  // «الفروع المتعددة» ولا صلاحية «عرض الفروع»، فمفيش رسائل خطأ للتاجر اللي عنده فرع واحد.
+  const { workspace, loading: workspaceLoading } = useWorkspace();
+  useEffect(() => {
+    if (workspace) {
+      setBranches(workspace.branches.filter((b) => b.isActive !== false));
+      return;
+    }
+    if (workspaceLoading) return;
+    api
+      .get('/branches')
+      .then((r) => setBranches(r.data.data))
+      .catch(() => {});
+  }, [workspace, workspaceLoading]);
 
   const atLimit = limits.maxUsers !== null && limits.activeUsers >= limits.maxUsers;
 

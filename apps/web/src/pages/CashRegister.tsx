@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { defaultWorkingBranchId, keepIfValid, useWorkspace } from '@/contexts/WorkspaceContext';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -13,6 +14,21 @@ export function CashRegisterPage() {
   const [registerName, setRegisterName] = useState('الكاشير الرئيسي');
   const [loading, setLoading] = useState(true);
   const [creatingRegister, setCreatingRegister] = useState(false);
+  const [registerId, setRegisterId] = useState('');
+  const [showAddRegister, setShowAddRegister] = useState(false);
+  const { workspace } = useWorkspace();
+  const workingBranchId = defaultWorkingBranchId(workspace);
+  const branchName = (id?: string | null) =>
+    (id && workspace?.branches.find((b) => b.id === id)?.name) || '';
+
+  // الكاشير الافتراضي = كاشير تابع لفرع العمل الحالي، وإلا أول كاشير متاح.
+  useEffect(() => {
+    const active = registers.filter((r) => r.isActive !== false);
+    const preferred = active.find((r) => workingBranchId && r.branchId === workingBranchId);
+    setRegisterId((prev) =>
+      keepIfValid(active, prev, (preferred || active[0])?.id || null)
+    );
+  }, [registers, workingBranchId]);
 
   const load = async () => {
     setLoading(true);
@@ -34,14 +50,19 @@ export function CashRegisterPage() {
   const createRegister = async () => {
     setCreatingRegister(true);
     try {
-      await api.post('/cash-register/registers', { name: registerName });
+      await api.post('/cash-register/registers', { name: registerName, branchId: workingBranchId || undefined });
       toast.success('تم إضافة الكاشير بنجاح');
+      setShowAddRegister(false);
       load();
     } finally { setCreatingRegister(false); }
   };
 
   const openShift = async () => {
-    await api.post('/cash-register/shifts', { cashRegisterId: registers[0].id, openingBalance: Number(openingBalance) || 0 });
+    if (!registerId) {
+      toast.error('اختار الكاشير الأول');
+      return;
+    }
+    await api.post('/cash-register/shifts', { cashRegisterId: registerId, openingBalance: Number(openingBalance) || 0 });
     toast.success('تم فتح الوردية بنجاح');
     setOpeningBalance('');
     load();
@@ -68,9 +89,48 @@ export function CashRegisterPage() {
         </div>
       ) : !shift ? (
         <div className="bg-white rounded-lg shadow p-6 max-w-md space-y-4">
+          {registers.filter((r) => r.isActive !== false).length > 1 && (
+            <div>
+              <Label>الكاشير</Label>
+              <select
+                className="border rounded-md h-10 px-3 w-full"
+                value={registerId}
+                onChange={(e) => setRegisterId(e.target.value)}
+              >
+                {registers
+                  .filter((r) => r.isActive !== false)
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                      {branchName(r.branchId) ? ` — ${branchName(r.branchId)}` : ''}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          )}
           <div><Label>رصيد الافتتاح</Label><Input type="number" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} /></div>
           <p className="text-xs text-gray-400">بيتسجل بالتاريخ والوقت الحاليين تلقائيًا.</p>
           <Button onClick={openShift}>فتح وردية جديدة</Button>
+          {workspace?.features.branches && (
+            <div className="border-t pt-3">
+              {showAddRegister ? (
+                <div className="space-y-2">
+                  <Label>اسم الكاشير الجديد{branchName(workingBranchId) ? ` (فرع ${branchName(workingBranchId)})` : ''}</Label>
+                  <Input value={registerName} onChange={(e) => setRegisterName(e.target.value)} />
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={createRegister} disabled={creatingRegister}>
+                      {creatingRegister ? 'جاري الإضافة...' : 'إضافة'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setShowAddRegister(false)}>إلغاء</Button>
+                  </div>
+                </div>
+              ) : (
+                <button type="button" className="text-sm text-primary hover:underline" onClick={() => setShowAddRegister(true)}>
+                  + إضافة كاشير لفرع العمل
+                </button>
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-6">

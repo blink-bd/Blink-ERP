@@ -780,6 +780,26 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(all.body.data.some((s: any) => s.id === state.saleId)).toBe(true);
     });
 
+    it('sells from any allowed warehouse even if the working branch is different (no stale-POS failure)', async () => {
+      const set = await tenantA.put(api('/workspace'), {
+        branchId: state.branch2Id,
+        warehouseId: null,
+      });
+      expect(set.status).toBe(200);
+
+      // الكاشير كان محفوظ عنده مخزن الفرع الأول؛ البيع لازم يعدّي ويتسجل على فرع المخزن.
+      const sale = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+      });
+      expect(sale.status).toBe(201);
+      expect(sale.body.data.branchId).toBe(state.branch1Id);
+
+      const reset = await tenantA.put(api('/workspace'), { branchId: null, warehouseId: null });
+      expect(reset.status).toBe(200);
+    });
+
     it('restricts a user to specific branches and warehouses', async () => {
       const role = await tenantA.post(api('/roles'), {
         name: 'branch_manager',

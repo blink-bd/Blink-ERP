@@ -1,6 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRightLeft, Check, RefreshCw, X } from 'lucide-react';
-import { useWorkspace } from '@/contexts/WorkspaceContext';
+import { defaultWorkingWarehouseId, useWorkspace } from '@/contexts/WorkspaceContext';
 import { api } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -54,7 +54,7 @@ const statusLabel: Record<Transfer['status'], string> = {
 
 export function TransfersPage() {
   const { user } = useAuth();
-  const { reload: reloadWorkspace } = useWorkspace();
+  const { workspace, loading: workspaceLoading, reload: reloadWorkspace } = useWorkspace();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -76,22 +76,31 @@ export function TransfersPage() {
   const [assignBranchId, setAssignBranchId] = useState('');
   const [settingUp, setSettingUp] = useState(false);
 
+  const workspaceBranches = workspace?.branches;
+  const preferredSourceId = defaultWorkingWarehouseId(workspace);
+
   const load = useCallback(async () => {
+    if (workspaceLoading) return;
     setLoading(true);
     try {
-      const [branchResponse, warehouseResponse, productResponse, transferResponse] =
-        await Promise.all([
-          api.get('/branches'),
-          api.get('/warehouses'),
-          api.get('/products', { params: { limit: 200 } }),
-          api.get('/inventory/transfers'),
-        ]);
+      // الفروع من بيانات فرع العمل (مش محتاجة صلاحية «عرض الفروع» ولا ميزة الفروع
+      // المتعددة)، ومن /branches كاحتياطي بس.
+      const branchRequest = workspaceBranches
+        ? Promise.resolve(workspaceBranches as Branch[])
+        : api
+            .get('/branches')
+            .then((response) => (response.data.data || []) as Branch[])
+            .catch(() => [] as Branch[]);
+      const [branchRows, warehouseResponse, productResponse, transferResponse] = await Promise.all([
+        branchRequest,
+        api.get('/warehouses'),
+        api.get('/products', { params: { limit: 200 } }),
+        api.get('/inventory/transfers'),
+      ]);
       const activeWarehouses = (warehouseResponse.data.data || []).filter(
         (item: Warehouse) => item.isActive
       );
-      const activeBranches = (branchResponse.data.data || []).filter(
-        (branch: Branch) => branch.isActive !== false
-      );
+      const activeBranches = branchRows.filter((branch: Branch) => branch.isActive !== false);
       const activeBranchIds = new Set(activeBranches.map((branch: Branch) => branch.id));
       const transferWarehouses = activeWarehouses.filter(
         (warehouse: Warehouse) => warehouse.branchId && activeBranchIds.has(warehouse.branchId)
@@ -120,22 +129,44 @@ export function TransfersPage() {
         (productResponse.data.data || []).filter((product: Product) => product.trackInventory)
       );
       setTransfers(transferResponse.data.data || []);
+      // المصدر الافتراضي = مخزن العمل الحالي (أو الافتراضي)، والوجهة = أول مخزن تاني.
+      const defaultSource =
+        transferWarehouses.find((warehouse: Warehouse) => warehouse.id === preferredSourceId)?.id ||
+        transferWarehouses[0]?.id ||
+        '';
       setSourceWarehouseId((previous) =>
         transferWarehouses.some((warehouse: Warehouse) => warehouse.id === previous)
           ? previous
-          : transferWarehouses[0]?.id || ''
+          : defaultSource
       );
       setDestinationWarehouseId((previous) =>
-        transferWarehouses.some((warehouse: Warehouse) => warehouse.id === previous)
-          ? previous
-          : transferWarehouses[1]?.id || transferWarehouses[0]?.id || ''
+        transferWarehouses.some((warehouse: Warehouse) => warehouse.id === previous) ? previous : ''
       );
     } catch {
       // تظهر رسالة الخطأ عبر عميل API.
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [workspaceLoading, workspaceBranches, preferredSourceId]);
+
+  // الوجهة لازم تبقى مخزن غير المصدر.
+  useEffect(() => {
+    if (
+      !sourceWarehouseId ||
+      (destinationWarehouseId && destinationWarehouseId !== sourceWarehouseId)
+    )
+      return;
+    const sourceBranchId = warehouses.find((w) => w.id === sourceWarehouseId)?.branchId;
+    const candidates = warehouses.filter(
+      (warehouse) =>
+        warehouse.id !== sourceWarehouseId &&
+        warehouse.branchId &&
+        branches.some((branch) => branch.id === warehouse.branchId)
+    );
+    // التحويل بيبقى بين فرعين مختلفين، فبنفضّل مخزن في فرع تاني.
+    const otherBranch = candidates.find((warehouse) => warehouse.branchId !== sourceBranchId);
+    setDestinationWarehouseId((otherBranch || candidates[0])?.id || '');
+  }, [sourceWarehouseId, destinationWarehouseId, warehouses, branches]);
 
   useEffect(() => {
     void load();

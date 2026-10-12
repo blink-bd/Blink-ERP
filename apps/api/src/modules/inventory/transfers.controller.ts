@@ -20,7 +20,7 @@ import { TransfersService } from './transfers.service';
 import { actorFromRequest } from '@/modules/audit/audit.service';
 import {
   AccessScope,
-  assertWarehouseInWorkingScope,
+  assertWarehouseAllowed,
   isWarehouseAllowed,
   scopeOf,
 } from '@/common/utils/access-scope';
@@ -61,8 +61,8 @@ export class TransfersController {
   @Post()
   async create(@Request() req, @Body() dto: CreateTransferDto) {
     const scope = scopeOf(req);
-    // المصدر لازم يكون جوه نطاق العمل، والوجهة لازم تكون من المخازن المسموحة.
-    assertWarehouseInWorkingScope(scope, dto.sourceWarehouseId);
+    // المصدر والوجهة لازم يكونوا من المخازن المسموحة للمستخدم.
+    assertWarehouseAllowed(scope, dto.sourceWarehouseId);
     if (!isWarehouseAllowed(scope, dto.destinationWarehouseId)) {
       throw new ForbiddenException('مش مسموح لك تحوّل للمخزن ده');
     }
