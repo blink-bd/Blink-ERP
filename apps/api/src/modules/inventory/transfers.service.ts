@@ -17,7 +17,11 @@ import { InventoryTransaction } from './entities/inventory-transaction.entity';
 import { InventoryTransfer } from './entities/inventory-transfer.entity';
 import { InventoryTransferItem } from './entities/inventory-transfer-item.entity';
 import { Product } from '@/modules/products/entities/product.entity';
+import { AuditService, AuditEntry } from '@/modules/audit/audit.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
+
+/** بيانات الفاعل التي تُسجَّل في سجل التدقيق. */
+export type TransferActor = Pick<AuditEntry, 'userEmail' | 'ip' | 'userAgent'>;
 
 const TRANSFER_RELATIONS = {
   sourceBranch: true,
@@ -35,7 +39,8 @@ export class TransfersService {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly notifications: NotificationsService,
     private readonly webhooks: WebhooksService,
-    private readonly inventoryService: InventoryService
+    private readonly inventoryService: InventoryService,
+    private readonly audit: AuditService
   ) {}
 
   async list(tenantId: string, status?: string) {
@@ -62,7 +67,7 @@ export class TransfersService {
     return transfer;
   }
 
-  async create(tenantId: string, userId: string, dto: CreateTransferDto) {
+  async create(tenantId: string, userId: string, dto: CreateTransferDto, actor?: TransferActor) {
     const aggregatedItems = new Map<string, number>();
     for (const item of dto.items || []) {
       if (!Number.isFinite(item.quantity) || item.quantity <= 0) {
@@ -185,10 +190,29 @@ export class TransfersService {
       details: eventData,
     });
     void this.webhooks.emit(tenantId, 'inventory.transfer.requested', eventData);
+    await this.audit.log({
+      tenantId,
+      userId,
+      userEmail: actor?.userEmail,
+      ip: actor?.ip,
+      userAgent: actor?.userAgent,
+      action: 'INVENTORY_TRANSFER_REQUESTED',
+      entityType: 'inventory_transfer',
+      entityId: transfer.id,
+      newValues: {
+        transferNumber: transfer.transferNumber,
+        sourceWarehouseId: transfer.sourceWarehouseId,
+        destinationWarehouseId: transfer.destinationWarehouseId,
+        items: transfer.items?.map((item) => ({
+          productId: item.productId,
+          quantity: Number(item.quantity),
+        })),
+      },
+    });
     return transfer;
   }
 
-  async approve(tenantId: string, id: string, approverId: string) {
+  async approve(tenantId: string, id: string, approverId: string, actor?: TransferActor) {
     const transferId = await this.dataSource.transaction(async (manager) => {
       const transfer = await manager.findOne(InventoryTransfer, {
         where: { id, tenantId, deletedAt: IsNull() },
@@ -320,10 +344,28 @@ export class TransfersService {
       details: eventData,
     });
     void this.webhooks.emit(tenantId, 'inventory.transfer.approved', eventData);
+    await this.audit.log({
+      tenantId,
+      userId: approverId,
+      userEmail: actor?.userEmail,
+      ip: actor?.ip,
+      userAgent: actor?.userAgent,
+      action: 'INVENTORY_TRANSFER_APPROVED',
+      entityType: 'inventory_transfer',
+      entityId: transfer.id,
+      newValues: eventData,
+      severity: 'warning',
+    });
     return transfer;
   }
 
-  async reject(tenantId: string, id: string, approverId: string, reason: string) {
+  async reject(
+    tenantId: string,
+    id: string,
+    approverId: string,
+    reason: string,
+    actor?: TransferActor
+  ) {
     const normalizedReason = reason?.trim();
     if (!normalizedReason) throw new BadRequestException('اكتب سبب رفض طلب التحويل');
 
@@ -382,6 +424,18 @@ export class TransfersService {
       details: eventData,
     });
     void this.webhooks.emit(tenantId, 'inventory.transfer.rejected', eventData);
+    await this.audit.log({
+      tenantId,
+      userId: approverId,
+      userEmail: actor?.userEmail,
+      ip: actor?.ip,
+      userAgent: actor?.userAgent,
+      action: 'INVENTORY_TRANSFER_REJECTED',
+      entityType: 'inventory_transfer',
+      entityId: transfer.id,
+      newValues: { ...eventData, reason: normalizedReason },
+      severity: 'warning',
+    });
     return transfer;
   }
 

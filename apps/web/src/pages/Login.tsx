@@ -39,16 +39,18 @@ export function LoginPage() {
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div className="space-y-4">
             <div>
-              <Label htmlFor="tenantId">معرّف المتجر (Tenant ID)</Label>
+              <Label htmlFor="tenantId">معرّف المتجر (اختياري)</Label>
               <Input
                 id="tenantId"
                 type="text"
                 value={tenantId}
                 onChange={(e) => setTenantId(e.target.value)}
-                required
                 disabled={isLoading}
-                placeholder="UUID الخاص بالمتجر"
+                placeholder="اتركه فارغاً لو بريدك مسجل في متجر واحد"
               />
+              <p className="mt-1 text-xs text-gray-500">
+                لو بريدك مسجل في أكثر من متجر، اكتب معرّف المتجر (UUID) الذي وصلك من إدارة النظام.
+              </p>
             </div>
 
             <div>

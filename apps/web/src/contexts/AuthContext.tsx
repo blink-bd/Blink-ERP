@@ -17,7 +17,7 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, tenantId: string) => Promise<void>;
+  login: (email: string, password: string, tenantId?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -50,9 +50,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string, tenantId: string) => {
+  const login = async (email: string, password: string, tenantId?: string) => {
     try {
-      const response = await api.post(`/auth/login?tenantId=${encodeURIComponent(tenantId)}`, {
+      const query = tenantId?.trim() ? `?tenantId=${encodeURIComponent(tenantId.trim())}` : '';
+      const response = await api.post(`/auth/login${query}`, {
         email,
         password,
       });

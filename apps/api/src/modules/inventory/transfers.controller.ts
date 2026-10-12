@@ -16,6 +16,7 @@ import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { CreateTransferDto, RejectTransferDto } from './dto/create-transfer.dto';
 import { TransfersService } from './transfers.service';
+import { actorFromRequest } from '@/modules/audit/audit.service';
 
 @ApiTags('inventory-transfers')
 @ApiBearerAuth()
@@ -37,7 +38,12 @@ export class TransfersController {
 
   @Post()
   async create(@Request() req, @Body() dto: CreateTransferDto) {
-    const transfer = await this.transfers.create(req.tenantId, req.user.id, dto);
+    const transfer = await this.transfers.create(
+      req.tenantId,
+      req.user.id,
+      dto,
+      actorFromRequest(req)
+    );
     return {
       success: true,
       data: transfer,
@@ -47,7 +53,12 @@ export class TransfersController {
 
   @Post(':id/approve')
   async approve(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
-    const transfer = await this.transfers.approve(req.tenantId, id, req.user.id);
+    const transfer = await this.transfers.approve(
+      req.tenantId,
+      id,
+      req.user.id,
+      actorFromRequest(req)
+    );
     return { success: true, data: transfer, message: 'تم اعتماد التحويل وتحديث أرصدة المخزون' };
   }
 
@@ -57,7 +68,13 @@ export class TransfersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RejectTransferDto
   ) {
-    const transfer = await this.transfers.reject(req.tenantId, id, req.user.id, dto.reason);
+    const transfer = await this.transfers.reject(
+      req.tenantId,
+      id,
+      req.user.id,
+      dto.reason,
+      actorFromRequest(req)
+    );
     return { success: true, data: transfer, message: 'تم رفض الطلب وتحرير الكمية المحجوزة' };
   }
 }
