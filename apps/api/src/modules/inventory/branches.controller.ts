@@ -8,7 +8,6 @@ import {
   UseGuards,
   Request,
   ParseUUIDPipe,
-  Query,
 } from '@nestjs/common';
 import { BranchDto, UpdateBranchDto } from './dto/location.dto';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
@@ -16,13 +15,16 @@ import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { BranchesService } from './branches.service';
 
 @ApiTags('branches')
 @ApiBearerAuth()
 @RequirePermission('branches.view')
+@RequireFeature('branches')
 @Controller({ path: 'branches', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class BranchesController {
   constructor(private readonly branchesService: BranchesService) {}
 

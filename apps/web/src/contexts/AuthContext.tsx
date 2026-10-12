@@ -9,6 +9,8 @@ interface User {
   tenantId: string;
   roles: string[];
   permissions: string[];
+  branchId?: string;
+  warehouseId?: string;
 }
 
 interface AuthContextValue {
@@ -34,21 +36,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
   }, []);
 
   const checkAuth = async () => {
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
     try {
       const response = await api.get('/auth/me');
       setUser(response.data.data);
     } catch {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
@@ -56,17 +52,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string, tenantId: string) => {
     try {
-      const response = await api.post(`/auth/login?tenantId=${tenantId}`, { email, password });
-      const { user, accessToken, refreshToken } = response.data.data;
-
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
-
-      setUser(user);
+      const response = await api.post(`/auth/login?tenantId=${encodeURIComponent(tenantId)}`, {
+        email,
+        password,
+      });
+      setUser(response.data.data.user);
       toast.success('تم تسجيل الدخول بنجاح');
     } catch (error: any) {
       const message = error.response?.data?.error?.message || 'فشل تسجيل الدخول';
-      toast.error(message);
+      toast.error(Array.isArray(message) ? message.join('، ') : message);
       throw error;
     }
   };
@@ -77,8 +71,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Local cleanup still happens if the network is unavailable.
     } finally {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
       setUser(null);
       toast.success('تم تسجيل الخروج');
     }

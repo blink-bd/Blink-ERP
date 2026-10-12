@@ -6,13 +6,16 @@ services:
     rootDir: apps/api
     buildCommand: npm install --include=dev && npm run build
     startCommand: npm run db:migrate:prod && npm run db:seed:prod && npm run start:prod
+    healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        sync: false        # رابط Supabase (Session pooler)
+        sync: false # PostgreSQL خارجي؛ لا تحفظ قاعدة البيانات على قرص خدمة Render المجانية
       - key: FRONTEND_URL
-        sync: false        # رابط الواجهة على Cloudflare Pages
+        sync: false # أصل الواجهة المسموح له بإرسال Cookies مع credentials
+      - key: PUBLIC_APP_URL
+        sync: false # رابط واجهة المستخدم لبناء روابط الإيصالات الإلكترونية
       - key: JWT_ACCESS_SECRET
         generateValue: true
       - key: JWT_REFRESH_SECRET
@@ -23,10 +26,42 @@ services:
         value: 15m
       - key: JWT_REFRESH_EXPIRATION
         value: 7d
+      - key: AUTH_COOKIE_SAME_SITE
+        value: none
+      - key: AUTH_COOKIE_SECURE
+        value: true
+      - key: WEBHOOK_ENCRYPTION_KEY
+        generateValue: true
+      - key: BACKUP_ALERT_TOKEN
+        generateValue: true
+      - key: REMINDERS_JOB_TOKEN
+        generateValue: true
+      - key: MAIL_HOST
+        value: smtp.gmail.com
+      - key: MAIL_PORT
+        value: 587
+      - key: MAIL_SECURE
+        value: false
+      - key: MAIL_USER
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false # Gmail App Password فقط؛ لا تستخدم كلمة مرور الحساب
+      - key: MAIL_FROM
+        value: blinkbusinessdevelopment@gmail.com
+      - key: NOTIFICATION_EMAIL_TO
+        value: blinkbusinessdevelopment@gmail.com
+      - key: WHATSAPP_API_VERSION
+        value: v26.0
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_TO
+        value: +201024898091
       - key: MASTER_ADMIN_EMAIL
         sync: false
       - key: MASTER_ADMIN_PASSWORD
-        sync: false        # 12+ حرف: كبير وصغير ورقم ورمز
+        sync: false # 12+ حرفاً: كبير وصغير ورقم ورمز
       - key: MASTER_ADMIN_NAME
         value: المدير العام
       - key: MASTER_2FA_ENCRYPTION_KEY

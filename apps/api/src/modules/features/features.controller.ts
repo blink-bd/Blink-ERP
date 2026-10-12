@@ -15,12 +15,14 @@ import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { FeaturesService, FeatureChange } from './features.service';
 import { MasterAdminGuard } from '@/modules/master-admin/master-admin.guard';
 import { MasterAdminService } from '@/modules/master-admin/master-admin.service';
+import { BalanceRemindersService } from '@/modules/balance-reminders/balance-reminders.service';
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsDateString,
   IsOptional,
+  IsObject,
   IsUUID,
   ValidateNested,
 } from 'class-validator';
@@ -46,7 +48,8 @@ export class FeaturesController {
 class FeatureToggleDto {
   @IsUUID() featureId: string;
   @IsBoolean() isEnabled: boolean;
-  /** اختياري: تاريخ انتهاء الميزة (فترة تجربة أو بيع لمدة محددة). null = بدون انتهاء */
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
+  /** اختياري: تاريخ انتهاء الميزة؛ null تعني بدون انتهاء. */
   @IsOptional() @IsDateString() expiresAt?: string | null;
 }
 
@@ -65,7 +68,8 @@ class UpdateTenantFeaturesDto {
 export class AdminFeaturesController {
   constructor(
     private readonly featuresService: FeaturesService,
-    private readonly master: MasterAdminService
+    private readonly master: MasterAdminService,
+    private readonly balanceReminders: BalanceRemindersService
   ) {}
 
   @Get()
@@ -83,15 +87,26 @@ export class AdminFeaturesController {
   ) {
     await this.master.assertTenantExists(tenantId);
     const changes: FeatureChange[] = [];
-    for (const f of dto.features) {
+    for (const feature of dto.features) {
       changes.push(
-        ...(await this.featuresService.toggleWithDependencies(tenantId, f.featureId, f.isEnabled, {
-          expiresAt:
-            f.expiresAt === undefined ? undefined : f.expiresAt ? new Date(f.expiresAt) : null,
-          actorId: req.masterAdmin.id,
-        }))
+        ...(await this.featuresService.toggleWithDependencies(
+          tenantId,
+          feature.featureId,
+          feature.isEnabled,
+          {
+            expiresAt:
+              feature.expiresAt === undefined
+                ? undefined
+                : feature.expiresAt
+                  ? new Date(feature.expiresAt)
+                  : null,
+            actorId: req.masterAdmin.id,
+            config: feature.config as Record<string, any> | undefined,
+          }
+        ))
       );
     }
+    await this.balanceReminders.checkSupplierPayablesLimitSafely(tenantId);
     await this.master.audit(
       req.masterAdmin.email,
       'TENANT_FEATURES_UPDATED',

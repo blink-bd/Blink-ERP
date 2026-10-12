@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '@/modules/users/users.service';
 import { assertTenantUsable } from '@/common/utils/tenant-access';
+import { ACCESS_TOKEN_COOKIE } from '@/common/utils/auth-cookies';
 
 export interface JwtPayload {
   sub: string;
@@ -21,26 +22,25 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly usersService: UsersService
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        (request: any) => request?.cookies?.[ACCESS_TOKEN_COOKIE] || null,
+      ]),
       ignoreExpiration: false,
-      secretOrKey: configService.get('JWT_ACCESS_SECRET'),
+      secretOrKey: configService.getOrThrow<string>('JWT_ACCESS_SECRET'),
     });
   }
 
   async validate(payload: JwtPayload) {
     const user = await this.usersService.findById(payload.sub);
-
-    if (!user || !user.isActive) {
-      throw new UnauthorizedException('User not active');
-    }
+    if (!user || !user.isActive) throw new UnauthorizedException('User not active');
 
     assertTenantUsable(user.tenant);
     if (payload.tenantId !== user.tenantId || payload.sessionVersion !== user.sessionVersion) {
       throw new UnauthorizedException('جلسة غير صالحة أو منتهية');
     }
 
-    // Rebuild authorization data from the database on every request. This
-    // prevents a role removal from remaining effective until the JWT expires.
+    // Reload roles on every request so revoked permissions take effect immediately.
     const roles = (user.roles || []).map((role) => role.name);
     const permissions = Array.from(
       new Set((user.roles || []).flatMap((role) => (role.permissions || []).map((p) => p.name)))
@@ -53,6 +53,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       roles,
       permissions,
       authType: 'jwt' as const,
+      branchId: user.branchId,
+      warehouseId: user.warehouseId,
     };
   }
 }

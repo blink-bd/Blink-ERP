@@ -13,7 +13,13 @@ import {
   Wallet,
   Receipt,
   BarChart3,
+  ArrowRightLeft,
   Settings,
+  BellRing,
+  FileText,
+  RotateCcw,
+  Building2,
+  Wrench,
   UserCog,
   FileSpreadsheet,
   KeyRound,
@@ -26,21 +32,26 @@ interface NavItem {
   labelKey: string;
   icon: React.ComponentType<{ className?: string }>;
   feature?: string;
-  /** يظهر لو المستخدم عنده أي صلاحية من دول (للعرض فقط — السيرفر بيفرضها) */
   permission?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
   { to: '/pos', labelKey: 'pos', icon: ShoppingCart, feature: 'pos' },
+  { to: '/sales', labelKey: 'sales', icon: FileText, feature: 'sales' },
+  { to: '/returns', labelKey: 'returns', icon: RotateCcw, feature: 'return_disposition' },
+  { to: '/maintenance', labelKey: 'maintenance', icon: Wrench, feature: 'maintenance_management' },
   { to: '/products', labelKey: 'products', icon: Package, feature: 'products' },
   { to: '/inventory', labelKey: 'inventory', icon: Warehouse, feature: 'inventory' },
+  { to: '/transfers', labelKey: 'transfers', icon: ArrowRightLeft, feature: 'inventory' },
   { to: '/customers', labelKey: 'customers', icon: Users, feature: 'customers' },
   { to: '/suppliers', labelKey: 'suppliers', icon: Truck, feature: 'suppliers' },
   { to: '/purchases', labelKey: 'purchases', icon: ShoppingBag, feature: 'purchases' },
   { to: '/expenses', labelKey: 'expenses', icon: Wallet, feature: 'expenses' },
   { to: '/cash-register', labelKey: 'cashRegister', icon: Receipt, feature: 'cash_register' },
   { to: '/reports', labelKey: 'reports', icon: BarChart3, feature: 'reports' },
+  { to: '/branch-reports', labelKey: 'branchReports', icon: Building2, feature: 'branch_analytics' },
+  { to: '/balance-reminders', labelKey: 'balanceReminders', icon: BellRing, feature: 'balance_reminders' },
   { to: '/users', labelKey: 'users', icon: UserCog, permission: ['users.view', 'roles.manage'] },
   {
     to: '/data',
@@ -73,7 +84,7 @@ function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => v
       to={item.to}
       onClick={onNavigate}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+        `flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors ${
           isActive ? 'bg-primary text-primary-foreground' : 'text-gray-300 hover:bg-white/10'
         }`
       }
@@ -109,17 +120,15 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
         }`}
         style={{ backgroundColor: branding.sidebarColor }}
       >
-        <div className="px-4 py-5 border-b border-white/10 flex items-center gap-3">
+        <div className="flex items-center gap-3 border-b border-white/10 px-4 py-5">
           {branding.logoUrl && (
             <img
               src={branding.logoUrl}
               alt="الشعار"
-              className="h-9 w-9 object-contain rounded bg-white/10"
+              className="h-9 w-9 rounded bg-white/10 object-contain"
             />
           )}
-          <h1 className="min-w-0 flex-1 text-white text-lg font-bold truncate">
-            {branding.appName}
-          </h1>
+          <h1 className="min-w-0 flex-1 truncate text-lg font-bold text-white">{branding.appName}</h1>
           <button
             type="button"
             className="rounded p-1 text-gray-300 hover:bg-white/10 hover:text-white lg:hidden"
@@ -129,7 +138,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <X className="h-5 w-5" />
           </button>
         </div>
-        <nav className="flex-1 overflow-y-auto p-3 space-y-1">
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
           {NAV_ITEMS.map((item) => (
             <NavItemLink key={item.to} item={item} onNavigate={onClose} />
           ))}

@@ -41,4 +41,10 @@ export class Supplier extends TenantBaseEntity {
 
   @Column({ type: 'text', nullable: true })
   notes?: string;
+
+  @Column({ name: 'balance_reminder_anchor_at', type: 'timestamp', nullable: true })
+  balanceReminderAnchorAt?: Date;
+
+  @Column({ name: 'balance_reminder_last_sent_at', type: 'timestamp', nullable: true })
+  balanceReminderLastSentAt?: Date | null;
 }

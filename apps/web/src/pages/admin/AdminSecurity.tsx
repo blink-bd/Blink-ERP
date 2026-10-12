@@ -35,7 +35,7 @@ const otpInput = (value: string, set: (v: string) => void) => (
 );
 
 export function AdminSecurityPage() {
-  const { admin, refresh, replaceToken, logout } = useAdminAuth();
+  const { admin, refresh, logout } = useAdminAuth();
   const [logs, setLogs] = useState<AuditRow[]>([]);
 
   // 2FA
@@ -79,8 +79,7 @@ export function AdminSecurityPage() {
     e.preventDefault();
     setBusy(true);
     try {
-      const r = await adminApi.post('/admin/auth/2fa/enable', { otp: enableOtp });
-      if (r.data.data?.accessToken) replaceToken(r.data.data.accessToken);
+      await adminApi.post('/admin/auth/2fa/enable', { otp: enableOtp });
       toast.success('تم تفعيل المصادقة الثنائية — من الدخول الجاي هيتطلب منك الرمز');
       setSetup(null);
       setEnableOtp('');
@@ -118,11 +117,10 @@ export function AdminSecurityPage() {
     }
     setBusy(true);
     try {
-      const r = await adminApi.post('/admin/auth/change-password', {
+      await adminApi.post('/admin/auth/change-password', {
         currentPassword: pw.currentPassword,
         newPassword: pw.newPassword,
       });
-      if (r.data.data?.accessToken) replaceToken(r.data.data.accessToken);
       toast.success('تم تغيير كلمة المرور وتسجيل الخروج من كل الأجهزة الأخرى');
       setPw({ currentPassword: '', newPassword: '', confirm: '' });
       loadLogs();

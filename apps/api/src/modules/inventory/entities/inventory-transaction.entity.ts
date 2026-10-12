@@ -5,6 +5,7 @@ export type InventoryTransactionType =
   | 'sale'
   | 'return_in'
   | 'return_out'
+  | 'supplier_return'
   | 'adjustment'
   | 'transfer_in'
   | 'transfer_out'

@@ -282,6 +282,17 @@ export function POSPage() {
     setDrafts((previous) => previous.filter((draft) => draft.id !== id));
 
   const printReceipt = (sale: any) => {
+    if (sale.receiptToken) {
+      const receiptUrl = `/receipt/${encodeURIComponent(sale.receiptToken)}?print=1`;
+      const receiptWindow = window.open(receiptUrl, '_blank');
+      if (!receiptWindow) {
+        toast('تعذر فتح نافذة جديدة؛ سيتم عرض الإيصال في الصفحة الحالية.');
+        window.location.assign(receiptUrl);
+      }
+      return;
+    }
+
+    // Legacy fallback for invoices created before electronic receipt links were enabled.
     const rows = sale.items
       .map(
         (item: any) =>

@@ -63,6 +63,7 @@ export function AdminTenantDetailPage() {
   const [tenant, setTenant] = useState<any>(null);
   const [features, setFeatures] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
   const [branding, setBranding] = useState<any>({
     appName: '',
     logoUrl: '',
@@ -99,15 +100,17 @@ export function AdminTenantDetailPage() {
   const [auditFilter, setAuditFilter] = useState('');
 
   const load = async () => {
-    const [t, f, u, b] = await Promise.all([
+    const [t, f, u, p, b] = await Promise.all([
       adminApi.get(`/admin/tenants/${id}`),
       adminApi.get(`/admin/tenants/${id}/features`),
       adminApi.get(`/admin/tenants/${id}/users`),
+      adminApi.get('/admin/plans'),
       adminApi.get(`/admin/tenants/${id}/branding`),
     ]);
     setTenant(t.data.data);
     setFeatures(f.data.data);
     setUsers(u.data.data);
+    setPlans(p.data.data);
     setBranding((current: any) => ({ ...current, ...b.data.data }));
     setEndDate(t.data.data.subscriptionEndDate ? t.data.data.subscriptionEndDate.slice(0, 10) : '');
     setSubscriptionAmount(
@@ -183,8 +186,9 @@ export function AdminTenantDetailPage() {
     load();
   };
 
-  const saveSubscription = async () => {
+  const saveSubscription = async (planId?: string) => {
     await adminApi.put(`/admin/tenants/${id}/subscription`, {
+      planId,
       subscriptionEndDate: endDate || undefined,
     });
     toast.success('تم تحديث الاشتراك');
@@ -247,8 +251,9 @@ export function AdminTenantDetailPage() {
 
   const toggleFeature = async (featureId: string, isEnabled: boolean) => {
     try {
+      const feature = features.find((item) => item.id === featureId);
       const r = await adminApi.put(`/admin/tenants/${id}/features`, {
-        features: [{ featureId, isEnabled }],
+        features: [{ featureId, isEnabled, config: feature?.config || {} }],
       });
       setFeatures(r.data.data);
       const target = features.find((f) => f.id === featureId)?.code;
@@ -270,6 +275,29 @@ export function AdminTenantDetailPage() {
       /* interceptor */
     }
   };
+
+  const updateFeatureConfig = (featureId: string, key: string, value: number) => {
+    setFeatures((current) =>
+      current.map((feature) =>
+        feature.id === featureId
+          ? { ...feature, config: { ...(feature.config || {}), [key]: value } }
+          : feature
+      )
+    );
+  };
+
+  const saveFeatureConfig = async (feature: any) => {
+    try {
+      await adminApi.put(`/admin/tenants/${id}/features`, {
+        features: [{ featureId: feature.id, isEnabled: feature.isEnabled, config: feature.config }],
+      });
+      toast.success('تم حفظ إعدادات الميزة');
+      await load();
+    } catch {
+      /* interceptor */
+    }
+  };
+
   const featureName = (code: string) => features.find((f) => f.code === code)?.nameAr || code;
 
   const downloadBackup = async () => {
@@ -460,6 +488,25 @@ export function AdminTenantDetailPage() {
             <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             <Button onClick={() => saveSubscription()}>حفظ</Button>
           </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-5 space-y-3">
+        <div>
+          <h2 className="text-lg font-bold">الخطة</h2>
+          <p className="text-sm text-gray-500">تغيير خطة الاشتراك لهذا التاجر.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {plans.map((plan) => (
+            <Button
+              key={plan.id}
+              variant="outline"
+              size="sm"
+              onClick={() => saveSubscription(plan.id)}
+            >
+              {plan.nameAr} {plan.priceMonthly ? `(${plan.priceMonthly}/شهر)` : '(مجاني)'}
+            </Button>
+          ))}
         </div>
       </div>
 
@@ -655,39 +702,87 @@ export function AdminTenantDetailPage() {
         <h2 className="text-lg font-bold mb-3">الميزات المفعّلة</h2>
         <div className="bg-white rounded-lg shadow p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {features.map((f) => (
-            <label
-              key={f.id}
-              title={f.descriptionAr || f.code}
-              className={`flex items-start gap-2 p-2 rounded border text-sm ${f.isCore ? 'opacity-60' : 'cursor-pointer hover:bg-gray-50'} ${f.isEnabled && !f.isEffective ? 'border-amber-300 bg-amber-50' : ''}`}
-            >
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={f.isEnabled}
-                disabled={f.isCore}
-                onChange={(e) => toggleFeature(f.id, e.target.checked)}
-              />
-              <span className="flex-1">
-                <span className="font-medium">{f.nameAr}</span>
-                {f.isCore && <span className="ms-1 text-xs text-gray-500">(أساسية دايماً)</span>}
-                {f.requiresPlan && <span className="ms-1 text-xs text-orange-500">(مدفوعة)</span>}
-                {f.dependsOn?.length > 0 && (
-                  <span className="block text-xs text-gray-400">
-                    تحتاج: {f.dependsOn.map(featureName).join('، ')}
-                  </span>
-                )}
-                {f.isEnabled && !f.isEffective && (
-                  <span className="block text-xs text-amber-700">
-                    مفعّلة لكن مش شغالة (متطلب مقفول أو انتهت صلاحيتها)
-                  </span>
-                )}
-                {f.expiresAt && (
-                  <span className="block text-xs text-gray-400">
-                    تنتهي: {new Date(f.expiresAt).toLocaleDateString('ar-EG')}
-                  </span>
-                )}
-              </span>
-            </label>
+            <div key={f.id} className="rounded border p-3 text-sm">
+              <label
+                title={f.descriptionAr || f.code}
+                className={`flex items-start gap-2 ${f.isCore ? 'opacity-60' : 'cursor-pointer'} ${f.isEnabled && !f.isEffective ? 'text-amber-900' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={f.isEnabled}
+                  disabled={f.isCore}
+                  onChange={(e) => toggleFeature(f.id, e.target.checked)}
+                />
+                <span className="flex-1">
+                  <span className="font-medium">{f.nameAr}</span>
+                  {f.isCore && <span className="ms-1 text-xs text-gray-500">(أساسية دايماً)</span>}
+                  {f.requiresPlan && <span className="ms-1 text-xs text-orange-500">(مدفوعة)</span>}
+                  {f.dependsOn?.length > 0 && (
+                    <span className="block text-xs text-gray-400">
+                      تحتاج: {f.dependsOn.map(featureName).join('، ')}
+                    </span>
+                  )}
+                  {f.isEnabled && !f.isEffective && (
+                    <span className="block text-xs text-amber-700">
+                      مفعّلة لكن مش شغالة (متطلب مقفول أو انتهت صلاحيتها)
+                    </span>
+                  )}
+                  {f.expiresAt && (
+                    <span className="block text-xs text-gray-400">
+                      تنتهي: {new Date(f.expiresAt).toLocaleDateString('ar-EG')}
+                    </span>
+                  )}
+                </span>
+              </label>
+              {f.code === 'balance_reminders' && f.isEnabled && (
+                <div className="mt-3 space-y-2 border-t pt-3">
+                  <div>
+                    <Label>تنبيه رصيد العميل كل (أيام)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={f.config?.customerReminderDays ?? 30}
+                      onChange={(event) =>
+                        updateFeatureConfig(f.id, 'customerReminderDays', Number(event.target.value))
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>تنبيه رصيد المورد كل (أيام)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={f.config?.supplierReminderDays ?? 30}
+                      onChange={(event) =>
+                        updateFeatureConfig(f.id, 'supplierReminderDays', Number(event.target.value))
+                      }
+                    />
+                  </div>
+                  <Button size="sm" variant="outline" onClick={() => saveFeatureConfig(f)}>
+                    حفظ المدد
+                  </Button>
+                </div>
+              )}
+              {f.code === 'supplier_balance_limit' && f.isEnabled && (
+                <div className="mt-3 space-y-2 border-t pt-3">
+                  <Label>حد إجمالي مستحقات الموردين (ج.م)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    step="0.01"
+                    value={f.config?.limitAmount ?? ''}
+                    onChange={(event) => updateFeatureConfig(f.id, 'limitAmount', Number(event.target.value))}
+                    placeholder="مثال: 50000"
+                  />
+                  <Button size="sm" variant="outline" onClick={() => saveFeatureConfig(f)}>
+                    حفظ حد الموردين
+                  </Button>
+                </div>
+              )}
+            </div>
           ))}
         </div>
       </div>

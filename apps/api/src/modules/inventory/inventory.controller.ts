@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Query, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  UseGuards,
+  Request,
+  GoneException,
+} from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -8,7 +17,7 @@ import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { InventoryService } from './inventory.service';
 import { WarehousesService } from './warehouses.service';
-import { AdjustInventoryDto, TransferInventoryDto } from './dto/inventory-movement.dto';
+import { AdjustInventoryDto } from './dto/inventory-movement.dto';
 
 @ApiTags('inventory')
 @ApiBearerAuth()
@@ -65,15 +74,8 @@ export class InventoryController {
   @Post('transfer')
   @RequirePermission('inventory.transfer')
   @RequireFeature('warehouses')
-  async transfer(@Request() req, @Body() dto: TransferInventoryDto) {
-    const result = await this.inventoryService.transfer(
-      req.tenantId,
-      dto.productId,
-      dto.fromWarehouseId,
-      dto.toWarehouseId,
-      dto.quantity,
-      req.user?.id
-    );
-    return { success: true, data: result, message: 'تم نقل المخزون بنجاح' };
+  transfer() {
+    // Immediate transfers bypass the required request/approval workflow.
+    throw new GoneException('استخدم POST /inventory/transfers لإنشاء طلب تحويل يحتاج إلى موافقة');
   }
 }

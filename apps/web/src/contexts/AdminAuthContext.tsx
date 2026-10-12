@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { adminApi } from '@/lib/adminApi';
 
 export interface Admin {
@@ -9,14 +10,13 @@ export interface Admin {
   lastLoginAt?: string | null;
   lastLoginIp?: string | null;
 }
+
 interface Ctx {
   admin: Admin | null;
   isLoading: boolean;
   login: (email: string, password: string, otp?: string) => Promise<void>;
   logout: () => void;
   refresh: () => Promise<void>;
-  /** بعد تغيير كلمة المرور/تفعيل 2FA السيرفر بيلغي الجلسات القديمة ويرجع توكن جديد */
-  replaceToken: (token: string) => void;
 }
 
 const AdminAuthContext = createContext<Ctx>({
@@ -25,44 +25,48 @@ const AdminAuthContext = createContext<Ctx>({
   login: async () => {},
   logout: () => {},
   refresh: async () => {},
-  replaceToken: () => {},
 });
+
 export const useAdminAuth = () => useContext(AdminAuthContext);
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const location = useLocation();
 
-  const refresh = async () => {
-    const r = await adminApi.get('/admin/auth/me');
-    setAdmin(r.data.data);
-  };
+  const refresh = useCallback(async () => {
+    const response = await adminApi.get('/admin/auth/me');
+    setAdmin(response.data.data);
+  }, []);
 
   useEffect(() => {
-    if (!localStorage.getItem('masterToken')) {
+    if (!location.pathname.startsWith('/admin') || location.pathname === '/admin/login') {
       setIsLoading(false);
       return;
     }
-    refresh()
-      .catch(() => localStorage.removeItem('masterToken'))
+    setIsLoading(true);
+    void refresh()
+      .catch(() => setAdmin(null))
       .finally(() => setIsLoading(false));
-  }, []);
+  }, [location.pathname, refresh]);
 
   const login = async (email: string, password: string, otp?: string) => {
-    const r = await adminApi.post('/admin/auth/login', { email, password, otp: otp || undefined });
-    localStorage.setItem('masterToken', r.data.data.accessToken);
-    setAdmin(r.data.data.admin);
+    const response = await adminApi.post('/admin/auth/login', {
+      email,
+      password,
+      otp: otp || undefined,
+    });
+    // The access token is set by the server as an HttpOnly cookie.
+    setAdmin(response.data.data.admin);
   };
 
   const logout = () => {
-    localStorage.removeItem('masterToken');
+    void adminApi.post('/admin/auth/logout').catch(() => undefined);
     setAdmin(null);
   };
 
-  const replaceToken = (token: string) => localStorage.setItem('masterToken', token);
-
   return (
-    <AdminAuthContext.Provider value={{ admin, isLoading, login, logout, refresh, replaceToken }}>
+    <AdminAuthContext.Provider value={{ admin, isLoading, login, logout, refresh }}>
       {children}
     </AdminAuthContext.Provider>
   );

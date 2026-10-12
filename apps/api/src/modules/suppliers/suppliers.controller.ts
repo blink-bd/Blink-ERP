@@ -32,9 +32,31 @@ export class SuppliersController {
   constructor(private readonly suppliersService: SuppliersService) {}
 
   @Get()
-  async findAll(@Request() req, @Query('search') search?: string) {
-    const result = await this.suppliersService.findAll(req.tenantId, search);
+  async findAll(
+    @Request() req,
+    @Query('search') search?: string,
+    @Query('branchIds') branchIds?: string
+  ) {
+    const requested = branchIds
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const selected = requested?.length
+      ? requested
+      : req.user?.branchId
+        ? [req.user.branchId]
+        : undefined;
+    const result = await this.suppliersService.findAll(req.tenantId, search, selected);
     return { success: true, data: result.data, meta: { totalOwed: result.totalOwed } };
+  }
+
+  @Get('payables-limit/status')
+  @RequireFeature('supplier_balance_limit')
+  async payablesLimitStatus(@Request() req) {
+    return {
+      success: true,
+      data: await this.suppliersService.getSupplierPayablesLimitStatus(req.tenantId),
+    };
   }
 
   @Get(':id')
@@ -43,14 +65,35 @@ export class SuppliersController {
   }
 
   @Get(':id/statement')
-  async statement(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
-    return { success: true, data: await this.suppliersService.statement(req.tenantId, id) };
+  async statement(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('branchIds') branchIds?: string
+  ) {
+    const requested = branchIds
+      ?.split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const selected = requested?.length
+      ? requested
+      : req.user?.branchId
+        ? [req.user.branchId]
+        : undefined;
+    return {
+      success: true,
+      data: await this.suppliersService.statement(req.tenantId, id, selected),
+    };
   }
 
   @Post()
   @RequirePermission('suppliers.create')
   async create(@Request() req, @Body() dto: SupplierDto) {
-    const supplier = await this.suppliersService.create(req.tenantId, dto, req.user?.id);
+    const supplier = await this.suppliersService.create(
+      req.tenantId,
+      dto,
+      req.user?.id,
+      req.user?.branchId
+    );
     return { success: true, data: supplier, message: 'تم إضافة المورد بنجاح' };
   }
 
@@ -64,6 +107,7 @@ export class SuppliersController {
     const supplier = await this.suppliersService.update(req.tenantId, id, {
       ...dto,
       updatedBy: req.user?.id,
+      branchId: req.user?.branchId,
     } as any);
     return { success: true, data: supplier, message: 'تم تحديث بيانات المورد بنجاح' };
   }
@@ -81,7 +125,8 @@ export class SuppliersController {
       dto.amount,
       dto.method,
       dto.notes,
-      req.user?.id
+      req.user?.id,
+      dto.branchId || req.user?.branchId
     );
     return { success: true, data: result, message: 'تم تسجيل السداد بنجاح' };
   }

@@ -14,8 +14,16 @@ import {
   ParseUUIDPipe,
   Query,
   Request,
+  Response,
   UseGuards,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Response as ExpressResponse } from 'express';
+import {
+  MASTER_TOKEN_COOKIE,
+  authCookieOptions,
+  durationToMilliseconds,
+} from '@/common/utils/auth-cookies';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -38,12 +46,41 @@ import { AuditService } from '@/modules/audit/audit.service';
 @ApiTags('master-auth')
 @Controller({ path: 'admin/auth', version: '1' })
 export class MasterAuthController {
-  constructor(private readonly service: MasterAdminService) {}
+  constructor(
+    private readonly service: MasterAdminService,
+    private readonly config: ConfigService
+  ) {}
 
   @Post('login')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  async login(@Body() dto: MasterLoginDto, @Ip() ip: string) {
-    return { success: true, data: await this.service.login(dto.email, dto.password, ip, dto.otp) };
+  async login(
+    @Body() dto: MasterLoginDto,
+    @Ip() ip: string,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
+    const result = await this.service.login(dto.email, dto.password, ip, dto.otp);
+    res.cookie(
+      MASTER_TOKEN_COOKIE,
+      result.accessToken,
+      authCookieOptions(this.config, {
+        path: '/api/v1/admin',
+        maxAge: durationToMilliseconds('8h', 8 * 60 * 60 * 1000),
+      })
+    );
+    return { success: true, data: { admin: result.admin } };
+  }
+
+  @Post('logout')
+  @ApiBearerAuth()
+  @UseGuards(MasterAdminGuard)
+  async logout(
+    @Request() req,
+    @Ip() ip: string,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
+    await this.service.logoutAll(req.masterAdmin.id, ip);
+    this.clearMasterCookie(res);
+    return { success: true, message: 'تم تسجيل الخروج' };
   }
 
   @Get('me')
@@ -57,14 +94,20 @@ export class MasterAuthController {
   @ApiBearerAuth()
   @UseGuards(MasterAdminGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  async changePassword(@Request() req, @Ip() ip: string, @Body() dto: MasterChangePasswordDto) {
+  async changePassword(
+    @Request() req,
+    @Ip() ip: string,
+    @Body() dto: MasterChangePasswordDto,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
     const data = await this.service.changePassword(
       req.masterAdmin.id,
       dto.currentPassword,
       dto.newPassword,
       ip
     );
-    return { success: true, data, message: 'تم تغيير كلمة المرور وتسجيل الخروج من الأجهزة الأخرى' };
+    this.setMasterCookie(res, data.accessToken);
+    return { success: true, message: 'تم تغيير كلمة المرور وتسجيل الخروج من الأجهزة الأخرى' };
   }
 
   @Post('logout-all')
@@ -90,9 +133,15 @@ export class MasterAuthController {
   @ApiBearerAuth()
   @UseGuards(MasterAdminGuard)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  async enable2fa(@Request() req, @Ip() ip: string, @Body() dto: MasterOtpDto) {
+  async enable2fa(
+    @Request() req,
+    @Ip() ip: string,
+    @Body() dto: MasterOtpDto,
+    @Response({ passthrough: true }) res: ExpressResponse
+  ) {
     const data = await this.service.twoFactorEnable(req.masterAdmin.id, dto.otp, ip);
-    return { success: true, data, message: 'تم تفعيل المصادقة الثنائية' };
+    this.setMasterCookie(res, data.accessToken);
+    return { success: true, message: 'تم تفعيل المصادقة الثنائية' };
   }
 
   @Post('2fa/disable')
@@ -102,6 +151,21 @@ export class MasterAuthController {
   async disable2fa(@Request() req, @Ip() ip: string, @Body() dto: MasterDisable2faDto) {
     await this.service.twoFactorDisable(req.masterAdmin.id, dto.password, dto.otp, ip);
     return { success: true, message: 'تم إيقاف المصادقة الثنائية' };
+  }
+
+  private setMasterCookie(res: ExpressResponse, token: string) {
+    res.cookie(
+      MASTER_TOKEN_COOKIE,
+      token,
+      authCookieOptions(this.config, {
+        path: '/api/v1/admin',
+        maxAge: durationToMilliseconds('8h', 8 * 60 * 60 * 1000),
+      })
+    );
+  }
+
+  private clearMasterCookie(res: ExpressResponse) {
+    res.clearCookie(MASTER_TOKEN_COOKIE, authCookieOptions(this.config, { path: '/api/v1/admin' }));
   }
 }
 

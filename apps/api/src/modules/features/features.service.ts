@@ -132,7 +132,7 @@ export class FeaturesService {
     tenantId: string,
     featureId: string,
     isEnabled: boolean,
-    options?: { expiresAt?: Date | null; actorId?: string }
+    options?: { expiresAt?: Date | null; actorId?: string; config?: Record<string, any> }
   ): Promise<FeatureChange[]> {
     const features = await this.featuresRepository.find({ where: { isActive: true } });
     const byId = new Map(features.map((f) => [f.id, f]));
@@ -177,6 +177,7 @@ export class FeaturesService {
       await this.setFeatureStatus(tenantId, id, isEnabled, {
         expiresAt: isTarget ? options?.expiresAt : undefined,
         actorId: options?.actorId,
+        config: isTarget ? options?.config : undefined,
       });
       changes.push({ code: byId.get(id)!.code, isEnabled });
     }
@@ -217,6 +218,7 @@ export class FeaturesService {
         requiresPlan: f.requiresPlan,
         dependsOn: (f.dependsOn || []).map((d) => codeById.get(d)).filter(Boolean),
         isEnabled: f.isCore || !!tf?.isEnabled,
+        config: tf?.config || {},
         isEffective: effective.has(f.code),
         expiresAt: tf?.expiresAt ?? null,
         enabledAt: tf?.isEnabled ? tf.enabledAt : null,

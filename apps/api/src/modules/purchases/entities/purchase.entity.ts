@@ -16,6 +16,9 @@ export class Purchase extends BaseEntity {
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;
 
+  @Column({ name: 'branch_id', type: 'uuid', nullable: true })
+  branchId?: string;
+
   @Column({ name: 'warehouse_id', type: 'uuid' })
   warehouseId: string;
 

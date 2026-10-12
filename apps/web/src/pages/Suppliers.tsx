@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,7 +13,9 @@ interface Supplier {
 const emptyForm = { id: '', name: '', phone: '', previousBalance: '' };
 
 export function SuppliersPage() {
+  const supplierLimitEnabled = useFeature('supplier_balance_limit');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [supplierLimit, setSupplierLimit] = useState<any>(null);
   const [totalOwed, setTotalOwed] = useState(0);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -30,12 +33,15 @@ export function SuppliersPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/suppliers', { params: { search } });
+      const requests = [api.get('/suppliers', { params: { search } })];
+      if (supplierLimitEnabled) requests.push(api.get('/suppliers/payables-limit/status'));
+      const [res, limitResponse] = await Promise.all(requests);
       setSuppliers(res.data.data);
       setTotalOwed(res.data.meta?.totalOwed || 0);
+      setSupplierLimit(limitResponse?.data.data || null);
     } finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [supplierLimitEnabled]);
 
   const openCreate = () => { setForm({ ...emptyForm }); setShowForm(true); };
   const openEdit = (supplier: Supplier) => {
@@ -113,6 +119,21 @@ export function SuppliersPage() {
         </div>
       </div>
       <div className="bg-white rounded-lg shadow px-5 py-3 mb-4 inline-block"><span className="text-sm text-gray-500 ml-2">إجمالي المستحق عليّ لكل الموردين:</span><span className="text-xl font-bold text-orange-600">{Number(totalOwed).toFixed(2)}</span></div>
+      {supplierLimitEnabled && supplierLimit?.configured && (
+        <div
+          className={`mb-4 rounded-lg border p-4 ${supplierLimit.overLimit ? 'border-red-300 bg-red-50 text-red-800' : 'border-green-200 bg-green-50 text-green-800'}`}
+        >
+          <strong>
+            {supplierLimit.overLimit
+              ? 'تنبيه: تجاوز إجمالي أرصدة الموردين الحد المحدد'
+              : 'إجمالي أرصدة الموردين ضمن الحد'}
+          </strong>
+          <span className="mr-2 text-sm">
+            الإجمالي {Number(supplierLimit.totalPayables).toFixed(2)} ج.م من حد{' '}
+            {Number(supplierLimit.limitAmount).toFixed(2)} ج.م
+          </span>
+        </div>
+      )}
 
       {showForm && <form onSubmit={submit} className="bg-white p-5 rounded-lg shadow mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <div><Label>اسم المورد</Label><Input required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></div>

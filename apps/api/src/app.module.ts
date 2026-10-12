@@ -26,60 +26,56 @@ import { MasterAdminModule } from './modules/master-admin/master-admin.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { DataTransferModule } from './modules/data-transfer/data-transfer.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
+import { IntegrationsModule } from './modules/integrations/integrations.module';
+import { ReceiptsModule } from './modules/receipts/receipts.module';
+import { HealthModule } from './modules/health/health.module';
+import { BalanceRemindersModule } from './modules/balance-reminders/balance-reminders.module';
+import { InvoiceAttachmentsModule } from './modules/invoice-attachments/invoice-attachments.module';
+import { MaintenanceModule } from './modules/maintenance/maintenance.module';
 
 @Module({
   imports: [
-    // Configuration
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env', '../../.env'],
     }),
-
-    // Database
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: typeormConfig,
       inject: [ConfigService],
     }),
-
-    // Rate limiting
     ThrottlerModule.forRoot([
       {
-        ttl: 60000, // 1 minute
-        // لكل IP. محلات فيها كذا كاشير ورا نفس الراوتر محتاجة حد أعلى من 100
+        ttl: 60000,
         limit: Number(process.env.THROTTLE_LIMIT) || 300,
       },
     ]),
-
-    // Cross-cutting concerns (filters, interceptors)
     CommonModule,
-
-    // Core: identity, tenancy, access control
     AuditModule,
     ApiKeysModule,
     MasterAdminModule,
+    NotificationsModule,
+    BalanceRemindersModule,
+    InvoiceAttachmentsModule,
+    MaintenanceModule,
+    IntegrationsModule,
+    ReceiptsModule,
+    HealthModule,
     DashboardModule,
     AuthModule,
     TenantsModule,
     UsersModule,
     FeaturesModule,
     BrandingModule,
-
-    // Catalog & stock
     ProductsModule,
     InventoryModule,
-
-    // Parties
     CustomersModule,
     SuppliersModule,
-
-    // Transactions
     SalesModule,
     PurchasesModule,
     CashRegisterModule,
     ExpensesModule,
-
-    // Intelligence and maintenance
     ReportsModule,
     BackupModule,
     DataTransferModule,

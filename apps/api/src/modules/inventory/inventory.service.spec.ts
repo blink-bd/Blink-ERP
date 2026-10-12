@@ -3,6 +3,8 @@ import { getRepositoryToken, getDataSourceToken } from '@nestjs/typeorm';
 import { InventoryService } from './inventory.service';
 import { Inventory } from './entities/inventory.entity';
 import { InventoryTransaction } from './entities/inventory-transaction.entity';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { WebhooksService } from '@/modules/integrations/webhooks.service';
 
 describe('InventoryService', () => {
   let service: InventoryService;
@@ -41,6 +43,8 @@ describe('InventoryService', () => {
         { provide: getRepositoryToken(Inventory), useValue: inventoryRepository },
         { provide: getRepositoryToken(InventoryTransaction), useValue: transactionsRepository },
         { provide: getDataSourceToken(), useValue: dataSource },
+        { provide: NotificationsService, useValue: {} },
+        { provide: WebhooksService, useValue: {} },
       ],
     }).compile();
 

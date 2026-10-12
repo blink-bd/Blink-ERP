@@ -28,7 +28,6 @@ export class WarehousesController {
 
   @Get()
   async findAll(@Request() req, @Query('all') all?: string) {
-    // all=1 يعرض كل المخازن (للإعدادات) حتى لو ميزة المخازن المتعددة مقفولة
     const includeAll = all === '1' || all === 'true';
     return { success: true, data: await this.warehousesService.findAll(req.tenantId, includeAll) };
   }

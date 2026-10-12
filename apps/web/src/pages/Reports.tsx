@@ -138,7 +138,6 @@ export function ReportsPage() {
     }
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     runReport(tab);
   }, [tab, advancedEnabled]);

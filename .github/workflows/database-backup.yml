@@ -1,0 +1,68 @@
+name: Daily PostgreSQL backup
+
+on:
+  schedule:
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out backup script
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL and S3 clients
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client awscli
+
+      - name: Create and upload compressed database backup
+        id: backup
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BACKUP_S3_PREFIX: ${{ vars.BACKUP_S3_PREFIX }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.BACKUP_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.BACKUP_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          BACKUP_S3_SERVER_SIDE_ENCRYPTION: ${{ vars.BACKUP_S3_SERVER_SIDE_ENCRYPTION }}
+        run: bash scripts/backup-postgres.sh
+
+      - name: Notify success
+        if: success()
+        env:
+          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
+          BACKUP_ALERT_TOKEN: ${{ secrets.BACKUP_ALERT_TOKEN }}
+          BACKUP_OBJECT_KEY: ${{ steps.backup.outputs.object_key }}
+        run: |
+          if [[ -n "$API_PUBLIC_URL" && -n "$BACKUP_ALERT_TOKEN" ]]; then
+            curl --fail --silent --show-error --max-time 20 \
+              -X POST "${API_PUBLIC_URL%/}/api/v1/ops/backup-alert" \
+              -H "X-Backup-Alert-Token: ${BACKUP_ALERT_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data "{\"status\":\"success\",\"objectKey\":\"${BACKUP_OBJECT_KEY}\"}" || true
+          fi
+
+      - name: Notify failure
+        if: failure()
+        env:
+          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
+          BACKUP_ALERT_TOKEN: ${{ secrets.BACKUP_ALERT_TOKEN }}
+        run: |
+          if [[ -n "$API_PUBLIC_URL" && -n "$BACKUP_ALERT_TOKEN" ]]; then
+            curl --fail --silent --show-error --max-time 20 \
+              -X POST "${API_PUBLIC_URL%/}/api/v1/ops/backup-alert" \
+              -H "X-Backup-Alert-Token: ${BACKUP_ALERT_TOKEN}" \
+              -H 'Content-Type: application/json' \
+              --data '{"status":"failed","details":"راجع سجل GitHub Actions للخطأ"}' || true
+          fi

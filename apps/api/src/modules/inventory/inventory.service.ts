@@ -1,6 +1,8 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { EntityManager, Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
+import { NotificationsService } from '@/modules/notifications/notifications.service';
+import { WebhooksService } from '@/modules/integrations/webhooks.service';
 import { Inventory } from './entities/inventory.entity';
 import {
   InventoryTransaction,
@@ -23,13 +25,18 @@ interface AdjustInventoryInput {
 
 @Injectable()
 export class InventoryService {
+  private readonly lowStockNotifiedAt = new Map<string, number>();
+  private static readonly LOW_STOCK_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+
   constructor(
     @InjectRepository(Inventory)
     private readonly inventoryRepository: Repository<Inventory>,
     @InjectRepository(InventoryTransaction)
     private readonly transactionsRepository: Repository<InventoryTransaction>,
     @InjectDataSource()
-    private readonly dataSource: DataSource
+    private readonly dataSource: DataSource,
+    private readonly notifications: NotificationsService,
+    private readonly webhooks: WebhooksService
   ) {}
 
   async getSummary(
@@ -97,42 +104,53 @@ export class InventoryService {
     return query.orderBy('txn.createdAt', 'DESC').limit(200).getMany();
   }
 
+  /**
+   * Core stock-movement primitive. Callers that own a larger transaction should
+   * use adjustInventoryInTransaction so sale/purchase and stock never diverge.
+   */
+  async adjustInventory(
+    input: AdjustInventoryInput,
+    transactionManager?: EntityManager
+  ): Promise<InventoryTransaction> {
+    if (transactionManager) return this.adjustInventoryInTransaction(transactionManager, input);
+    const transaction = await this.dataSource.transaction((manager) =>
+      this.adjustInventoryInTransaction(manager, input)
+    );
+    void this.checkLowStock(input.tenantId, input.productId, input.warehouseId);
+    return transaction;
+  }
+
   private async assertTenantReferences(
     manager: EntityManager,
-    tenantId: string,
-    productId: string,
-    warehouseId: string
+    input: AdjustInventoryInput
   ): Promise<void> {
     const [product] = await manager.query(
       `SELECT id FROM products WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-      [productId, tenantId]
+      [input.productId, input.tenantId]
     );
     if (!product) throw new NotFoundException('المنتج غير موجود في هذا التاجر');
-
     const [warehouse] = await manager.query(
-      `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL`,
-      [warehouseId, tenantId]
+      `SELECT id FROM warehouses WHERE id = $1 AND tenant_id = $2 AND deleted_at IS NULL AND is_active = true`,
+      [input.warehouseId, input.tenantId]
     );
-    if (!warehouse) throw new NotFoundException('المخزن غير موجود في هذا التاجر');
+    if (!warehouse) throw new NotFoundException('المخزن غير موجود أو غير نشط لهذا التاجر');
   }
 
-  private async adjustWithManager(
+  async adjustInventoryInTransaction(
     manager: EntityManager,
     input: AdjustInventoryInput
   ): Promise<InventoryTransaction> {
     if (!Number.isFinite(input.quantity) || input.quantity === 0) {
       throw new BadRequestException('كمية حركة المخزون غير صحيحة');
     }
-    if (input.quantity > 0 && input.unitCost !== undefined && input.unitCost < 0) {
-      throw new BadRequestException('تكلفة المخزون لا يمكن أن تكون سالبة');
+    if (input.unitCost !== undefined && (!Number.isFinite(input.unitCost) || input.unitCost < 0)) {
+      throw new BadRequestException('تكلفة المخزون لا يمكن أن تكون سالبة أو غير صحيحة');
     }
-
-    await this.assertTenantReferences(manager, input.tenantId, input.productId, input.warehouseId);
-
-    // Lock the logical stock key even when the row does not exist yet. This
-    // prevents two concurrent first movements from creating inconsistent rows.
-    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-      `${input.tenantId}:${input.productId}:${input.warehouseId}`,
+    await this.assertTenantReferences(manager, input);
+    // The advisory lock also serializes first-time creation when no inventory row exists yet.
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+      input.tenantId,
+      `${input.productId}:${input.warehouseId}`,
     ]);
 
     let inventory = await manager.findOne(Inventory, {
@@ -150,25 +168,25 @@ export class InventoryService {
         productId: input.productId,
         warehouseId: input.warehouseId,
         quantity: 0,
+        reservedQuantity: 0,
         weightedAvgCost: input.unitCost || 0,
         lastCost: input.unitCost || 0,
       });
     }
 
-    const newQuantity = Number(inventory.quantity) + input.quantity;
-    const availableAfter = newQuantity - Number(inventory.reservedQuantity || 0);
-    if (newQuantity < 0 || availableAfter < 0) {
-      throw new BadRequestException('الكمية المتاحة غير كافية');
+    const currentQuantity = Number(inventory.quantity);
+    const reservedQuantity = Number(inventory.reservedQuantity || 0);
+    const newQuantity = currentQuantity + input.quantity;
+    if (newQuantity < reservedQuantity || newQuantity < 0) {
+      throw new BadRequestException('الكمية المتاحة غير كافية أو محجوزة لتحويل بانتظار الموافقة');
     }
 
     if (input.quantity > 0 && input.unitCost !== undefined) {
-      const currentQty = Number(inventory.quantity);
-      const currentCost = Number(inventory.weightedAvgCost);
+      const currentCost = Number(inventory.weightedAvgCost || 0);
       inventory.weightedAvgCost =
-        currentQty + input.quantity === 0
+        newQuantity === 0
           ? input.unitCost
-          : (currentQty * currentCost + input.quantity * input.unitCost) /
-            (currentQty + input.quantity);
+          : (currentQuantity * currentCost + input.quantity * input.unitCost) / newQuantity;
       inventory.lastCost = input.unitCost;
     }
 
@@ -194,18 +212,72 @@ export class InventoryService {
     return manager.save(transaction);
   }
 
-  /**
-   * Uses the caller's transaction when provided. Financial workflows must pass
-   * their EntityManager so stock changes roll back with the sale or purchase.
-   */
-  async adjustInventory(
-    input: AdjustInventoryInput,
-    manager?: EntityManager
-  ): Promise<InventoryTransaction> {
-    if (manager) return this.adjustWithManager(manager, input);
-    return this.dataSource.transaction((transactionManager) =>
-      this.adjustWithManager(transactionManager, input)
-    );
+  async adjustReservedQuantityInTransaction(
+    manager: EntityManager,
+    input: { tenantId: string; productId: string; warehouseId: string; quantity: number }
+  ): Promise<Inventory> {
+    await manager.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
+      input.tenantId,
+      `${input.productId}:${input.warehouseId}`,
+    ]);
+    const inventory = await manager.findOne(Inventory, {
+      where: {
+        tenantId: input.tenantId,
+        productId: input.productId,
+        warehouseId: input.warehouseId,
+      },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!inventory) throw new BadRequestException('رصيد المخزون غير موجود');
+    const nextReserved = Number(inventory.reservedQuantity || 0) + input.quantity;
+    if (nextReserved < 0 || nextReserved > Number(inventory.quantity)) {
+      throw new BadRequestException('الكمية المحجوزة للمرتجع غير صالحة');
+    }
+    inventory.reservedQuantity = nextReserved;
+    inventory.version = (inventory.version || 1) + 1;
+    return manager.save(inventory);
+  }
+
+  async checkLowStock(tenantId: string, productId: string, warehouseId: string): Promise<void> {
+    try {
+      const inventory = await this.inventoryRepository.findOne({
+        where: { tenantId, productId, warehouseId },
+        relations: ['product'],
+      });
+      const product = inventory?.product;
+      if (!inventory || !product || !product.trackInventory) return;
+
+      const available = Number(inventory.quantity) - Number(inventory.reservedQuantity);
+      const minimum = Number(product.minStockLevel || 0);
+      const key = `${tenantId}:${productId}:${warehouseId}`;
+      if (available > minimum) {
+        this.lowStockNotifiedAt.delete(key);
+        return;
+      }
+
+      const now = Date.now();
+      const lastSentAt = this.lowStockNotifiedAt.get(key) || 0;
+      if (now - lastSentAt < InventoryService.LOW_STOCK_COOLDOWN_MS) return;
+      this.lowStockNotifiedAt.set(key, now);
+
+      const details = {
+        tenantId,
+        productId,
+        productName: product.name,
+        warehouseId,
+        availableQuantity: available,
+        minimumQuantity: minimum,
+      };
+      const alert = {
+        event: 'inventory.low_stock',
+        title: available <= 0 ? `نفد مخزون ${product.name}` : `انخفاض مخزون ${product.name}`,
+        details,
+      };
+      void this.notifications.sendOperationalAlert(alert).catch(() => undefined);
+      void this.webhooks.emit(tenantId, 'inventory.low_stock', details).catch(() => undefined);
+    } catch {
+      // تنبيهات المخزون مساندة ولا ينبغي أن تفشل عملية البيع/الشراء بسببها.
+    }
   }
 
   async adjustManual(
@@ -226,45 +298,6 @@ export class InventoryService {
       notes: reason.trim(),
       userId,
     });
-  }
-
-  async transfer(
-    tenantId: string,
-    productId: string,
-    fromWarehouseId: string,
-    toWarehouseId: string,
-    quantity: number,
-    userId?: string,
-    manager?: EntityManager
-  ) {
-    if (fromWarehouseId === toWarehouseId) {
-      throw new BadRequestException('مخزن المصدر والوجهة يجب أن يكونا مختلفين');
-    }
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      throw new BadRequestException('كمية النقل يجب أن تكون أكبر من صفر');
-    }
-
-    const execute = async (transactionManager: EntityManager) => {
-      const out = await this.adjustWithManager(transactionManager, {
-        tenantId,
-        productId,
-        warehouseId: fromWarehouseId,
-        quantity: -quantity,
-        type: 'transfer_out',
-        userId,
-      });
-      const inTxn = await this.adjustWithManager(transactionManager, {
-        tenantId,
-        productId,
-        warehouseId: toWarehouseId,
-        quantity,
-        type: 'transfer_in',
-        userId,
-      });
-      return { out, in: inTxn };
-    };
-
-    return manager ? execute(manager) : this.dataSource.transaction(execute);
   }
 
   async getAvailableQuantity(

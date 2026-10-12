@@ -1,18 +1,21 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository, IsNull } from 'typeorm';
+import { Repository, IsNull, EntityManager } from 'typeorm';
 import { stripProtected } from '@/common/utils/sanitize';
+import { adjustBranchPartyBalance, resolveTenantBranch } from '@/common/utils/branch-accounting';
 import { Supplier } from './entities/supplier.entity';
 import { SupplierPayment } from './entities/supplier-payment.entity';
+import { BalanceRemindersService } from '@/modules/balance-reminders/balance-reminders.service';
 
 @Injectable()
 export class SuppliersService {
   constructor(
     @InjectRepository(Supplier) private readonly repo: Repository<Supplier>,
-    @InjectRepository(SupplierPayment) private readonly paymentsRepo: Repository<SupplierPayment>
+    private readonly balanceReminders: BalanceRemindersService
   ) {}
 
-  async findAll(tenantId: string, search?: string) {
+  async findAll(tenantId: string, search?: string, branchIds?: string[]) {
+    const selectedBranches = branchIds?.length ? branchIds : undefined;
     const query = this.repo
       .createQueryBuilder('s')
       .where('s.tenantId = :tenantId', { tenantId })
@@ -20,8 +23,29 @@ export class SuppliersService {
     if (search) {
       query.andWhere('(s.name ILIKE :search OR s.phone ILIKE :search)', { search: `%${search}%` });
     }
+    if (selectedBranches) {
+      query.andWhere(
+        `(EXISTS (SELECT 1 FROM purchases p WHERE p.tenant_id = s.tenant_id AND p.supplier_id = s.id AND p.branch_id IN (:...branchIds))
+         OR EXISTS (SELECT 1 FROM branch_party_balances b WHERE b.tenant_id = s.tenant_id AND b.party_type = 'supplier' AND b.party_id = s.id AND b.branch_id IN (:...branchIds)))`,
+        { branchIds: selectedBranches }
+      );
+      const entities = await query.orderBy('s.name', 'ASC').getMany();
+      const balances = await this.repo.manager.query(
+        `SELECT party_id AS "partyId", COALESCE(SUM(balance), 0) AS balance
+         FROM branch_party_balances WHERE tenant_id = $1 AND party_type = 'supplier'
+           AND branch_id = ANY($2::uuid[]) GROUP BY party_id`,
+        [tenantId, selectedBranches]
+      );
+      const balanceMap = new Map(balances.map((row: any) => [row.partyId, Number(row.balance)]));
+      const data = entities.map((supplier) => ({
+        ...supplier,
+        balance: balanceMap.get(supplier.id) || 0,
+      }));
+      const totalOwed = data.reduce((sum, supplier) => sum + Number(supplier.balance), 0);
+      return { data, totalOwed, branchIds: selectedBranches };
+    }
     const suppliers = await query.orderBy('s.name', 'ASC').getMany();
-    const totalOwed = suppliers.reduce((sum, s) => sum + Number(s.balance), 0);
+    const totalOwed = suppliers.reduce((sum, supplier) => sum + Number(supplier.balance), 0);
     return { data: suppliers, totalOwed };
   }
 
@@ -32,78 +56,174 @@ export class SuppliersService {
     return supplier;
   }
 
-  create(tenantId: string, data: Partial<Supplier>, userId?: string) {
+  async create(tenantId: string, data: Partial<Supplier>, userId?: string, branchId?: string) {
     const clean = stripProtected(data);
     const previousBalance = Number((clean as any).previousBalance) || 0;
-    const supplier = this.repo.create({
-      ...clean,
-      tenantId,
-      createdBy: userId,
-      previousBalance,
-      balance: previousBalance, // الرصيد الحالي يبدأ من الرصيد السابق
+    const created = await this.repo.manager.transaction(async (manager) => {
+      const supplier = await manager.save(
+        manager.create(Supplier, {
+          ...clean,
+          tenantId,
+          createdBy: userId,
+          previousBalance,
+          balance: previousBalance,
+          balanceReminderAnchorAt: previousBalance !== 0 ? new Date() : undefined,
+        })
+      );
+      await adjustBranchPartyBalance(
+        manager,
+        tenantId,
+        'supplier',
+        supplier.id,
+        previousBalance,
+        branchId
+      );
+      return supplier;
     });
-    return this.repo.save(supplier);
+    await this.balanceReminders.checkSupplierPayablesLimit(tenantId);
+    return created;
   }
 
   async update(
     tenantId: string,
     id: string,
-    data: Partial<Supplier> & { openingBalanceReason?: string; updatedBy?: string }
-  ) {
-    const supplier = await this.findById(tenantId, id);
-    const clean = stripProtected(data as any);
-    delete (clean as any).previousBalance;
-    delete (clean as any).openingBalanceReason;
-    Object.assign(supplier, clean);
-
-    if (Object.prototype.hasOwnProperty.call(data, 'previousBalance')) {
-      const nextOpening = Number((data as any).previousBalance);
-      const before = Number(supplier.previousBalance);
-      if (!Number.isFinite(nextOpening) || nextOpening < 0) {
-        throw new BadRequestException('الرصيد الافتتاحي يجب أن يكون صفراً أو أكبر');
-      }
-      const delta = nextOpening - before;
-      if (Math.abs(delta) > 0.0001) {
-        const reason = String((data as any).openingBalanceReason || '').trim();
-        if (!reason) throw new BadRequestException('اكتب سبب تعديل الرصيد الافتتاحي');
-        await this.repo.manager.query(
-          `INSERT INTO party_balance_adjustments
-             (tenant_id, party_type, supplier_id, amount, balance_before, balance_after, reason, created_by)
-           VALUES ($1, 'supplier', $2, $3, $4, $5, $6, $7)`,
-          [tenantId, id, delta, before, nextOpening, reason, (data as any).updatedBy || null]
-        );
-        supplier.balance = Number(supplier.balance) + delta;
-      }
-      supplier.previousBalance = nextOpening;
+    data: Partial<Supplier> & {
+      openingBalanceReason?: string;
+      updatedBy?: string;
+      branchId?: string;
     }
-    return this.repo.save(supplier);
+  ) {
+    const updated = await this.repo.manager.transaction(async (manager) => {
+      const supplier = await manager.findOne(Supplier, {
+        where: { id, tenantId, deletedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!supplier) throw new NotFoundException('المورد غير موجود');
+      const clean = stripProtected(data as any);
+      delete (clean as any).previousBalance;
+      delete (clean as any).openingBalanceReason;
+      delete (clean as any).branchId;
+      Object.assign(supplier, clean);
+
+      if (Object.prototype.hasOwnProperty.call(data, 'previousBalance')) {
+        const nextOpening = Number((data as any).previousBalance);
+        const before = Number(supplier.previousBalance);
+        if (!Number.isFinite(nextOpening) || nextOpening < 0) {
+          throw new BadRequestException('الرصيد الافتتاحي يجب أن يكون صفراً أو أكبر');
+        }
+        const delta = nextOpening - before;
+        if (Math.abs(delta) > 0.0001) {
+          const reason = String((data as any).openingBalanceReason || '').trim();
+          if (!reason) throw new BadRequestException('اكتب سبب تعديل الرصيد الافتتاحي');
+          const resolvedBranchId = await resolveTenantBranch(manager, tenantId, data.branchId);
+          await manager.query(
+            `INSERT INTO party_balance_adjustments
+               (tenant_id, party_type, supplier_id, branch_id, amount, balance_before, balance_after, reason, created_by)
+             VALUES ($1, 'supplier', $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              tenantId,
+              id,
+              resolvedBranchId || null,
+              delta,
+              before,
+              nextOpening,
+              reason,
+              (data as any).updatedBy || null,
+            ]
+          );
+          supplier.balance = Number(supplier.balance) + delta;
+          await adjustBranchPartyBalance(
+            manager,
+            tenantId,
+            'supplier',
+            id,
+            delta,
+            resolvedBranchId
+          );
+          supplier.balanceReminderAnchorAt = new Date();
+          supplier.balanceReminderLastSentAt = null;
+          await manager.query(
+            `UPDATE balance_reminder_events SET resolved_at = CURRENT_TIMESTAMP
+             WHERE tenant_id = $1 AND party_type = 'supplier' AND party_id = $2 AND resolved_at IS NULL`,
+            [tenantId, id]
+          );
+        }
+        supplier.previousBalance = nextOpening;
+      }
+      return manager.save(supplier);
+    });
+    await this.balanceReminders.checkSupplierPayablesLimit(tenantId);
+    return updated;
   }
 
   async adjustBalance(
     tenantId: string,
     id: string,
     delta: number,
-    manager?: EntityManager
+    branchOrManager?: string | EntityManager
   ): Promise<Supplier> {
-    const repository = manager ? manager.getRepository(Supplier) : this.repo;
-    if (manager) {
-      await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
-        `supplier:${tenantId}:${id}`,
-      ]);
-    }
-    const supplier = manager
-      ? await repository.findOne({
-          where: { id, tenantId, deletedAt: IsNull() },
-          lock: { mode: 'pessimistic_write' },
-        })
-      : await this.findById(tenantId, id);
+    const manager =
+      typeof branchOrManager === 'string' || branchOrManager == null ? undefined : branchOrManager;
+    const branchId = typeof branchOrManager === 'string' ? branchOrManager : undefined;
+    if (manager) return this.adjustBalanceInTransaction(manager, tenantId, id, delta);
+    const supplier = await this.repo.manager.transaction((transactionManager) =>
+      this.adjustBalanceInTransaction(transactionManager, tenantId, id, delta, branchId)
+    );
+    await this.balanceReminders.checkSupplierPayablesLimit(tenantId);
+    return supplier;
+  }
+
+  async adjustBalanceInTransaction(
+    manager: EntityManager,
+    tenantId: string,
+    id: string,
+    delta: number,
+    branchId?: string
+  ): Promise<Supplier> {
+    await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
+      `supplier:${tenantId}:${id}`,
+    ]);
+    const supplier = await manager.findOne(Supplier, {
+      where: { id, tenantId, deletedAt: IsNull() },
+      lock: { mode: 'pessimistic_write' },
+    });
     if (!supplier) throw new NotFoundException('المورد غير موجود');
+    const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
+    if (delta < 0 && resolvedBranchId) {
+      const [branchBalance] = await manager.query(
+        `SELECT COALESCE(balance, 0) AS balance FROM branch_party_balances
+         WHERE tenant_id = $1 AND branch_id = $2 AND party_type = 'supplier' AND party_id = $3`,
+        [tenantId, resolvedBranchId, id]
+      );
+      if (Number(branchBalance?.balance || 0) + delta < -0.0001) {
+        throw new BadRequestException(
+          'لا يمكن أن يتجاوز السداد أو المرتجع رصيد المورد المستحق في هذا الفرع'
+        );
+      }
+    }
     const nextBalance = Number(supplier.balance) + delta;
     if (nextBalance < -0.0001) {
       throw new BadRequestException('لا يمكن أن يصبح رصيد المورد سالبًا');
     }
     supplier.balance = Math.max(0, nextBalance);
-    return repository.save(supplier);
+    supplier.balanceReminderAnchorAt = new Date();
+    supplier.balanceReminderLastSentAt = null;
+    const saved = await manager.save(supplier);
+    await adjustBranchPartyBalance(manager, tenantId, 'supplier', id, delta, resolvedBranchId);
+    await manager.query(
+      `UPDATE balance_reminder_events SET resolved_at = CURRENT_TIMESTAMP
+       WHERE tenant_id = $1 AND party_type = 'supplier' AND party_id = $2 AND resolved_at IS NULL`,
+      [tenantId, id]
+    );
+    return saved;
+  }
+
+  async checkSupplierPayablesLimit(tenantId: string) {
+    return this.balanceReminders.checkSupplierPayablesLimitSafely(tenantId);
+  }
+
+  async getSupplierPayablesLimitStatus(tenantId: string) {
+    return this.balanceReminders.getSupplierPayablesLimitStatus(tenantId);
   }
 
   async delete(tenantId: string, id: string): Promise<void> {
@@ -118,14 +238,15 @@ export class SuppliersService {
     amount: number,
     method: string,
     notes: string | undefined,
-    userId: string | undefined
+    userId: string | undefined,
+    branchId?: string
   ): Promise<{ payment: SupplierPayment; supplier: Supplier }> {
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('المبلغ يجب أن يكون أكبر من صفر');
     }
     if (!method?.trim()) throw new BadRequestException('طريقة السداد مطلوبة');
 
-    return this.repo.manager.transaction(async (manager) => {
+    const settlement = await this.repo.manager.transaction(async (manager) => {
       await manager.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [
         `supplier:${tenantId}:${supplierId}`,
       ]);
@@ -136,14 +257,25 @@ export class SuppliersService {
         lock: { mode: 'pessimistic_write' },
       });
       if (!supplier) throw new NotFoundException('المورد غير موجود');
-      if (amount > Math.max(0, Number(supplier.balance))) {
-        throw new BadRequestException('مبلغ السداد أكبر من رصيد المورد المستحق');
+      const resolvedBranchId = await resolveTenantBranch(manager, tenantId, branchId);
+      let availableBalance = Number(supplier.balance);
+      if (resolvedBranchId) {
+        const [branchBalance] = await manager.query(
+          `SELECT COALESCE(balance, 0) AS balance FROM branch_party_balances
+           WHERE tenant_id = $1 AND branch_id = $2 AND party_type = 'supplier' AND party_id = $3`,
+          [tenantId, resolvedBranchId, supplierId]
+        );
+        availableBalance = Number(branchBalance?.balance || 0);
+      }
+      if (amount > Math.max(0, availableBalance)) {
+        throw new BadRequestException('مبلغ السداد أكبر من رصيد المورد المستحق في هذا الفرع');
       }
 
       const payment = await paymentRepo.save(
         paymentRepo.create({
           tenantId,
           supplierId,
+          branchId: resolvedBranchId,
           amount,
           method: method.trim(),
           notes,
@@ -151,39 +283,69 @@ export class SuppliersService {
           createdBy: userId,
         })
       );
-
-      supplier.balance = Number(supplier.balance) - amount;
-      await supplierRepo.save(supplier);
-
-      return { payment, supplier };
+      supplier.balance = Math.max(0, Number(supplier.balance) - amount);
+      supplier.balanceReminderAnchorAt = new Date();
+      supplier.balanceReminderLastSentAt = null;
+      const savedSupplier = await supplierRepo.save(supplier);
+      await adjustBranchPartyBalance(
+        manager,
+        tenantId,
+        'supplier',
+        supplierId,
+        -amount,
+        resolvedBranchId
+      );
+      await manager.query(
+        `UPDATE balance_reminder_events SET resolved_at = CURRENT_TIMESTAMP
+         WHERE tenant_id = $1 AND party_type = 'supplier' AND party_id = $2 AND resolved_at IS NULL`,
+        [tenantId, supplierId]
+      );
+      return { payment, supplier: savedSupplier };
     });
+    await this.balanceReminders.checkSupplierPayablesLimit(tenantId);
+    return settlement;
   }
 
   /** كشف حساب المورد: المشتريات (مديونية) + السدادات (دائن). */
-  async statement(tenantId: string, supplierId: string) {
+  async statement(tenantId: string, supplierId: string, branchIds?: string[]) {
     const supplier = await this.findById(tenantId, supplierId);
+    const selectedBranches = branchIds?.length ? branchIds : null;
 
     const purchases = await this.repo.manager.query(
-      `SELECT id, purchase_number AS "referenceNumber", purchase_date AS date, total AS amount, 'purchase' AS type
+      `SELECT id, branch_id AS "branchId", purchase_number AS "referenceNumber", purchase_date AS date, total AS amount, 'purchase' AS type
        FROM purchases WHERE tenant_id = $1 AND supplier_id = $2
+         AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))
        ORDER BY purchase_date ASC`,
-      [tenantId, supplierId]
+      [tenantId, supplierId, selectedBranches]
     );
 
-    const payments = await this.paymentsRepo.find({
-      where: { tenantId, supplierId },
-      order: { paymentDate: 'ASC' },
-    });
+    const payments = await this.repo.manager.query(
+      `SELECT id, branch_id AS "branchId", reference_number AS "referenceNumber", payment_date AS "paymentDate", amount, method
+       FROM supplier_payments WHERE tenant_id = $1 AND supplier_id = $2
+         AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))
+       ORDER BY payment_date ASC`,
+      [tenantId, supplierId, selectedBranches]
+    );
+    const returns = await this.repo.manager.query(
+      `SELECT id, branch_id AS "branchId", created_at AS date, amount, quantity,
+              unit_cost AS "unitCost", sale_return_id AS "saleReturnId"
+       FROM supplier_returns WHERE tenant_id = $1 AND supplier_id = $2
+         AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))
+       ORDER BY created_at ASC`,
+      [tenantId, supplierId, selectedBranches]
+    );
     const adjustments = await this.repo.manager.query(
-      `SELECT id, created_at AS date, amount, reason
+      `SELECT id, branch_id AS "branchId", created_at AS date, amount, reason
        FROM party_balance_adjustments
        WHERE tenant_id = $1 AND party_type = 'supplier' AND supplier_id = $2
+         AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))
        ORDER BY created_at ASC`,
-      [tenantId, supplierId]
+      [tenantId, supplierId, selectedBranches]
     );
 
     const entries = [
       ...purchases.map((p: any) => ({
+        branchId: p.branchId,
         date: p.date,
         type: 'purchase',
         referenceNumber: p.referenceNumber,
@@ -191,7 +353,8 @@ export class SuppliersService {
         credit: Number(p.amount),
         description: 'فاتورة مشتريات',
       })),
-      ...payments.map((p) => ({
+      ...payments.map((p: any) => ({
+        branchId: p.branchId,
         date: p.paymentDate,
         type: 'payment',
         referenceNumber: p.referenceNumber,
@@ -199,8 +362,19 @@ export class SuppliersService {
         credit: 0,
         description: `سداد (${p.method})`,
       })),
+      ...returns.map((r: any) => ({
+        id: r.id,
+        branchId: r.branchId,
+        date: r.date,
+        type: 'supplier_return',
+        referenceNumber: r.saleReturnId,
+        debit: Number(r.amount),
+        credit: 0,
+        description: 'إرجاع بضاعة للمورد من مرتجع بيع',
+      })),
       ...adjustments.map((a: any) => ({
         id: a.id,
+        branchId: a.branchId,
         date: a.date,
         type: 'opening_balance_adjustment',
         referenceNumber: '',
@@ -210,18 +384,29 @@ export class SuppliersService {
       })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-    const adjustmentTotal = adjustments.reduce((sum: number, a: any) => sum + Number(a.amount), 0);
-    let running = Number(supplier.previousBalance) - adjustmentTotal;
-    const withBalance = entries.map((e) => {
-      running = running + e.credit - e.debit;
-      return { ...e, balance: running };
+    let currentBalance = Number(supplier.balance);
+    if (selectedBranches) {
+      const [branchBalance] = await this.repo.manager.query(
+        `SELECT COALESCE(SUM(balance), 0) AS balance FROM branch_party_balances
+         WHERE tenant_id = $1 AND party_type = 'supplier' AND party_id = $2
+           AND branch_id = ANY($3::uuid[])`,
+        [tenantId, supplierId, selectedBranches]
+      );
+      currentBalance = Number(branchBalance.balance);
+    }
+    const netMovement = entries.reduce((sum, entry) => sum + entry.credit - entry.debit, 0);
+    let running = currentBalance - netMovement;
+    const openingBalance = running;
+    const withBalance = entries.map((entry) => {
+      running = running + entry.credit - entry.debit;
+      return { ...entry, balance: running };
     });
 
     return {
-      supplier,
-      previousBalance: supplier.previousBalance,
+      supplier: { ...supplier, balance: currentBalance },
+      previousBalance: openingBalance,
       entries: withBalance,
-      currentBalance: supplier.balance,
+      currentBalance,
     };
   }
 }

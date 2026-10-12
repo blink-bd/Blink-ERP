@@ -1,0 +1,32 @@
+name: Daily balance reminders
+
+on:
+  schedule:
+    - cron: '43 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: balance-reminders
+  cancel-in-progress: false
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger tenant balance reminders
+        env:
+          API_PUBLIC_URL: ${{ secrets.API_PUBLIC_URL }}
+          REMINDERS_JOB_TOKEN: ${{ secrets.REMINDERS_JOB_TOKEN }}
+        run: |
+          if [[ -z "$API_PUBLIC_URL" || -z "$REMINDERS_JOB_TOKEN" ]]; then
+            echo "API_PUBLIC_URL and REMINDERS_JOB_TOKEN repository secrets are required" >&2
+            exit 1
+          fi
+          curl --fail --silent --show-error --max-time 240 \
+            -X POST "${API_PUBLIC_URL%/}/api/v1/ops/balance-reminders/run" \
+            -H "X-Reminder-Job-Token: ${REMINDERS_JOB_TOKEN}" \
+            -H 'Content-Type: application/json'

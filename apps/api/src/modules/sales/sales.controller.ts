@@ -10,8 +10,6 @@ import {
   ParseUUIDPipe,
   ForbiddenException,
 } from '@nestjs/common';
-import { FeaturesService } from '@/modules/features/features.service';
-import { getFeatureDefinition } from '@/modules/features/features.catalog';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
@@ -19,9 +17,12 @@ import { PermissionGuard } from '@/common/guards/permission.guard';
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { FeaturesService } from '@/modules/features/features.service';
+import { getFeatureDefinition } from '@/modules/features/features.catalog';
 import { SalesService } from './sales.service';
 import { AddSalePaymentDto, CreateSaleDto, VoidSaleDto } from './dto/create-sale.dto';
 import { CreateReturnDto } from './dto/create-return.dto';
+import { ResolveReturnItemDto } from './dto/resolve-return-item.dto';
 
 @ApiTags('sales')
 @ApiBearerAuth()
@@ -68,6 +69,12 @@ export class SalesController {
     return { success: true, data: await this.salesService.getDefaultPaymentMethods(req.tenantId) };
   }
 
+  @Get('returns')
+  @RequireFeature('return_disposition')
+  async findReturns(@Request() req, @Query('status') status?: string) {
+    return { success: true, data: await this.salesService.findReturns(req.tenantId, status) };
+  }
+
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.salesService.findById(req.tenantId, id) };
@@ -76,12 +83,8 @@ export class SalesController {
   @Post()
   @RequirePermission('sales.create')
   async create(@Request() req, @Body() dto: CreateSaleDto) {
-    // البيع من الواجهة بيتم من شاشة نقطة البيع، فلازم ميزة POS. التكاملات عبر
-    // API Key (متجر إلكتروني مثلاً) محكومة بميزة "api_access" بدلاً منها.
-    if (req.user?.authType !== 'api_key') {
-      await this.assertFeature(req.tenantId, 'pos');
-    }
-    const sale = await this.salesService.create(req.tenantId, dto, req.user.id);
+    if (req.user?.authType !== 'api_key') await this.assertFeature(req.tenantId, 'pos');
+    const sale = await this.salesService.create(req.tenantId, dto, req.user.id, req.user.branchId);
     return { success: true, data: sale, message: 'تم إنشاء الفاتورة بنجاح' };
   }
 
@@ -112,13 +115,35 @@ export class SalesController {
 
   @Post(':id/return')
   @RequirePermission('sales.return')
-  @RequireFeature('returns')
+  @RequireFeature('returns', 'return_disposition')
   async createReturn(
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateReturnDto
   ) {
     const result = await this.salesService.createReturn(req.tenantId, id, dto, req.user.id);
-    return { success: true, data: result, message: 'تم تسجيل الاسترجاع وتحديث المخزون بنجاح' };
+    return { success: true, data: result, message: 'تم تسجيل الاسترجاع وإرساله إلى الفحص' };
+  }
+
+  @Post('returns/:returnId/items/:itemId/disposition')
+  @RequirePermission('sales.return')
+  @RequireFeature('return_disposition')
+  async resolveReturnItem(
+    @Request() req,
+    @Param('returnId', ParseUUIDPipe) returnId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: ResolveReturnItemDto
+  ) {
+    return {
+      success: true,
+      data: await this.salesService.resolveReturnItem(
+        req.tenantId,
+        returnId,
+        itemId,
+        req.user.id,
+        dto
+      ),
+      message: 'تم حفظ قرار فحص المرتجع',
+    };
   }
 }
