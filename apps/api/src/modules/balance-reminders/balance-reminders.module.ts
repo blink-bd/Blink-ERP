@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
+import { FeaturesModule } from '@/modules/features/features.module';
 import {
   BalanceRemindersController,
   BalanceReminderJobController,
@@ -6,6 +7,7 @@ import {
 import { BalanceRemindersService } from './balance-reminders.service';
 
 @Module({
+  imports: [forwardRef(() => FeaturesModule)],
   controllers: [BalanceRemindersController, BalanceReminderJobController],
   providers: [BalanceRemindersService],
   exports: [BalanceRemindersService],
