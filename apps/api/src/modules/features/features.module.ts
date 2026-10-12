@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Feature } from './entities/feature.entity';
 import { TenantFeature } from './entities/tenant-feature.entity';
@@ -8,7 +8,10 @@ import { FeaturesController, AdminFeaturesController } from './features.controll
 import { BalanceRemindersModule } from '@/modules/balance-reminders/balance-reminders.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Feature, TenantFeature, Plan]), BalanceRemindersModule],
+  imports: [
+    TypeOrmModule.forFeature([Feature, TenantFeature, Plan]),
+    forwardRef(() => BalanceRemindersModule),
+  ],
   controllers: [FeaturesController, AdminFeaturesController],
   providers: [FeaturesService],
   exports: [FeaturesService],
