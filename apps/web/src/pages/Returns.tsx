@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
+import { useFeature } from '@/contexts/FeaturesContext';
 
 type Disposition = 'supplier' | 'restocked';
 
@@ -24,6 +25,9 @@ interface SaleReturn {
   returnNumber: string;
   returnDate: string;
   total: number;
+  invoiceCredit?: number;
+  refundPaid?: number;
+  accountCredit?: number;
   reason?: string;
   status: string;
   originalSale?: { saleNumber: string; customerId?: string };
@@ -34,6 +38,8 @@ interface ItemDraft {
   disposition: Disposition;
   supplierId: string;
   repairExpense: string;
+  repairDescription: string;
+  wasteExpense: string;
   name: string;
   sku: string;
   barcode: string;
@@ -49,6 +55,7 @@ export function ReturnsPage() {
   const [drafts, setDrafts] = useState<Record<string, ItemDraft>>({});
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const maintenanceEnabled = useFeature('maintenance_management');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -75,6 +82,8 @@ export function ReturnsPage() {
       disposition: 'supplier',
       supplierId: '',
       repairExpense: '0',
+      repairDescription: '',
+      wasteExpense: '0',
       name: `${item.product?.name || 'صنف مرتجع'} - قطعة مرتجعة`,
       sku: '',
       barcode: '',
@@ -101,6 +110,8 @@ export function ReturnsPage() {
     const payload: any = {
       disposition: draft.disposition,
       repairExpense: Number(draft.repairExpense) || 0,
+      repairDescription: draft.repairDescription.trim() || undefined,
+      wasteExpense: Number(draft.wasteExpense) || 0,
     };
     if (draft.disposition === 'supplier') {
       payload.supplierId = draft.supplierId;
@@ -118,15 +129,26 @@ export function ReturnsPage() {
 
     setSavingItemId(item.id);
     try {
-      await api.post(`/sales/returns/${saleReturn.id}/items/${item.id}/disposition`, payload);
+      const res = await api.post(
+        `/sales/returns/${saleReturn.id}/items/${item.id}/disposition`,
+        payload
+      );
+      const result = res.data.data || {};
+      const extra = [
+        result.maintenanceInvoiceId ? 'واتسجلت الصيانة في «إدارة الصيانة»' : '',
+        Number(result.writeDown) > 0
+          ? `واتسجل فرق التقييم ${Number(result.writeDown).toFixed(2)} هالك`
+          : '',
+      ].filter(Boolean);
       toast.success(
-        draft.disposition === 'supplier'
+        (draft.disposition === 'supplier'
           ? 'تم تسجيل الإرجاع للمورد وتحديث رصيده'
-          : 'تم إنشاء الصنف المستقل وإضافته للمخزون'
+          : 'تم إنشاء الصنف المستقل وإضافته للمخزون') + (extra.length ? ` ${extra.join(' ')}` : ''),
+        { duration: 6000 }
       );
       await load();
-    } catch {
-      toast.error('تعذر حفظ قرار فحص المرتجع');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'تعذر حفظ قرار فحص المرتجع');
     } finally {
       setSavingItemId(null);
     }
@@ -171,8 +193,23 @@ export function ReturnsPage() {
                     {saleReturn.reason ? ` · السبب: ${saleReturn.reason}` : ''}
                   </p>
                 </div>
-                <div className="text-sm font-semibold">
-                  إجمالي المرتجع: {Number(saleReturn.total).toFixed(2)} ج.م
+                <div className="text-left text-sm">
+                  <div className="font-semibold">
+                    إجمالي المرتجع: {Number(saleReturn.total).toFixed(2)} ج.م
+                  </div>
+                  <div className="mt-1 space-x-2 text-xs text-gray-500 rtl:space-x-reverse">
+                    {Number(saleReturn.invoiceCredit) > 0 && (
+                      <span>خصم من الفاتورة {Number(saleReturn.invoiceCredit).toFixed(2)}</span>
+                    )}
+                    {Number(saleReturn.accountCredit) > 0 && (
+                      <span>
+                        خصم من مديونية العميل {Number(saleReturn.accountCredit).toFixed(2)}
+                      </span>
+                    )}
+                    {Number(saleReturn.refundPaid) > 0 && (
+                      <span>مردود للعميل {Number(saleReturn.refundPaid).toFixed(2)}</span>
+                    )}
+                  </div>
                 </div>
               </header>
               <div className="divide-y">
@@ -317,9 +354,21 @@ export function ReturnsPage() {
                           </div>
                         )}
 
-                        <div className="flex flex-wrap items-end justify-between gap-3 border-t pt-3">
-                          <div className="w-full max-w-xs">
-                            <Label>تكلفة صيانة أو هالك (اختياري)</Label>
+                        {draft.disposition === 'restocked' &&
+                          Number(draft.costPrice) < Number(item.unitCost) && (
+                            <p className="rounded bg-amber-50 p-2 text-xs text-amber-700">
+                              التكلفة الجديدة أقل من التكلفة الأصلية؛ الفرق (
+                              {(
+                                (Number(item.unitCost) - Number(draft.costPrice)) *
+                                Number(item.quantity)
+                              ).toFixed(2)}{' '}
+                              ج.م) هيتسجل هالك تلقائياً عشان يظهر في الأرباح.
+                            </p>
+                          )}
+
+                        <div className="grid gap-3 border-t pt-3 sm:grid-cols-3">
+                          <div>
+                            <Label>تكلفة صيانة الصنف (اختياري)</Label>
                             <Input
                               type="number"
                               min="0"
@@ -330,9 +379,38 @@ export function ReturnsPage() {
                               }
                             />
                             <p className="mt-1 text-xs text-gray-500">
-                              تُسجل كمصروف معتمد على فرع الفاتورة.
+                              {maintenanceEnabled
+                                ? 'بتتسجل فاتورة صيانة داخلية في «إدارة الصيانة» وتظهر في تقارير الصيانة والأرباح.'
+                                : 'بتتسجل مصروف «صيانة وهالك المرتجعات» على فرع الفاتورة.'}
                             </p>
                           </div>
+                          <div>
+                            <Label>وصف الصيانة</Label>
+                            <Input
+                              value={draft.repairDescription}
+                              placeholder="مثال: تغيير شاشة"
+                              onChange={(event) =>
+                                updateDraft(item, { repairDescription: event.target.value })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label>هالك / خسارة (اختياري)</Label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={draft.wasteExpense}
+                              onChange={(event) =>
+                                updateDraft(item, { wasteExpense: event.target.value })
+                              }
+                            />
+                            <p className="mt-1 text-xs text-gray-500">
+                              بيتسجل مصروف «صيانة وهالك المرتجعات».
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
                           <Button disabled={saving} onClick={() => saveDecision(saleReturn, item)}>
                             {saving ? 'جارٍ الحفظ...' : 'حفظ قرار الفحص'}
                           </Button>

@@ -299,7 +299,16 @@ function BranchDetailTable({ type, rows }: { type: DetailType; rows: any[] }) {
   const headings: Record<DetailType, string[]> = {
     sales: ['الفرع', 'رقم الفاتورة', 'العميل', 'التاريخ', 'الإجمالي', 'المدفوع'],
     purchases: ['الفرع', 'رقم أمر الشراء', 'المورد', 'التاريخ', 'الإجمالي', 'المدفوع'],
-    returns: ['الفرع', 'رقم المرتجع', 'فاتورة البيع', 'التاريخ', 'الإجمالي', 'الحالة'],
+    returns: [
+      'الفرع',
+      'رقم المرتجع',
+      'فاتورة البيع',
+      'التاريخ',
+      'الإجمالي',
+      'خصم من الآجل',
+      'مردود للعميل',
+      'الحالة',
+    ],
     maintenance: [
       'الفرع',
       'رقم فاتورة الصيانة',
@@ -358,7 +367,17 @@ function BranchDetailTable({ type, rows }: { type: DetailType; rows: any[] }) {
                 <td className="p-3">{row.originalSaleNumber}</td>
                 <td className="p-3">{dateText(row.date)}</td>
                 <td className="p-3">{currency(row.total)}</td>
-                <td className="p-3">{row.status}</td>
+                <td className="p-3">
+                  {currency(Number(row.invoiceCredit || 0) + Number(row.accountCredit || 0))}
+                </td>
+                <td className="p-3">{currency(row.refundPaid || 0)}</td>
+                <td className="p-3">
+                  {row.status === 'pending_inspection'
+                    ? 'بانتظار الفحص'
+                    : row.status === 'completed'
+                      ? 'تم الفحص'
+                      : row.status}
+                </td>
               </>
             )}
             {type === 'maintenance' && (
@@ -366,6 +385,11 @@ function BranchDetailTable({ type, rows }: { type: DetailType; rows: any[] }) {
                 <td className="p-3">{row.number}</td>
                 <td className="p-3">
                   {row.customerName} / {row.productName}
+                  {row.source === 'sale_return' && (
+                    <span className="mr-1 rounded bg-amber-100 px-1.5 text-[11px] text-amber-800">
+                      صيانة مرتجع
+                    </span>
+                  )}
                 </td>
                 <td className="p-3">{row.description}</td>
                 <td className="p-3">{dateText(row.date)}</td>

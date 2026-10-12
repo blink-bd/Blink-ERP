@@ -383,6 +383,11 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(response.body.data.status).toBe('pending_inspection');
       expect(Number(response.body.data.items[0].unitCost)).toBeCloseTo(100, 2);
       expect(Number(response.body.data.items[0].unitPrice)).toBeCloseTo(150, 2);
+      // فاتورة آجلة بالكامل: قيمة المرتجع كلها بتتخصم من المتبقي عليها ومن رصيد العميل
+      expect(Number(response.body.data.invoiceCredit)).toBeCloseTo(150, 2);
+      expect(Number(response.body.data.refundPaid)).toBeCloseTo(0, 2);
+      const customer = await tenantA.get(api(`/customers/${state.customerId}`));
+      expect(Number(customer.body.data.balance)).toBeCloseTo(450, 2);
 
       const list = await tenantA.get(api('/sales/returns'));
       const found = list.body.data.find((r: any) => r.id === state.returnId);
@@ -419,12 +424,22 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(supplierReturn).toBeTruthy();
       expect(Number(supplierReturn.amount)).toBeCloseTo(100, 2);
 
-      const [expense] = await dataSource.query(
-        `SELECT * FROM expenses WHERE tenant_id = $1 AND branch_id = $2 AND description LIKE '%صيانة%'`,
-        [state.tenantAId, state.branch1Id]
+      // صيانة المرتجع بتتسجل فاتورة صيانة داخلية (مش مصروف) عشان تظهر في إدارة الصيانة
+      expect(response.body.data.maintenanceInvoiceId).toBeTruthy();
+      const [maintenance] = await dataSource.query(
+        `SELECT * FROM maintenance_invoices WHERE tenant_id = $1 AND sale_return_item_id = $2`,
+        [state.tenantAId, state.returnItemId]
       );
-      expect(expense).toBeTruthy();
-      expect(Number(expense.amount)).toBeCloseTo(25, 2);
+      expect(maintenance).toBeTruthy();
+      expect(maintenance.source).toBe('sale_return');
+      expect(maintenance.branch_id).toBe(state.branch1Id);
+      expect(Number(maintenance.parts_cost)).toBeCloseTo(25, 2);
+      expect(Number(maintenance.profit)).toBeCloseTo(-25, 2);
+      const expenses = await dataSource.query(
+        `SELECT * FROM expenses WHERE tenant_id = $1 AND notes LIKE '%' || $2 || '%'`,
+        [state.tenantAId, maintenance.product_notes.split('رقم ')[1]]
+      );
+      expect(expenses).toHaveLength(0);
     });
 
     it('cannot be resolved twice (no double counting)', async () => {
@@ -470,6 +485,14 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(resolution.status).toBe(201);
       const newProductId = resolution.body.data.newProductId;
       expect(newProductId).toBeTruthy();
+      // التكلفة الجديدة (80) أقل من الأصلية (100): الفرق بيتسجل هالك
+      expect(Number(resolution.body.data.writeDown)).toBeCloseTo(20, 2);
+      expect(Number(resolution.body.data.wasteExpense)).toBeCloseTo(20, 2);
+      const [waste] = await dataSource.query(
+        `SELECT * FROM expenses WHERE tenant_id = $1 AND notes = $2`,
+        [state.tenantAId, `مرتجع البيع رقم ${returned.body.data.returnNumber}`]
+      );
+      expect(Number(waste.amount)).toBeCloseTo(20, 2);
 
       const product = await tenantA.get(api(`/products/${newProductId}`));
       expect(product.body.data.barcode).toBe('9876543210987');
@@ -539,6 +562,269 @@ describe('Blink ERP — integration flows (e2e)', () => {
         [state.tenantAId, state.saleItemId]
       );
       expect(Number(row.returned)).toBe(1);
+    });
+  });
+
+  // ------------------------------------------------------- return refunds/reports
+  describe('sale returns: refunds, cash drawer, statement, reports and maintenance', () => {
+    const ctx: Record<string, any> = {};
+    const today = () => new Date().toISOString().slice(0, 10);
+    const profitLoss = async () =>
+      (await tenantA.get(api(`/reports/profit-loss?startDate=${today()}&endDate=${today()}`))).body
+        .data;
+    const shiftSummary = async () =>
+      (await tenantA.get(api(`/cash-register/shifts/${ctx.shiftId}/summary`))).body.data;
+
+    it('prepares a product, payment methods and an open shift for branch 1', async () => {
+      const product = await tenantA.post(api('/products'), {
+        name: 'سماعة بلوتوث',
+        sku: 'HP-BT-1',
+        costPrice: 100,
+        sellingPrice: 200,
+        unit: 'قطعة',
+        trackInventory: true,
+      });
+      expect(product.status).toBe(201);
+      ctx.productId = product.body.data.id;
+      const purchase = await tenantA.post(api('/purchases'), {
+        supplierId: state.supplierId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: ctx.productId, quantity: 30, unitCost: 100 }],
+        paidAmount: 0,
+      });
+      expect(purchase.status).toBe(201);
+
+      const methods = await tenantA.get(api('/sales/payment-methods'));
+      ctx.cash = methods.body.data.find((m: any) => m.code === 'cash').id;
+      ctx.transfer = methods.body.data.find((m: any) => m.code === 'bank_transfer').id;
+      ctx.credit = methods.body.data.find((m: any) => m.code === 'credit')?.id;
+
+      const register = await tenantA.post(api('/cash-register/registers'), {
+        name: 'خزينة الفرع الأول',
+        branchId: state.branch1Id,
+      });
+      expect(register.status).toBe(201);
+      const shift = await tenantA.post(api('/cash-register/shifts'), {
+        cashRegisterId: register.body.data.id,
+        openingBalance: 0,
+      });
+      expect(shift.status).toBe(201);
+      ctx.shiftId = shift.body.data.id;
+      ctx.plBefore = await profitLoss();
+    });
+
+    it('walk-in cash sale with invoice discount: refunds the discounted price in cash', async () => {
+      const sale = await tenantA.post(api('/sales'), {
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: ctx.productId, quantity: 2 }],
+        discountAmount: 40,
+        payments: [{ methodId: ctx.cash, amount: 360 }],
+      });
+      expect(sale.status).toBe(201);
+      expect(Number(sale.body.data.total)).toBeCloseTo(360, 2);
+      ctx.cashSale = sale.body.data;
+
+      const asCredit = await tenantA.post(api(`/sales/${ctx.cashSale.id}/return`), {
+        items: [{ saleItemId: ctx.cashSale.items[0].id, quantity: 1 }],
+        refundMode: 'account',
+      });
+      expect(asCredit.status).toBe(400);
+
+      const returned = await tenantA.post(api(`/sales/${ctx.cashSale.id}/return`), {
+        items: [{ saleItemId: ctx.cashSale.items[0].id, quantity: 1 }],
+        reason: 'العميل غيّر رأيه',
+      });
+      expect(returned.status).toBe(201);
+      // 200 − نصيبها من خصم الفاتورة (10%) = 180، مش 200
+      expect(Number(returned.body.data.total)).toBeCloseTo(180, 2);
+      expect(Number(returned.body.data.invoiceCredit)).toBeCloseTo(0, 2);
+      expect(Number(returned.body.data.refundPaid)).toBeCloseTo(180, 2);
+      expect(returned.body.data.refundMethodId).toBe(ctx.cash);
+      ctx.cashReturn = returned.body.data;
+
+      const summary = await shiftSummary();
+      expect(summary.sales.cash).toBeCloseTo(360, 2);
+      expect(summary.returns.total).toBeCloseTo(180, 2);
+      expect(summary.returns.refunds.cash).toBeCloseTo(180, 2);
+      expect(summary.sales.net).toBeCloseTo(180, 2);
+      expect(summary.remaining.cash).toBeCloseTo(180, 2);
+    });
+
+    it('partially paid customer sale: unpaid part comes off the invoice, the rest is refunded by transfer', async () => {
+      const customer = await tenantA.post(api('/customers'), { name: 'عميل مرتجع جزئي' });
+      ctx.customer2 = customer.body.data.id;
+      const sale = await tenantA.post(api('/sales'), {
+        customerId: ctx.customer2,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: ctx.productId, quantity: 2 }],
+        payments: [{ methodId: ctx.cash, amount: 100 }],
+      });
+      expect(sale.status).toBe(201);
+      ctx.partialSale = sale.body.data;
+      let c = await tenantA.get(api(`/customers/${ctx.customer2}`));
+      expect(Number(c.body.data.balance)).toBeCloseTo(300, 2);
+
+      const returned = await tenantA.post(api(`/sales/${ctx.partialSale.id}/return`), {
+        items: [{ saleItemId: ctx.partialSale.items[0].id, quantity: 2 }],
+        refundMethodId: ctx.transfer,
+      });
+      expect(returned.status).toBe(201);
+      expect(Number(returned.body.data.total)).toBeCloseTo(400, 2);
+      expect(Number(returned.body.data.invoiceCredit)).toBeCloseTo(300, 2);
+      expect(Number(returned.body.data.refundPaid)).toBeCloseTo(100, 2);
+      expect(returned.body.data.refundMethodId).toBe(ctx.transfer);
+      c = await tenantA.get(api(`/customers/${ctx.customer2}`));
+      expect(Number(c.body.data.balance)).toBeCloseTo(0, 2);
+
+      // مفيش متبقي على الفاتورة بعد المرتجع
+      const pay = await tenantA.post(api(`/sales/${ctx.partialSale.id}/payments`), {
+        methodId: ctx.cash,
+        amount: 50,
+      });
+      expect(pay.status).toBe(400);
+
+      // كشف الحساب: فاتورة 400 − سداد 100 − مرتجع 400 + مردود 100 = 0 (يطابق الرصيد الفعلي)
+      const statement = await tenantA.get(api(`/customers/${ctx.customer2}/statement`));
+      expect(statement.status).toBe(200);
+      expect(Number(statement.body.data.previousBalance)).toBeCloseTo(0, 2);
+      const refundLine = statement.body.data.entries.find((e: any) => e.type === 'return_refund');
+      expect(Number(refundLine.debit)).toBeCloseTo(100, 2);
+
+      const summary = await shiftSummary();
+      expect(summary.returns.refunds.bankTransfer).toBeCloseTo(100, 2);
+      expect(summary.remaining.bankTransfer).toBeCloseTo(-100, 2);
+      expect(summary.remaining.cash).toBeCloseTo(280, 2);
+      expect(summary.sales.credit).toBeCloseTo(0, 2);
+
+      const sales = await tenantA.get(api(`/sales?search=${ctx.partialSale.saleNumber}`));
+      const row = sales.body.data.find((s: any) => s.id === ctx.partialSale.id);
+      expect(row.returnedTotal).toBeCloseTo(400, 2);
+      expect(row.remainingAmount).toBeCloseTo(0, 2);
+      expect(row.fullyReturned).toBe(true);
+    });
+
+    it('can deduct the paid part from the customer debt on other invoices', async () => {
+      const credit = await tenantA.post(api('/sales'), {
+        customerId: ctx.customer2,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: ctx.productId, quantity: 1 }],
+      });
+      expect(credit.status).toBe(201);
+      const paid = await tenantA.post(api('/sales'), {
+        customerId: ctx.customer2,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: ctx.productId, quantity: 1 }],
+        payments: [{ methodId: ctx.cash, amount: 200 }],
+      });
+      expect(paid.status).toBe(201);
+      const returned = await tenantA.post(api(`/sales/${paid.body.data.id}/return`), {
+        items: [{ saleItemId: paid.body.data.items[0].id, quantity: 1 }],
+        refundMode: 'account',
+      });
+      expect(returned.status).toBe(201);
+      expect(Number(returned.body.data.accountCredit)).toBeCloseTo(200, 2);
+      expect(Number(returned.body.data.refundPaid)).toBeCloseTo(0, 2);
+      const c = await tenantA.get(api(`/customers/${ctx.customer2}`));
+      expect(Number(c.body.data.balance)).toBeCloseTo(0, 2);
+    });
+
+    it('returns a credit invoice the customer already settled from the statement (refund instead of failing)', async () => {
+      const customer = await tenantA.post(api('/customers'), { name: 'عميل سدد حسابه' });
+      const customerId = customer.body.data.id;
+      const sale = await tenantA.post(api('/sales'), {
+        customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: ctx.productId, quantity: 1 }],
+      });
+      expect(sale.status).toBe(201);
+      const collect = await tenantA.post(api(`/customers/${customerId}/payments`), {
+        amount: 200,
+        methodId: ctx.cash,
+        branchId: state.branch1Id,
+      });
+      expect([200, 201]).toContain(collect.status);
+      const returned = await tenantA.post(api(`/sales/${sale.body.data.id}/return`), {
+        items: [{ saleItemId: sale.body.data.items[0].id, quantity: 1 }],
+      });
+      expect(returned.status).toBe(201);
+      expect(Number(returned.body.data.invoiceCredit)).toBeCloseTo(0, 2);
+      expect(Number(returned.body.data.refundPaid)).toBeCloseTo(200, 2);
+      const c = await tenantA.get(api(`/customers/${customerId}`));
+      expect(Number(c.body.data.balance)).toBeCloseTo(0, 2);
+
+      // التحصيل من حساب العميل بيدخل درج الوردية، والمردود بيخرج منه
+      const summary = await shiftSummary();
+      expect(summary.collections.cash).toBeCloseTo(200, 2);
+      expect(summary.remaining.cash).toBeCloseTo(280 + 200 + 200 - 200, 2);
+    });
+
+    it('nets returns in profit & loss, sales report, payment methods and the dashboard', async () => {
+      const after = await profitLoss();
+      // صافي الحركة في الاختبارات دي: فواتير 360 + 400 + 200 + 200 + 200 = 1360،
+      // مرتجعات 180 + 400 + 200 + 200 = 980
+      expect(after.revenue.grossSales - ctx.plBefore.revenue.grossSales).toBeCloseTo(1360, 2);
+      expect(after.revenue.returns - ctx.plBefore.revenue.returns).toBeCloseTo(980, 2);
+      expect(after.revenue.total - ctx.plBefore.revenue.total).toBeCloseTo(380, 2);
+      // تكلفة: 7 قطع مباعة − 5 مرتجعة = 2 × 100
+      expect(after.cogs - ctx.plBefore.cogs).toBeCloseTo(200, 2);
+
+      const salesReport = await tenantA.get(
+        api(`/reports/sales?startDate=${today()}&endDate=${today()}`)
+      );
+      expect(salesReport.status).toBe(200);
+      const s = salesReport.body.data.summary;
+      expect(Number(s.totalSales)).toBeCloseTo(Number(s.grossSales) - Number(s.returnsTotal), 2);
+      expect(Number(s.returnsTotal)).toBeGreaterThanOrEqual(980);
+
+      const byMethod = await tenantA.get(
+        api(`/reports/advanced/by-payment-method?startDate=${today()}&endDate=${today()}`)
+      );
+      expect(byMethod.status).toBe(200);
+      const transfer = byMethod.body.data.items.find((i: any) => i.code === 'bank_transfer');
+      expect(transfer.refunds).toBeCloseTo(100, 2);
+      expect(transfer.total).toBeCloseTo(transfer.received - 100, 2);
+
+      const dashboard = await tenantA.get(api('/dashboard/summary'));
+      expect(dashboard.status).toBe(200);
+      const d = dashboard.body.data;
+      expect(d.returnsToday.total).toBeGreaterThanOrEqual(980);
+      expect(d.salesToday.netSales).toBeCloseTo(d.salesToday.totalSales - d.returnsToday.total, 2);
+    });
+
+    it('records return repairs in maintenance management and its reports (no double counting)', async () => {
+      const item = ctx.cashReturn.items[0];
+      const plBefore = await profitLoss();
+      const resolved = await tenantA.post(
+        api(`/sales/returns/${ctx.cashReturn.id}/items/${item.id}/disposition`),
+        {
+          disposition: 'supplier',
+          supplierId: state.supplierId,
+          repairExpense: 30,
+          repairDescription: 'تغيير بطارية السماعة',
+          wasteExpense: 5,
+        }
+      );
+      expect(resolved.status).toBe(201);
+      expect(resolved.body.data.maintenanceInvoiceId).toBeTruthy();
+
+      const list = await tenantA.get(
+        api(`/maintenance?branchIds=${state.branch1Id}&startDate=2000-01-01&endDate=2999-12-31`)
+      );
+      expect(list.status).toBe(200);
+      const row = list.body.data.data.find(
+        (m: any) => m.id === resolved.body.data.maintenanceInvoiceId
+      );
+      expect(row.source).toBe('sale_return');
+      expect(row.maintenanceDescription).toBe('تغيير بطارية السماعة');
+      expect(Number(row.partsCost)).toBeCloseTo(30, 2);
+      expect(Number(row.profit)).toBeCloseTo(-30, 2);
+      expect(list.body.data.summary.returnRepairs).toBeGreaterThanOrEqual(1);
+
+      const plAfter = await profitLoss();
+      expect(plAfter.maintenance.profit - plBefore.maintenance.profit).toBeCloseTo(-30, 2);
+      // الهالك (5) بس اللي بيتسجل مصروف؛ الصيانة مش بتتحسب مرتين
+      expect(plAfter.expenses.total - plBefore.expenses.total).toBeCloseTo(5, 2);
+      expect(plAfter.netProfit - plBefore.netProfit).toBeCloseTo(-35, 2);
     });
   });
 

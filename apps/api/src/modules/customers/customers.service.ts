@@ -243,8 +243,11 @@ export class CustomersService {
       [tenantId, customerId, selectedBranches]
     );
     const returns = await this.repo.manager.query(
-      `SELECT id, branch_id AS "branchId", return_number AS "referenceNumber", return_date AS date, refund_amount AS amount
-       FROM sale_returns WHERE tenant_id = $1 AND customer_id = $2
+      `SELECT r.id, r.branch_id AS "branchId", r.return_number AS "referenceNumber", r.return_date AS date,
+              r.total AS amount, r.refund_paid AS "refundPaid", pm.name_ar AS "refundMethod"
+       FROM sale_returns r
+       LEFT JOIN payment_methods pm ON pm.id = r.refund_method_id AND pm.tenant_id = r.tenant_id
+       WHERE r.tenant_id = $1 AND r.customer_id = $2
          AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))
        ORDER BY return_date ASC`,
       [tenantId, customerId, selectedBranches]
@@ -288,6 +291,18 @@ export class CustomersService {
         credit: Number(r.amount),
         description: 'مرتجع',
       })),
+      // المبلغ اللي اترد للعميل فلوس من قيمة المرتجع (عشان الرصيد يطابق الحساب الفعلي).
+      ...returns
+        .filter((r: any) => Number(r.refundPaid) > 0)
+        .map((r: any) => ({
+          branchId: r.branchId,
+          date: r.date,
+          type: 'return_refund',
+          referenceNumber: r.referenceNumber,
+          debit: Number(r.refundPaid),
+          credit: 0,
+          description: `مبلغ مردود للعميل (${r.refundMethod || 'نقدي'})`,
+        })),
       ...adjustments.map((a: any) => ({
         id: a.id,
         branchId: a.branchId,

@@ -211,36 +211,90 @@ export class CashRegisterService {
   }
 
   /**
-   * ملخص الوردية: مبيعات نقدي/بطاقة/تحويل/آجل + المصروفات + المتبقي بالخزينة.
-   * مطلوب لصفحة "الخزينة" (بند 10 من طلبات التاجر).
+   * ملخص الوردية (صفحة «الخزينة»):
+   * - مبيعات الوردية حسب طريقة الدفع + الآجل المتبقي منها (بعد خصم المرتجعات).
+   * - تحصيلات الوردية على فواتير قديمة أو من حساب العميل (بتاريخ الدفع).
+   * - المرتجعات والمبالغ المردودة للعملاء حسب طريقة الرد (بتنزل من الخزنة/التحويلات).
+   * - المصروفات وحركات الإيداع/السحب، والمتبقي بالخزينة.
+   * لو الخزينة مربوطة بفرع، الحسابات بتقتصر على الفرع ده.
    */
   async shiftSummary(tenantId: string, shiftId: string) {
     const shift = await this.shiftsRepository.findOne({ where: { id: shiftId, tenantId } });
     if (!shift) throw new NotFoundException('الوردية غير موجودة');
 
     const endDate = shift.closedAt || new Date();
+    const manager = this.shiftsRepository.manager;
+    const [register] = await manager.query(
+      `SELECT branch_id AS "branchId" FROM cash_registers WHERE id = $1 AND tenant_id = $2`,
+      [shift.cashRegisterId, tenantId]
+    );
+    const branchId: string | null = register?.branchId || null;
+    const params = [tenantId, shift.openedAt, endDate, branchId];
 
-    const [salesByMethod] = await this.shiftsRepository.manager.query(
+    const [salesByMethod] = await manager.query(
       `SELECT
          COALESCE(SUM(by_sale.cash), 0) AS cash,
          COALESCE(SUM(by_sale.card), 0) AS card,
          COALESCE(SUM(by_sale.bank_transfer), 0) AS "bankTransfer",
-         COALESCE(SUM(by_sale.credit), 0) AS credit
+         COALESCE(SUM(by_sale.credit), 0) AS credit,
+         COALESCE(SUM(by_sale.total), 0) AS total,
+         COUNT(*)::int AS count
        FROM (
-         SELECT s.id,
+         SELECT s.id, s.total,
            COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'cash'), 0) AS cash,
            COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'card'), 0) AS card,
            COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'bank_transfer'), 0) AS bank_transfer,
-           CASE WHEN s.payment_status IN ('pending', 'partial')
-             THEN GREATEST(s.total - s.paid_amount, 0) ELSE 0 END AS credit
+           GREATEST(
+             s.total - s.paid_amount - COALESCE((
+               SELECT SUM(r.invoice_credit) FROM sale_returns r
+               WHERE r.tenant_id = s.tenant_id AND r.original_sale_id = s.id
+             ), 0),
+             0
+           ) AS credit
          FROM sales s
          LEFT JOIN payments p ON p.sale_id = s.id AND p.tenant_id = $1
+           AND p.payment_date BETWEEN $2 AND $3
          LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id AND pm.tenant_id = $1
          WHERE s.tenant_id = $1 AND s.status = 'completed'
            AND s.sale_date BETWEEN $2 AND $3
-         GROUP BY s.id, s.total, s.paid_amount, s.payment_status
+           AND ($4::uuid IS NULL OR s.branch_id = $4)
+         GROUP BY s.id, s.total, s.paid_amount
        ) AS by_sale`,
-      [tenantId, shift.openedAt, endDate]
+      params
+    );
+
+    // تحصيلات اتقبضت في الوردية على فواتير قبلها أو كسداد من حساب العميل.
+    const [collections] = await manager.query(
+      `SELECT
+         COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'cash'), 0) AS cash,
+         COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'card'), 0) AS card,
+         COALESCE(SUM(p.amount) FILTER (WHERE pm.code = 'bank_transfer'), 0) AS "bankTransfer"
+       FROM payments p
+       JOIN payment_methods pm ON pm.id = p.payment_method_id AND pm.tenant_id = $1
+       LEFT JOIN sales s ON s.id = p.sale_id AND s.tenant_id = $1
+       WHERE p.tenant_id = $1 AND p.payment_date BETWEEN $2 AND $3
+         AND (p.sale_id IS NULL OR s.sale_date < $2)
+         AND ($4::uuid IS NULL OR p.branch_id = $4)`,
+      params
+    );
+
+    const [returnsRow] = await manager.query(
+      `SELECT
+         COUNT(*)::int AS count,
+         COALESCE(SUM(r.total), 0) AS total,
+         COALESCE(SUM(r.invoice_credit), 0) AS "invoiceCredit",
+         COALESCE(SUM(r.account_credit), 0) AS "accountCredit",
+         COALESCE(SUM(r.refund_paid) FILTER (WHERE COALESCE(pm.code, 'cash') = 'cash'), 0) AS cash,
+         COALESCE(SUM(r.refund_paid) FILTER (WHERE pm.code = 'card'), 0) AS card,
+         COALESCE(SUM(r.refund_paid) FILTER (WHERE pm.code = 'bank_transfer'), 0) AS "bankTransfer",
+         COALESCE(SUM(r.refund_paid) FILTER (
+           WHERE pm.code IS NOT NULL AND pm.code NOT IN ('cash', 'card', 'bank_transfer')
+         ), 0) AS other
+       FROM sale_returns r
+       LEFT JOIN payment_methods pm ON pm.id = r.refund_method_id AND pm.tenant_id = $1
+       WHERE r.tenant_id = $1 AND r.return_date BETWEEN $2 AND $3
+         AND ($4::uuid IS NULL OR r.branch_id = $4)`,
+      params
     );
 
     const [cashTxns] = await this.transactionsRepository.manager.query(
@@ -251,30 +305,76 @@ export class CashRegisterService {
       [shiftId, tenantId]
     );
 
-    const [expensesRow] = await this.shiftsRepository.manager.query(
+    const [expensesRow] = await manager.query(
       `SELECT COALESCE(SUM(amount), 0) AS total FROM expenses WHERE shift_id = $1 AND tenant_id = $2`,
       [shiftId, tenantId]
     );
 
-    const cash = Number(salesByMethod.cash);
-    const card = Number(salesByMethod.card);
-    const bankTransfer = Number(salesByMethod.bankTransfer);
-    const credit = Number(salesByMethod.credit);
-    const expensesTotal = Number(expensesRow.total);
-    const cashIn = Number(cashTxns.cashIn);
-    const cashOut = Number(cashTxns.cashOut);
+    const n = (value: unknown) => Math.round(Number(value || 0) * 10000) / 10000;
+    const cash = n(salesByMethod.cash);
+    const card = n(salesByMethod.card);
+    const bankTransfer = n(salesByMethod.bankTransfer);
+    const credit = n(salesByMethod.credit);
+    const salesTotal = n(salesByMethod.total);
+    const collected = {
+      cash: n(collections.cash),
+      card: n(collections.card),
+      bankTransfer: n(collections.bankTransfer),
+    };
+    const refunds = {
+      cash: n(returnsRow.cash),
+      card: n(returnsRow.card),
+      bankTransfer: n(returnsRow.bankTransfer),
+      other: n(returnsRow.other),
+    };
+    const returnsTotal = n(returnsRow.total);
+    const expensesTotal = n(expensesRow.total);
+    const cashIn = n(cashTxns.cashIn);
+    const cashOut = n(cashTxns.cashOut);
 
     const expectedCashInDrawer =
-      Number(shift.openingBalance) + cash + cashIn - cashOut - expensesTotal;
+      Number(shift.openingBalance) +
+      cash +
+      collected.cash +
+      cashIn -
+      cashOut -
+      expensesTotal -
+      refunds.cash;
 
     return {
       shift,
-      sales: { cash, card, bankTransfer, credit, total: cash + card + bankTransfer + credit },
+      branchId,
+      sales: {
+        cash,
+        card,
+        bankTransfer,
+        credit,
+        // إجمالي فواتير الوردية (قبل المرتجعات) وصافيها بعد مرتجعات الوردية.
+        total: salesTotal,
+        count: Number(salesByMethod.count || 0),
+        net: n(salesTotal - returnsTotal),
+      },
+      collections: {
+        ...collected,
+        total: n(collected.cash + collected.card + collected.bankTransfer),
+      },
+      returns: {
+        count: Number(returnsRow.count || 0),
+        total: returnsTotal,
+        // اتخصم من الآجل على الفواتير / من مديونية العميل.
+        invoiceCredit: n(returnsRow.invoiceCredit),
+        accountCredit: n(returnsRow.accountCredit),
+        refunds: {
+          ...refunds,
+          total: n(refunds.cash + refunds.card + refunds.bankTransfer + refunds.other),
+        },
+      },
       expenses: expensesTotal,
       cashMovements: { cashIn, cashOut },
       remaining: {
-        cash: expectedCashInDrawer,
-        bankTransfer,
+        cash: n(expectedCashInDrawer),
+        card: n(card + collected.card - refunds.card),
+        bankTransfer: n(bankTransfer + collected.bankTransfer - refunds.bankTransfer),
         credit,
       },
     };

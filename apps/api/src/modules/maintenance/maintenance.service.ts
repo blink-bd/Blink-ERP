@@ -166,7 +166,9 @@ export class MaintenanceService {
           `SELECT COUNT(*)::int AS count,
                 COALESCE(SUM(service_price), 0) AS "serviceRevenue",
                 COALESCE(SUM(parts_cost), 0) AS "partsCost",
-                COALESCE(SUM(profit), 0) AS profit
+                COALESCE(SUM(profit), 0) AS profit,
+                COUNT(*) FILTER (WHERE source = 'sale_return')::int AS "returnRepairs",
+                COALESCE(SUM(parts_cost) FILTER (WHERE source = 'sale_return'), 0) AS "returnRepairsCost"
          FROM maintenance_invoices
          WHERE tenant_id = $1 AND status = 'completed'
            AND ($2::timestamp IS NULL OR maintenance_date >= $2)
@@ -184,6 +186,9 @@ export class MaintenanceService {
         serviceRevenue: Number(summary.serviceRevenue || 0),
         partsCost: Number(summary.partsCost || 0),
         profit: Number(summary.profit || 0),
+        // صيانة الأصناف المرتجعة (داخلية: تكلفة من غير إيراد)
+        returnRepairs: Number(summary.returnRepairs || 0),
+        returnRepairsCost: Number(summary.returnRepairsCost || 0),
       },
     };
   }

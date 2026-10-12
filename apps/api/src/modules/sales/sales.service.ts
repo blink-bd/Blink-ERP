@@ -107,7 +107,32 @@ export class SalesService {
       .take(limit)
       .getManyAndCount();
 
-    return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+    // قيمة المرتجعات على كل فاتورة + المتبقي الفعلي بعد خصم المرتجعات (للعرض).
+    const ids = data.map((sale) => sale.id);
+    const returnRows = ids.length
+      ? await this.dataSource.query(
+          `SELECT original_sale_id AS "saleId", COUNT(*)::int AS count,
+                  COALESCE(SUM(total), 0) AS total, COALESCE(SUM(invoice_credit), 0) AS credited
+           FROM sale_returns WHERE tenant_id = $1 AND original_sale_id = ANY($2::uuid[])
+           GROUP BY original_sale_id`,
+          [tenantId, ids]
+        )
+      : [];
+    const returnsBySale = new Map<string, any>(returnRows.map((r: any) => [r.saleId, r]));
+    const rows = data.map((sale) => {
+      const r = returnsBySale.get(sale.id);
+      const returnedTotal = Number(r?.total || 0);
+      const credited = Number(r?.credited || 0);
+      return {
+        ...sale,
+        returnsCount: Number(r?.count || 0),
+        returnedTotal,
+        remainingAmount: Math.max(0, Number(sale.total) - Number(sale.paidAmount) - credited),
+        fullyReturned: returnedTotal > 0 && returnedTotal >= Number(sale.total) - 0.0001,
+      };
+    });
+
+    return { data: rows, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
   }
 
   /** يتأكد إن الفاتورة/المرتجع تابع لفرع ومخزن مسموح للمستخدم. */
@@ -147,6 +172,31 @@ export class SalesService {
       }
     }
 
+    const [returns] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(total), 0) AS total,
+              COALESCE(SUM(invoice_credit), 0) AS credited, COALESCE(SUM(refund_paid), 0) AS refunded
+       FROM sale_returns WHERE tenant_id = $1 AND original_sale_id = $2`,
+      [tenantId, sale.id]
+    );
+    const [firstPayment] = await this.dataSource.query(
+      `SELECT p.payment_method_id AS "methodId" FROM payments p
+       JOIN payment_methods pm ON pm.id = p.payment_method_id
+       WHERE p.tenant_id = $1 AND p.sale_id = $2 AND pm.code <> 'credit'
+       ORDER BY p.amount DESC, p.created_at ASC LIMIT 1`,
+      [tenantId, sale.id]
+    );
+    // ملخص المرتجعات على الفاتورة (للعرض وتقدير تقسيم المرتجع الجديد).
+    (sale as any).returnsSummary = {
+      count: Number(returns?.count || 0),
+      returnedTotal: Number(returns?.total || 0),
+      invoiceCredit: Number(returns?.credited || 0),
+      refunded: Number(returns?.refunded || 0),
+      remainingAmount: Math.max(
+        0,
+        Number(sale.total) - Number(sale.paidAmount) - Number(returns?.credited || 0)
+      ),
+      paymentMethodId: firstPayment?.methodId || null,
+    };
     return sale;
   }
 
@@ -457,8 +507,15 @@ export class SalesService {
       });
       if (!sale || sale.status !== 'completed')
         throw new NotFoundException('الفاتورة غير موجودة أو غير مكتملة');
-      const remaining = Number(sale.total) - Number(sale.paidAmount);
-      if (amount > remaining)
+      // المتبقي = الإجمالي − المدفوع − اللي اتخصم منها بمرتجعات.
+      const [returned] = await manager.query(
+        `SELECT COALESCE(SUM(invoice_credit), 0) AS credited
+         FROM sale_returns WHERE tenant_id = $1 AND original_sale_id = $2`,
+        [tenantId, sale.id]
+      );
+      const credited = Number(returned?.credited || 0);
+      const remaining = Number(sale.total) - Number(sale.paidAmount) - credited;
+      if (amount > remaining + 0.0001)
         throw new BadRequestException('المبلغ أكبر من المبلغ المستحق على الفاتورة');
 
       const method = await manager.findOne(PaymentMethod, {
@@ -481,7 +538,8 @@ export class SalesService {
         })
       );
       sale.paidAmount = Number(sale.paidAmount) + amount;
-      sale.paymentStatus = sale.paidAmount >= Number(sale.total) ? 'paid' : 'partial';
+      sale.paymentStatus =
+        sale.paidAmount + credited >= Number(sale.total) - 0.0001 ? 'paid' : 'partial';
       await manager.save(sale);
 
       if (sale.customerId) {
@@ -627,6 +685,13 @@ export class SalesService {
         }
       }
 
+      // خصم الفاتورة الإجمالي (خصم الكاشير) مش متوزع على الأصناف؛ بنوزعه بالنسبة
+      // على قيمة كل صنف قبل الضريبة، عشان المرتجع ميردّش للعميل أكتر من اللي دفعه.
+      const saleSubtotal = Number(sale.subtotal || 0);
+      const saleDiscount = Math.min(Math.max(Number(sale.discountAmount || 0), 0), saleSubtotal);
+      const invoiceDiscountFactor =
+        saleSubtotal > 0 ? (saleSubtotal - saleDiscount) / saleSubtotal : 1;
+
       let subtotal = 0;
       let taxAmount = 0;
       let cogsAdjustment = 0;
@@ -642,10 +707,12 @@ export class SalesService {
         const originalUnitPrice = Number(saleItem.unitPrice);
         const discountPerUnit =
           originalQuantity > 0 ? Number(saleItem.discountAmount || 0) / originalQuantity : 0;
-        const effectiveUnitPrice = Math.max(0, originalUnitPrice - discountPerUnit);
+        const lineUnitPrice = Math.max(0, originalUnitPrice - discountPerUnit);
+        const effectiveUnitPrice = lineUnitPrice * invoiceDiscountFactor;
         const lineSubtotal = effectiveUnitPrice * quantity;
         const taxRate = Number(saleItem.taxRate || 0);
-        const lineTax = (lineSubtotal * taxRate) / 100;
+        // الضريبة في الفاتورة اتحسبت على قيمة الصنف قبل خصم الفاتورة؛ نرجّعها بنفس الطريقة.
+        const lineTax = (lineUnitPrice * quantity * taxRate) / 100;
         const lineTotal = lineSubtotal + lineTax;
         const unitCost = Number(saleItem.unitCost || 0);
         subtotal += lineSubtotal;
@@ -685,7 +752,65 @@ export class SalesService {
         }
       }
 
-      const total = subtotal + taxAmount;
+      // المرتجعات السابقة على نفس الفاتورة (قبل حفظ المرتجع الحالي).
+      const [previous] = await manager.query(
+        `SELECT COALESCE(SUM(total), 0) AS total, COALESCE(SUM(invoice_credit), 0) AS credited
+         FROM sale_returns WHERE tenant_id = $1 AND original_sale_id = $2`,
+        [tenantId, sale.id]
+      );
+      const round = (value: number) => Math.round(value * 10000) / 10000;
+      // لا يتجاوز إجمالي المرتجعات قيمة الفاتورة (فروق التقريب).
+      const total = round(
+        Math.max(0, Math.min(subtotal + taxAmount, Number(sale.total) - Number(previous.total)))
+      );
+      if (total < subtotal + taxAmount) taxAmount = Math.max(0, total - subtotal);
+
+      // رصيد العميل المتاح (إجمالي وفي فرع الفاتورة): رصيد العميل مينفعش يبقى سالب،
+      // ولو العميل سدد حسابه من «تحصيل» الفاتورة بتفضل غير مدفوعة بس رصيده صفر.
+      let availableBalance = Number.POSITIVE_INFINITY;
+      if (sale.customerId) {
+        const branchId = await resolveTenantBranch(manager, tenantId, sale.branchId);
+        const [balances] = await manager.query(
+          `SELECT c.balance AS total,
+                  (SELECT b.balance FROM branch_party_balances b
+                   WHERE b.tenant_id = c.tenant_id AND b.branch_id = $3
+                     AND b.party_type = 'customer' AND b.party_id = c.id) AS branch
+           FROM customers c WHERE c.id = $1 AND c.tenant_id = $2`,
+          [sale.customerId, tenantId, branchId || null]
+        );
+        availableBalance = Math.max(
+          0,
+          Math.min(
+            Number(balances?.total || 0),
+            branchId ? Number(balances?.branch || 0) : Number.POSITIVE_INFINITY
+          )
+        );
+      }
+
+      // 1) الجزء الآجل: بيتخصم من المتبقي على الفاتورة (ومن رصيد العميل).
+      const outstanding = sale.customerId
+        ? Math.max(0, Number(sale.total) - Number(sale.paidAmount) - Number(previous.credited))
+        : 0;
+      const invoiceCredit = round(Math.min(total, outstanding, availableBalance));
+      // 2) الجزء المدفوع: يتخصم من مديونية العميل على فواتير تانية (لو اختار التاجر
+      //    كده وعليه فلوس)، والباقي يترد له فلوس بطريقة الدفع المختارة.
+      const paidPortion = round(total - invoiceCredit);
+      const refundMode = dto.refundMode || 'refund';
+      if (refundMode === 'account' && paidPortion > 0 && !sale.customerId) {
+        throw new BadRequestException(
+          'الفاتورة مش على عميل؛ لازم المبلغ المدفوع يترد للعميل (نقدي/كارت/تحويل)'
+        );
+      }
+      const accountCredit =
+        refundMode === 'account'
+          ? round(Math.min(paidPortion, Math.max(0, availableBalance - invoiceCredit)))
+          : 0;
+      const refundPaid = round(paidPortion - accountCredit);
+      const refundMethodId =
+        refundPaid > 0
+          ? await this.resolveRefundMethod(manager, tenantId, sale.id, dto.refundMethodId)
+          : undefined;
+
       const year = new Date().getFullYear();
       const [counter] = await manager.query(
         `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
@@ -710,6 +835,10 @@ export class SalesService {
           taxAmount,
           total,
           refundAmount: total,
+          invoiceCredit,
+          refundPaid,
+          accountCredit,
+          refundMethodId,
           cogsAdjustment,
           reason: dto.reason?.trim(),
           createdBy: userId,
@@ -719,28 +848,17 @@ export class SalesService {
         await manager.save(manager.create(SaleReturnItem, { ...item, returnId: savedReturn.id }));
       }
 
-      // Apply only the unpaid part of the return to the customer balance. Any
-      // refund for a paid portion is a separate cash/bank operation.
-      if (sale.customerId) {
-        const [previousRefunds] = await manager.query(
-          `SELECT COALESCE(SUM(total), 0) AS total FROM sale_returns
-           WHERE tenant_id = $1 AND original_sale_id = $2`,
-          [tenantId, sale.id]
+      // رصيد العميل بينزل بالجزء الآجل + أي مبلغ اتضاف لحسابه. المبلغ اللي اترد
+      // فلوس مش بيأثر على الرصيد (ظاهر في كشف الحساب كمرتجع + مبلغ مردود).
+      const balanceReduction = round(invoiceCredit + accountCredit);
+      if (sale.customerId && balanceReduction > 0) {
+        await this.customersService.adjustBalanceInTransaction(
+          manager,
+          tenantId,
+          sale.customerId,
+          -balanceReduction,
+          sale.branchId
         );
-        const unpaidBeforeThisReturn = Math.max(
-          0,
-          Number(sale.total) - Number(sale.paidAmount) - Number(previousRefunds?.total || 0)
-        );
-        const balanceReduction = Math.min(total, unpaidBeforeThisReturn);
-        if (balanceReduction > 0) {
-          await this.customersService.adjustBalanceInTransaction(
-            manager,
-            tenantId,
-            sale.customerId,
-            -balanceReduction,
-            sale.branchId
-          );
-        }
       }
 
       const withItems = await manager.findOne(SaleReturn, {
@@ -781,6 +899,44 @@ export class SalesService {
     return returnResult.saleReturn;
   }
 
+  /**
+   * طريقة رد المبلغ المدفوع: المختارة من التاجر، وإلا طريقة دفع الفاتورة الأصلية،
+   * وإلا «نقدي». «آجل» مش طريقة رد (الرد على الحساب = refundMode: account).
+   */
+  private async resolveRefundMethod(
+    manager: EntityManager,
+    tenantId: string,
+    saleId: string,
+    requestedMethodId?: string
+  ): Promise<string> {
+    if (requestedMethodId) {
+      const method = await manager.findOne(PaymentMethod, {
+        where: { id: requestedMethodId, tenantId, isActive: true },
+      });
+      if (!method) throw new NotFoundException('طريقة رد المبلغ غير موجودة أو غير نشطة');
+      if (method.code === 'credit') {
+        throw new BadRequestException('اختار «إضافة لرصيد العميل» بدل طريقة الدفع الآجل');
+      }
+      return method.id;
+    }
+    const [fromSale] = await manager.query(
+      `SELECT p.payment_method_id AS id
+       FROM payments p JOIN payment_methods pm ON pm.id = p.payment_method_id
+       WHERE p.tenant_id = $1 AND p.sale_id = $2 AND pm.code <> 'credit'
+       ORDER BY p.amount DESC, p.created_at ASC LIMIT 1`,
+      [tenantId, saleId]
+    );
+    if (fromSale?.id) return fromSale.id;
+    const cash = await manager.findOne(PaymentMethod, { where: { tenantId, code: 'cash' } });
+    if (cash) return cash.id;
+    const any = await manager.findOne(PaymentMethod, {
+      where: { tenantId, isActive: true },
+      order: { sortOrder: 'ASC' },
+    });
+    if (!any) throw new BadRequestException('لا توجد طرق دفع معرّفة لرد المبلغ');
+    return any.id;
+  }
+
   async findReturns(tenantId: string, status?: string, scope: AccessScope = UNRESTRICTED_SCOPE) {
     const query = this.returnsRepository
       .createQueryBuilder('saleReturn')
@@ -801,6 +957,12 @@ export class SalesService {
     userId: string,
     dto: ResolveReturnItemDto
   ) {
+    // صيانة المرتجع بتتسجل فاتورة صيانة داخلية لو ميزة الصيانة مفعّلة (عشان تظهر في
+    // «إدارة الصيانة» وتقاريرها)، وإلا بتتسجل مصروف زي الهالك.
+    const maintenanceEnabled = await this.featuresService.tenantHasFeature(
+      tenantId,
+      'maintenance_management'
+    );
     const result = await this.dataSource.transaction(async (manager) => {
       const saleReturn = await manager.findOne(SaleReturn, {
         where: { id: returnId, tenantId },
@@ -829,8 +991,13 @@ export class SalesService {
       const supplierCredit = originalUnitCost * quantity;
       const repairExpense = Number(dto.repairExpense || 0);
       if (!Number.isFinite(repairExpense) || repairExpense < 0) {
-        throw new BadRequestException('تكلفة الصيانة أو الهالك غير صالحة');
+        throw new BadRequestException('تكلفة الصيانة غير صالحة');
       }
+      const wasteInput = Number(dto.wasteExpense || 0);
+      if (!Number.isFinite(wasteInput) || wasteInput < 0) {
+        throw new BadRequestException('قيمة الهالك غير صالحة');
+      }
+      let writeDown = 0;
       const branchId = await resolveTenantBranch(manager, tenantId, saleReturn.branchId);
 
       if (originalProduct.trackInventory) {
@@ -912,20 +1079,57 @@ export class SalesService {
         });
         item.disposition = 'restocked';
         item.newProductId = newProduct.id;
+        // لو الصنف رجع المخزن بتكلفة أقل من تكلفته الأصلية، الفرق خسارة فعلية
+        // (هالك/فرق تقييم) لازم تظهر في الأرباح.
+        writeDown = Math.max(0, (originalUnitCost - Number(newProduct.costPrice)) * quantity);
+        writeDown = Math.round(writeDown * 10000) / 10000;
       }
 
+      const wasteExpense = wasteInput + writeDown;
       item.repairExpense = repairExpense;
+      item.wasteExpense = wasteExpense;
       await manager.save(item);
+
+      let maintenanceInvoiceId: string | undefined;
       if (repairExpense > 0) {
+        if (maintenanceEnabled) {
+          maintenanceInvoiceId = await this.createReturnedItemMaintenance(manager, {
+            tenantId,
+            userId,
+            branchId,
+            saleReturn,
+            itemId: item.id,
+            productName: originalProduct.name,
+            amount: repairExpense,
+            description: dto.repairDescription,
+          });
+        } else {
+          await this.createReturnedItemExpense(
+            manager,
+            tenantId,
+            userId,
+            branchId,
+            saleReturn.returnNumber,
+            `${item.id.slice(0, 8)}-R`,
+            `تكلفة صيانة للصنف المرتجع: ${originalProduct.name}`,
+            repairExpense
+          );
+        }
+      }
+      if (wasteExpense > 0) {
+        const parts = [
+          wasteInput > 0 ? `هالك ${wasteInput}` : '',
+          writeDown > 0 ? `فرق تقييم ${writeDown} (التكلفة الجديدة أقل من الأصلية)` : '',
+        ].filter(Boolean);
         await this.createReturnedItemExpense(
           manager,
           tenantId,
           userId,
           branchId,
           saleReturn.returnNumber,
-          item.id,
-          originalProduct.name,
-          repairExpense
+          `${item.id.slice(0, 8)}-W`,
+          `هالك للصنف المرتجع: ${originalProduct.name} — ${parts.join('، ')}`,
+          wasteExpense
         );
       }
 
@@ -945,6 +1149,9 @@ export class SalesService {
         supplierId: item.supplierId,
         supplierCredit,
         repairExpense,
+        wasteExpense,
+        writeDown,
+        maintenanceInvoiceId,
         pendingItems,
         warehouseId: saleReturn.warehouseId,
         productId: originalProduct.id,
@@ -1048,14 +1255,18 @@ export class SalesService {
     );
   }
 
+  /**
+   * مصروف داخلي للمرتجع (هالك/فرق تقييم، أو صيانة لو ميزة الصيانة مش مفعّلة).
+   * مش مصروف نقدي من الدرج — notes بتبدأ بـ «مرتجع البيع» وmetadata.nonCash.
+   */
   private async createReturnedItemExpense(
     manager: EntityManager,
     tenantId: string,
     userId: string,
     branchId: string | undefined,
     returnNumber: string,
-    itemId: string,
-    productName: string,
+    key: string,
+    description: string,
     amount: number
   ) {
     const [category] = await manager.query(
@@ -1065,7 +1276,7 @@ export class SalesService {
        RETURNING id`,
       [tenantId]
     );
-    const expenseNumber = `EXP-${new Date().getFullYear()}-RET-${returnNumber}-${itemId.slice(0, 8)}`;
+    const expenseNumber = `EXP-RET-${returnNumber}-${key}`;
     await manager.query(
       `INSERT INTO expenses
          (tenant_id, expense_number, category_id, branch_id, amount, expense_date,
@@ -1077,10 +1288,73 @@ export class SalesService {
         category.id,
         branchId || null,
         amount,
-        `تكلفة صيانة أو هالك للصنف المرتجع: ${productName}`,
+        description,
         `مرتجع البيع رقم ${returnNumber}`,
         userId,
       ]
     );
+  }
+
+  /**
+   * صيانة صنف مرتجع = فاتورة صيانة داخلية: سعر الخدمة صفر وتكلفة القطع = تكلفة
+   * الصيانة، فربحها بالسالب. بتظهر في «إدارة الصيانة» وتقارير الصيانة والفروع
+   * (ومش بتتسجل مصروف كمان عشان متتحسبش مرتين).
+   */
+  private async createReturnedItemMaintenance(
+    manager: EntityManager,
+    input: {
+      tenantId: string;
+      userId: string;
+      branchId?: string;
+      saleReturn: SaleReturn;
+      itemId: string;
+      productName: string;
+      amount: number;
+      description?: string;
+    }
+  ): Promise<string> {
+    const { tenantId, saleReturn } = input;
+    // نفس قفل وترقيم فواتير الصيانة في MaintenanceService.
+    await manager.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+    const [{ count }] = await manager.query(
+      'SELECT COUNT(*)::int AS count FROM maintenance_invoices WHERE tenant_id = $1',
+      [tenantId]
+    );
+    const invoiceNumber = `MNT-${new Date().getFullYear()}-${String(Number(count) + 1).padStart(5, '0')}`;
+    let customerName = 'صيانة داخلية — مرتجع';
+    let customerPhone: string | null = null;
+    if (saleReturn.customerId) {
+      const [customer] = await manager.query(
+        'SELECT name, phone FROM customers WHERE id = $1 AND tenant_id = $2',
+        [saleReturn.customerId, tenantId]
+      );
+      if (customer?.name) customerName = customer.name;
+      customerPhone = customer?.phone || null;
+    }
+    const [row] = await manager.query(
+      `INSERT INTO maintenance_invoices
+         (tenant_id, branch_id, invoice_number, customer_id, customer_name, customer_phone,
+          product_name, product_notes, maintenance_description, parts_cost, service_price,
+          status, maintenance_date, created_by, source, sale_return_id, sale_return_item_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'completed', CURRENT_TIMESTAMP, $11,
+               'sale_return', $12, $13)
+       RETURNING id`,
+      [
+        tenantId,
+        input.branchId || null,
+        invoiceNumber,
+        saleReturn.customerId || null,
+        customerName,
+        customerPhone,
+        input.productName,
+        `صنف مرتجع — مرتجع رقم ${saleReturn.returnNumber}`,
+        input.description?.trim() || `صيانة صنف مرتجع (${saleReturn.returnNumber})`,
+        input.amount,
+        input.userId,
+        saleReturn.id,
+        input.itemId,
+      ]
+    );
+    return row.id;
   }
 }

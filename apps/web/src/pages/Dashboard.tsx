@@ -5,7 +5,8 @@ import { api } from '@/lib/api';
 import { AlertTriangle, Wallet } from 'lucide-react';
 
 interface Summary {
-  salesToday: { invoicesCount: number; totalSales: number };
+  salesToday: { invoicesCount: number; totalSales: number; returnsTotal?: number; netSales?: number };
+  returnsToday?: { count: number; total: number; refunded: number };
   expensesToday: { count: number; total: number };
   lowStockAlerts: { id: string; name: string; sku?: string; availableQuantity: number; status: string }[];
   customerInvoices: { count: number; totalOwed: number };
@@ -41,9 +42,14 @@ export function DashboardPage() {
             <Link to="/cash-register" className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90">فتح وردية الخزينة</Link>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-            <Card label="مبيعات اليوم" value={data.salesToday.totalSales.toFixed(2)} tone="text-primary" sub={`${data.salesToday.invoicesCount} فاتورة`} />
+            <Card
+              label="مبيعات اليوم (بعد المرتجعات)"
+              value={(data.salesToday.netSales ?? data.salesToday.totalSales).toFixed(2)}
+              tone="text-primary"
+              sub={`${data.salesToday.invoicesCount} فاتورة بإجمالي ${data.salesToday.totalSales.toFixed(2)}${data.returnsToday?.count ? ` · مرتجعات ${data.returnsToday.total.toFixed(2)} (${data.returnsToday.count})` : ''}`}
+            />
             <Card label="مصروفات اليوم" value={data.expensesToday.total.toFixed(2)} tone="text-red-600" sub={`${data.expensesToday.count} عملية`} />
-            <Card label="صافي اليوم" value={(data.salesToday.totalSales - data.expensesToday.total).toFixed(2)} tone="text-green-600" />
+            <Card label="صافي اليوم" value={((data.salesToday.netSales ?? data.salesToday.totalSales) - data.expensesToday.total).toFixed(2)} tone="text-green-600" />
             <Link to="/customers">
               <Card label="مستحق من العملاء" value={data.customerInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.customerInvoices.count} فاتورة آجلة`} />
             </Link>

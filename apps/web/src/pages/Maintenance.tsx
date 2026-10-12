@@ -399,6 +399,12 @@ export function MaintenancePage() {
           tone={Number(summary.profit) < 0 ? 'red' : 'green'}
         />
       </div>
+      {Number(summary.returnRepairs) > 0 && (
+        <p className="text-xs text-gray-500">
+          منها {Number(summary.returnRepairs).toLocaleString('ar-EG')} صيانة لأصناف مرتجعة بتكلفة{' '}
+          {money(summary.returnRepairsCost)} (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
+        </p>
+      )}
 
       <section className="overflow-hidden rounded-lg border bg-white">
         <div className="flex items-center gap-2 border-b px-4 py-3 font-semibold">
@@ -444,6 +450,11 @@ export function MaintenancePage() {
                       <div className="text-xs text-gray-500">
                         {new Date(invoice.maintenanceDate).toLocaleString('ar-EG')}
                       </div>
+                      {invoice.source === 'sale_return' && (
+                        <span className="mt-1 inline-block rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                          صيانة صنف مرتجع
+                        </span>
+                      )}
                     </td>
                     <td className="p-3">
                       <div>{invoice.customerName}</div>

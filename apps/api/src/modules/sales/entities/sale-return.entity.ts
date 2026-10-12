@@ -51,6 +51,21 @@ export class SaleReturn {
   @Column({ name: 'cogs_adjustment', type: 'decimal', precision: 15, scale: 4, default: 0 })
   cogsAdjustment: number;
 
+  /** الجزء اللي اتخصم من المتبقي (الآجل) على الفاتورة الأصلية. */
+  @Column({ name: 'invoice_credit', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  invoiceCredit: number;
+
+  /** مبلغ اترد للعميل فعلاً (بيطلع من الخزنة/الكارت/التحويل حسب refundMethodId). */
+  @Column({ name: 'refund_paid', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  refundPaid: number;
+
+  /** مبلغ اتضاف رصيد لحساب العميل بدل رده نقداً. */
+  @Column({ name: 'account_credit', type: 'decimal', precision: 15, scale: 4, default: 0 })
+  accountCredit: number;
+
+  @Column({ name: 'refund_method_id', type: 'uuid', nullable: true })
+  refundMethodId?: string;
+
   @Column({ length: 20, default: 'completed' })
   status: string;
 

@@ -26,6 +26,17 @@ export class DashboardService {
       salesParams
     );
 
+    // مرتجعات اليوم (بتاريخ المرتجع) بتنزل من مبيعات اليوم.
+    const retParams: any[] = [tenantId];
+    const retBranch = sqlIn('branch_id', scope.branchIds, retParams);
+    const [returnsToday] = await this.dataSource.query(
+      `SELECT COUNT(*)::int AS count, COALESCE(SUM(total), 0) AS total,
+              COALESCE(SUM(refund_paid), 0) AS refunded
+       FROM sale_returns
+       WHERE tenant_id = $1 AND return_date::date = CURRENT_DATE${retBranch}`,
+      retParams
+    );
+
     const [expensesToday] = await this.dataSource.query(
       `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*)::int AS count
        FROM expenses WHERE tenant_id = $1 AND expense_date::date = CURRENT_DATE${expBranch}`,
@@ -79,6 +90,13 @@ export class DashboardService {
       salesToday: {
         invoicesCount: salesToday.invoicesCount,
         totalSales: Number(salesToday.totalSales),
+        returnsTotal: Number(returnsToday.total),
+        netSales: Number(salesToday.totalSales) - Number(returnsToday.total),
+      },
+      returnsToday: {
+        count: returnsToday.count,
+        total: Number(returnsToday.total),
+        refunded: Number(returnsToday.refunded),
       },
       expensesToday: {
         count: expensesToday.count,
