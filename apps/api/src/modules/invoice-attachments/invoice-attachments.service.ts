@@ -76,16 +76,19 @@ export class InvoiceAttachmentsService {
         );
       }
       await manager.query(
+        // object_key له بارامتر مستقل: استخدام نفس البارامتر كـ uuid وكـ text
+        // يجعل PostgreSQL يرفض الاستعلام (inconsistent types deduced for parameter).
         `INSERT INTO invoice_attachments
            (id, tenant_id, branch_id, entity_type, entity_id, object_key, storage_provider,
             original_name, mime_type, size_bytes, created_by, content)
-         VALUES ($1, $2, $3, $4, $5, $1, 'database', $6, $7, $8, $9, $10)`,
+         VALUES ($1, $2, $3, $4, $5, $6, 'database', $7, $8, $9, $10, $11)`,
         [
           id,
           tenantId,
           invoice.branchId || null,
           type,
           entityId,
+          id,
           originalName,
           detectedMime,
           file.size,
