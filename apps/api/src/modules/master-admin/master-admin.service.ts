@@ -311,28 +311,6 @@ export class MasterAdminService implements OnModuleInit {
     );
   }
 
-  // ---------- Dashboard ----------
-  async dashboard() {
-    const [t] = await this.dataSource.query(`
-      SELECT
-        COUNT(*)::int AS total,
-        COUNT(*) FILTER (WHERE is_active AND subscription_status = 'active'
-          AND (subscription_end_date IS NULL OR subscription_end_date > NOW()))::int AS active,
-        COUNT(*) FILTER (WHERE NOT is_active OR subscription_status IN ('suspended','cancelled'))::int AS suspended,
-        COUNT(*) FILTER (WHERE subscription_status = 'expired'
-          OR (subscription_end_date IS NOT NULL AND subscription_end_date <= NOW()))::int AS expired,
-        COUNT(*) FILTER (WHERE subscription_end_date BETWEEN NOW() AND NOW() + INTERVAL '7 days')::int AS "expiringSoon",
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days')::int AS "new30d"
-      FROM tenants WHERE deleted_at IS NULL`);
-    const [u] = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS total FROM users WHERE deleted_at IS NULL`
-    );
-    const [s] = await this.dataSource.query(`
-      SELECT COUNT(*)::int AS "salesCount", COALESCE(SUM(total),0) AS "salesTotal"
-      FROM sales WHERE status = 'completed' AND sale_date > NOW() - INTERVAL '30 days'`);
-    return { tenants: t, usersTotal: u.total, last30Days: s };
-  }
-
   listPlans() {
     return this.plans.find({ order: { sortOrder: 'ASC', name: 'ASC' } });
   }
@@ -446,15 +424,40 @@ export class MasterAdminService implements OnModuleInit {
 
   async listTenantUsers(tenantId: string) {
     await this.getTenant(tenantId);
-    const rows = await this.users.find({ where: { tenantId }, order: { createdAt: 'ASC' } });
-    return rows.map((u) => ({
-      id: u.id,
-      email: u.email,
-      fullName: u.fullName,
-      isActive: u.isActive,
-      lastLoginAt: u.lastLoginAt,
-      lockedUntil: u.lockedUntil,
-    }));
+    return this.dataSource.query(
+      `SELECT u.id, u.email, u.full_name AS "fullName", u.phone, u.is_active AS "isActive",
+              u.last_login_at AS "lastLoginAt", u.last_login_ip AS "lastLoginIp",
+              u.locked_until AS "lockedUntil", u.failed_login_attempts AS "failedLoginAttempts",
+              u.password_changed_at AS "passwordChangedAt", u.created_at AS "createdAt",
+              u.access_all_branches AS "accessAllBranches",
+              COALESCE(array_length(u.allowed_branch_ids, 1), 0)::int AS "allowedBranches",
+              COALESCE(
+                (SELECT json_agg(json_build_object('name', r.name, 'nameAr', r.name_ar))
+                 FROM user_roles ur JOIN roles r ON r.id = ur.role_id
+                 WHERE ur.user_id = u.id), '[]'::json) AS roles
+       FROM users u
+       WHERE u.tenant_id = $1 AND u.deleted_at IS NULL
+       ORDER BY u.created_at`,
+      [tenantId]
+    );
+  }
+
+  private async getTenantUser(tenantId: string, userId: string) {
+    const user = await this.users.findOne({ where: { id: userId, tenantId } });
+    if (!user) throw new NotFoundException('المستخدم غير موجود في هذا التاجر');
+    return user;
+  }
+
+  async revokeTenantUserSessions(tenantId: string, userId: string, adminEmail: string, ip: string) {
+    await this.getTenantUser(tenantId, userId);
+    await this.usersService.revokeSessions(userId);
+    await this.audit(adminEmail, 'TENANT_USER_SESSIONS_REVOKED', 'user', userId, { tenantId }, ip, 'warning');
+  }
+
+  async unlockTenantUser(tenantId: string, userId: string, adminEmail: string, ip: string) {
+    await this.getTenantUser(tenantId, userId);
+    await this.users.update({ id: userId }, { failedLoginAttempts: 0, lockedUntil: null as any });
+    await this.audit(adminEmail, 'TENANT_USER_UNLOCKED', 'user', userId, { tenantId }, ip);
   }
 
   async resetTenantUserPassword(

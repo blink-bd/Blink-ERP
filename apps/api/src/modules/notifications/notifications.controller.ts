@@ -1,3 +1,5 @@
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import {
   BadRequestException,
   Body,
@@ -23,7 +25,7 @@ import { UpdateAlertSettingsDto } from './dto/alert-settings.dto';
 @ApiTags('notifications')
 @ApiBearerAuth()
 @Controller({ path: 'notifications', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class NotificationsController {
   constructor(
     private readonly notifications: NotificationsService,
@@ -32,25 +34,28 @@ export class NotificationsController {
 
   /** حالة قنوات الإرسال على السيرفر (من غير عناوين إدارة النظام). */
   @Get('status')
-  getStatus() {
-    const status = this.notifications.getStatus();
+  async getStatus() {
+    return { success: true, data: await this.channelStatus() };
+  }
+
+  private async channelStatus() {
+    const status = await this.notifications.getStatus();
     return {
-      success: true,
-      data: {
-        email: { configured: status.email.configured },
-        whatsapp: { configured: status.whatsapp.configured, mode: status.whatsapp.mode },
-      },
+      email: { configured: status.email.configured },
+      whatsapp: { configured: status.whatsapp.configured, mode: status.whatsapp.mode },
     };
   }
 
   /** واتساب وإيميل التاجر لاستقبال تنبيهات حسابه + أنواع التنبيهات المفعّلة. */
   @Get('settings')
+  @RequireFeature('settings.alerts')
   @RequirePermission('settings.view')
   async getSettings(@Request() req) {
     return { success: true, data: await this.loadSettings(req.tenantId) };
   }
 
   @Put('settings')
+  @RequireFeature('settings.alerts')
   @RequirePermission('settings.update')
   async updateSettings(@Request() req, @Body() dto: UpdateAlertSettingsDto) {
     const [tenant] = await this.dataSource.query(
@@ -106,6 +111,7 @@ export class NotificationsController {
 
   /** رسالة تجريبية لواتساب/إيميل التاجر المحفوظين في الإعدادات. */
   @Post('test')
+  @RequireFeature('settings.alerts')
   @RequirePermission('settings.update')
   @Throttle({ default: { limit: 2, ttl: 60000 } })
   async sendTest(@Request() req) {
@@ -118,7 +124,7 @@ export class NotificationsController {
       { email: settings.alertEmail, whatsapp: settings.alertWhatsapp },
       req.user?.email
     );
-    return { success: true, data: { ...result, configured: this.getStatus().data } };
+    return { success: true, data: { ...result, configured: await this.channelStatus() } };
   }
 
   private async loadSettings(tenantId: string) {
@@ -137,7 +143,7 @@ export class NotificationsController {
         label: type.label,
         enabled: saved[type.key] !== false,
       })),
-      channels: this.getStatus().data,
+      channels: await this.channelStatus(),
     };
   }
 }

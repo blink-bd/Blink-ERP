@@ -21,6 +21,12 @@ export interface FeatureDefinition {
   requiresPlan?: boolean;
   dependsOn?: string[];
   sortOrder: number;
+  /**
+   * زرار/إجراء جوه صفحة (مش صفحة كاملة): كود الصفحة/الميزة الأم. الإجراءات مفعّلة
+   * افتراضياً لكل التجار لحد ما المدير العام يقفلها، ولما الصفحة الأم تتقفل بتتقفل معاها
+   * من غير ما تفقد حالتها (لما الصفحة ترجع، الإجراء يرجع زي ما كان).
+   */
+  parent?: string;
 }
 
 export const FEATURE_CATALOG: FeatureDefinition[] = [
@@ -284,6 +290,228 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
     sortOrder: 41,
   },
 ];
+
+/** زراير وإجراءات جوه الصفحات — كل واحد يتقفل/يتفتح لكل تاجر من لوحة المدير العام. */
+const ACTIONS: Array<Omit<FeatureDefinition, 'category' | 'sortOrder' | 'name'> & { name?: string }> = [
+  // لوحة التحكم
+  {
+    code: 'dashboard.balances',
+    parent: 'dashboard',
+    nameAr: 'مديونيات العملاء والموردين في لوحة التحكم',
+    descriptionAr: 'كروت إجمالي المستحق على العملاء وللموردين في الصفحة الرئيسية.',
+  },
+  // نقطة البيع
+  {
+    code: 'pos.discount',
+    parent: 'pos',
+    nameAr: 'خصم على الفاتورة',
+    descriptionAr: 'خانة الخصم في نقطة البيع (والخصم على الأصناف).',
+  },
+  {
+    code: 'pos.credit_sale',
+    parent: 'pos',
+    nameAr: 'البيع الآجل والدفع الجزئي',
+    descriptionAr: 'تسجيل فاتورة على حساب العميل من غير دفع كامل.',
+  },
+  {
+    code: 'pos.wholesale_price',
+    parent: 'pos',
+    nameAr: 'البيع بسعر الجملة',
+    descriptionAr: 'اختيار سعر الجملة بدل القطاعي في نقطة البيع.',
+  },
+  {
+    code: 'pos.multi_invoices',
+    parent: 'pos',
+    nameAr: 'فتح أكثر من فاتورة في نفس الوقت',
+    descriptionAr: 'أزرار فاتورة جديدة/الفواتير المفتوحة في نقطة البيع.',
+  },
+  {
+    code: 'pos.print_receipt',
+    parent: 'pos',
+    nameAr: 'طباعة الإيصال',
+    descriptionAr: 'طباعة إيصال البيع تلقائياً بعد كل فاتورة.',
+  },
+  {
+    code: 'pos.share_after_sale',
+    parent: 'pos',
+    nameAr: 'إرسال الفاتورة بعد البيع',
+    descriptionAr: 'شريط «إرسال للعميل واتساب» بعد كل فاتورة في نقطة البيع.',
+    dependsOn: ['sales.share'],
+  },
+  // المبيعات
+  {
+    code: 'sales.share',
+    parent: 'sales',
+    nameAr: 'إرسال فواتير البيع واتساب',
+    descriptionAr: 'زرار إرسال الفاتورة للعميل كلينك على الواتساب.',
+  },
+  {
+    code: 'sales.collect_payment',
+    parent: 'sales',
+    nameAr: 'تحصيل دفعات على الفواتير',
+    descriptionAr: 'تسجيل دفعة على فاتورة آجلة.',
+  },
+  {
+    code: 'sales.void',
+    parent: 'sales',
+    nameAr: 'إلغاء فواتير البيع',
+    descriptionAr: 'إلغاء فاتورة بيع بالكامل.',
+  },
+  // المنتجات
+  {
+    code: 'products.delete',
+    parent: 'products',
+    nameAr: 'حذف المنتجات',
+    descriptionAr: 'زرار حذف المنتج.',
+  },
+  {
+    code: 'products.cost_price',
+    parent: 'products',
+    nameAr: 'عرض سعر التكلفة',
+    descriptionAr: 'عمود وخانة سعر التكلفة في صفحة المنتجات.',
+  },
+  // المخزون
+  {
+    code: 'inventory.adjust',
+    parent: 'inventory',
+    nameAr: 'تعديل الكميات (جرد)',
+    descriptionAr: 'تعديل كمية صنف يدوياً بالزيادة أو النقص.',
+  },
+  {
+    code: 'inventory.transfers',
+    parent: 'inventory',
+    nameAr: 'تحويلات المخزون بين الفروع',
+    descriptionAr: 'صفحة تحويلات الفروع وطلبات التحويل واعتمادها.',
+  },
+  // العملاء
+  {
+    code: 'customers.payments',
+    parent: 'customers',
+    nameAr: 'تحصيل من العملاء',
+    descriptionAr: 'تسجيل مبلغ محصّل من العميل على حسابه.',
+  },
+  {
+    code: 'customers.statement',
+    parent: 'customers',
+    nameAr: 'كشف حساب العميل',
+    descriptionAr: 'عرض وطباعة كشف حساب العميل.',
+  },
+  {
+    code: 'customers.delete',
+    parent: 'customers',
+    nameAr: 'حذف العملاء',
+    descriptionAr: 'زرار حذف العميل.',
+  },
+  // الموردين
+  {
+    code: 'suppliers.settle',
+    parent: 'suppliers',
+    nameAr: 'سداد للموردين',
+    descriptionAr: 'تسجيل مبلغ مدفوع للمورد.',
+  },
+  {
+    code: 'suppliers.statement',
+    parent: 'suppliers',
+    nameAr: 'كشف حساب المورد',
+    descriptionAr: 'عرض وطباعة كشف حساب المورد.',
+  },
+  {
+    code: 'suppliers.delete',
+    parent: 'suppliers',
+    nameAr: 'حذف الموردين',
+    descriptionAr: 'زرار حذف المورد.',
+  },
+  // المشتريات
+  {
+    code: 'purchases.share',
+    parent: 'purchases',
+    nameAr: 'إرسال فواتير الشراء واتساب',
+    descriptionAr: 'زرار إرسال فاتورة الشراء للمورد كلينك على الواتساب.',
+  },
+  {
+    code: 'purchases.print',
+    parent: 'purchases',
+    nameAr: 'طباعة فواتير الشراء',
+    descriptionAr: 'زرار طباعة فاتورة الشراء.',
+  },
+  // المصروفات
+  {
+    code: 'expenses.categories',
+    parent: 'expenses',
+    nameAr: 'إضافة تصنيفات مصروفات',
+    descriptionAr: 'إنشاء تصنيفات جديدة للمصروفات.',
+  },
+  // الخزينة
+  {
+    code: 'cash_register.transactions',
+    parent: 'cash_register',
+    nameAr: 'إيداع وسحب يدوي من الخزينة',
+    descriptionAr: 'تسجيل حركات نقدية يدوية في الوردية.',
+  },
+  {
+    code: 'cash_register.registers',
+    parent: 'cash_register',
+    nameAr: 'إضافة خزن جديدة',
+    descriptionAr: 'إنشاء خزينة إضافية.',
+  },
+  // المستخدمين
+  {
+    code: 'users.manage',
+    parent: 'users',
+    nameAr: 'إضافة وتعديل المستخدمين',
+    descriptionAr: 'إضافة موظفين وتعديل بياناتهم وإيقافهم وحذفهم.',
+  },
+  {
+    code: 'users.roles',
+    parent: 'users',
+    nameAr: 'إدارة الأدوار والصلاحيات',
+    descriptionAr: 'إنشاء وتعديل أدوار الموظفين وصلاحياتها.',
+  },
+  {
+    code: 'users.reset_password',
+    parent: 'users',
+    nameAr: 'تغيير كلمات مرور الموظفين',
+    descriptionAr:
+      'صاحب الحساب يغيّر كلمة مرور موظفيه. كلمة مرور صاحب الحساب نفسه بتتغير من الإدارة بس.',
+  },
+  // الإعدادات
+  {
+    code: 'settings.alerts',
+    parent: 'settings',
+    nameAr: 'تنبيهات الحساب',
+    descriptionAr: 'واتساب وإيميل التاجر وأنواع التنبيهات اللي توصله.',
+  },
+  {
+    code: 'settings.backup',
+    parent: 'settings',
+    nameAr: 'تنزيل نسخة احتياطية',
+    descriptionAr: 'تنزيل نسخة JSON من بيانات المتجر.',
+  },
+  {
+    code: 'settings.webhooks',
+    parent: 'settings',
+    nameAr: 'Webhooks',
+    descriptionAr: 'إرسال الأحداث لأنظمة خارجية.',
+  },
+];
+
+const parentSortOrder = (code: string) =>
+  FEATURE_CATALOG.find((feature) => feature.code === code)?.sortOrder ?? 0;
+
+for (const [index, action] of ACTIONS.entries()) {
+  const parent = FEATURE_CATALOG.find((feature) => feature.code === action.parent);
+  FEATURE_CATALOG.push({
+    ...action,
+    name: action.name || action.code,
+    category: parent?.category || 'core',
+    isDefault: true,
+    dependsOn: [action.parent as string, ...(action.dependsOn || [])],
+    sortOrder: parentSortOrder(action.parent as string) * 100 + index + 1,
+  });
+}
+
+export const isActionFeature = (code: string): boolean =>
+  Boolean(FEATURE_CATALOG.find((feature) => feature.code === code)?.parent);
 
 export const FEATURE_CODES = new Set(FEATURE_CATALOG.map((f) => f.code));
 

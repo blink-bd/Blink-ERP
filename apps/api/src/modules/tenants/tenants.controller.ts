@@ -16,6 +16,7 @@ import { CreateTenantDto } from './dto/create-tenant.dto';
 import { UpdateTenantDto } from './dto/update-tenant.dto';
 import { MasterAdminGuard } from '@/modules/master-admin/master-admin.guard';
 import { MasterAdminService } from '@/modules/master-admin/master-admin.service';
+import { AdminInsightsService } from '@/modules/master-admin/admin-insights.service';
 
 @ApiTags('tenants')
 @ApiBearerAuth()
@@ -24,12 +25,14 @@ import { MasterAdminService } from '@/modules/master-admin/master-admin.service'
 export class TenantsController {
   constructor(
     private readonly tenantsService: TenantsService,
-    private readonly master: MasterAdminService
+    private readonly master: MasterAdminService,
+    private readonly insights: AdminInsightsService
   ) {}
 
+  /** قائمة التجار مع مؤشرات الصحة (الاشتراك، آخر نشاط، الأمان). */
   @Get()
   async findAll() {
-    return { success: true, data: await this.tenantsService.findAll() };
+    return { success: true, data: await this.insights.tenants() };
   }
 
   @Get(':id')

@@ -8,6 +8,8 @@ import { Plan } from '@/modules/features/entities/plan.entity';
 import { Feature } from '@/modules/features/entities/feature.entity';
 import { UsersModule } from '@/modules/users/users.module';
 import { MasterAdminService } from './master-admin.service';
+import { AdminInsightsService } from './admin-insights.service';
+import { PlatformChannelsService } from './platform-channels.service';
 import { MasterAdminGuard } from './master-admin.guard';
 import { MasterAuthController, MasterAdminController } from './master-admin.controller';
 
@@ -20,7 +22,7 @@ import { MasterAuthController, MasterAdminController } from './master-admin.cont
     UsersModule,
   ],
   controllers: [MasterAuthController, MasterAdminController],
-  providers: [MasterAdminService, MasterAdminGuard],
-  exports: [MasterAdminService, MasterAdminGuard],
+  providers: [MasterAdminService, MasterAdminGuard, AdminInsightsService, PlatformChannelsService],
+  exports: [MasterAdminService, MasterAdminGuard, AdminInsightsService],
 })
 export class MasterAdminModule {}

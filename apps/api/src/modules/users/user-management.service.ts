@@ -439,7 +439,7 @@ export class UserManagementService {
   async resetPassword(actor: Actor, id: string, newPassword: string, req: any) {
     const target = await this.getTarget(actor.tenantId, id);
     if (target.id === actor.id) {
-      throw new BadRequestException('لتغيير كلمة مرورك استخدم "تغيير كلمة المرور" في الإعدادات');
+      throw new ForbiddenException('كلمة مرورك بتتغير من خلال إدارة النظام بس — تواصل مع الإدارة');
     }
     this.assertCanManage(actor, target);
     assertStrongPassword(newPassword);

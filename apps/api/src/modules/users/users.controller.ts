@@ -1,3 +1,5 @@
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { FeaturesGuard } from '@/modules/features/features.guard';
 import {
   Body,
   Controller,
@@ -31,7 +33,7 @@ import {
 @ApiBearerAuth()
 @NoApiKey()
 @Controller({ path: 'users', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class UsersController {
   constructor(
     private readonly usersService: UsersService,
@@ -80,6 +82,7 @@ export class UsersController {
 
   @Post()
   @RequirePermission('users.create')
+  @RequireFeature('users.manage')
   async create(@Request() req, @Body() dto: CreateTenantUserDto) {
     const data = await this.management.createUser(req.user, dto, req);
     return { success: true, data, message: 'تم إضافة المستخدم' };
@@ -87,6 +90,7 @@ export class UsersController {
 
   @Put(':id')
   @RequirePermission('users.update')
+  @RequireFeature('users.manage')
   async update(
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
@@ -98,6 +102,7 @@ export class UsersController {
 
   @Post(':id/reset-password')
   @RequirePermission('users.update')
+  @RequireFeature('users.reset_password')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async resetPassword(
     @Request() req,
@@ -110,6 +115,7 @@ export class UsersController {
 
   @Post(':id/revoke-sessions')
   @RequirePermission('users.update')
+  @RequireFeature('users.manage')
   async revokeSessions(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.management.revokeUserSessions(req.user, id, req);
     return { success: true, message: 'تم تسجيل خروج المستخدم من كل الأجهزة' };
@@ -117,6 +123,7 @@ export class UsersController {
 
   @Delete(':id')
   @RequirePermission('users.delete')
+  @RequireFeature('users.manage')
   async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.management.deleteUser(req.user, id, req);
     return { success: true, message: 'تم حذف المستخدم' };
@@ -127,7 +134,7 @@ export class UsersController {
 @ApiBearerAuth()
 @NoApiKey()
 @Controller({ path: 'roles', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class RolesController {
   constructor(private readonly management: UserManagementService) {}
 
@@ -139,12 +146,14 @@ export class RolesController {
 
   @Get('permissions')
   @RequirePermission('roles.manage')
+  @RequireFeature('users.roles')
   async permissions() {
     return { success: true, data: await this.management.listPermissions() };
   }
 
   @Post()
   @RequirePermission('roles.manage')
+  @RequireFeature('users.roles')
   async create(@Request() req, @Body() dto: RoleDto) {
     const data = await this.management.createRole(req.user, dto, req);
     return { success: true, data, message: 'تم إنشاء الدور' };
@@ -152,6 +161,7 @@ export class RolesController {
 
   @Put(':id')
   @RequirePermission('roles.manage')
+  @RequireFeature('users.roles')
   async update(@Request() req, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateRoleDto) {
     const data = await this.management.updateRole(req.user, id, dto, req);
     return { success: true, data, message: 'تم تحديث الدور' };
@@ -159,6 +169,7 @@ export class RolesController {
 
   @Delete(':id')
   @RequirePermission('roles.manage')
+  @RequireFeature('users.roles')
   async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.management.deleteRole(req.user, id, req);
     return { success: true, message: 'تم حذف الدور' };

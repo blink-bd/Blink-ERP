@@ -36,6 +36,7 @@ export class CashRegisterController {
   }
 
   @Post('registers')
+  @RequireFeature('cash_register.registers')
   @RequirePermission('cash_register.manage')
   async createRegister(@Request() req, @Body() dto: any) {
     const scope = scopeOf(req);
@@ -108,6 +109,7 @@ export class CashRegisterController {
   }
 
   @Post('transactions')
+  @RequireFeature('cash_register.transactions')
   @RequirePermission('cash_register.manage')
   async addTransaction(
     @Request() req,

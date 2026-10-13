@@ -28,7 +28,7 @@ import {
 @ApiTags('inventory-transfers')
 @ApiBearerAuth()
 @Controller({ path: 'inventory/transfers', version: '1' })
-@RequireFeature('inventory')
+@RequireFeature('inventory', 'inventory.transfers')
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
 export class TransfersController {
   constructor(private readonly transfers: TransfersService) {}

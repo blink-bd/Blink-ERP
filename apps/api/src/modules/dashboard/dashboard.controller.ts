@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
+import { FeaturesService } from '@/modules/features/features.service';
 import { DashboardService } from './dashboard.service';
 
 @ApiTags('dashboard')
@@ -13,13 +14,22 @@ import { DashboardService } from './dashboard.service';
 @Controller({ path: 'dashboard', version: '1' })
 @UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly featuresService: FeaturesService
+  ) {}
 
   @Get('summary')
   async summary(@Request() req) {
-    return {
-      success: true,
-      data: await this.dashboardService.getSummary(req.tenantId, scopeOf(req)),
-    };
+    const data: Record<string, unknown> = await this.dashboardService.getSummary(
+      req.tenantId,
+      scopeOf(req)
+    );
+    // كروت المديونيات زرار يقدر المدير العام يقفله للتاجر.
+    if (!(await this.featuresService.tenantHasFeature(req.tenantId, 'dashboard.balances'))) {
+      delete data.customerInvoices;
+      delete data.supplierInvoices;
+    }
+    return { success: true, data };
   }
 }

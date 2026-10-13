@@ -128,6 +128,7 @@ export class ProductsController {
   }
 
   @Delete(':id')
+  @RequireFeature('products.delete')
   @RequirePermission('products.delete')
   async remove(@Request() req, @Param('id') id: string) {
     await this.productsService.delete(req.tenantId, id);

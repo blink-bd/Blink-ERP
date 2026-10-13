@@ -28,6 +28,9 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { MasterAdminService } from './master-admin.service';
+import { AdminInsightsService } from './admin-insights.service';
+import { PlatformChannelsService } from './platform-channels.service';
+import { TestChannelsDto, UpdateChannelsDto } from './dto/channels.dto';
 import { MasterAdminGuard } from './master-admin.guard';
 import {
   DeleteTenantDto,
@@ -176,12 +179,84 @@ export class MasterAuthController {
 export class MasterAdminController {
   constructor(
     private readonly service: MasterAdminService,
-    private readonly auditService: AuditService
+    private readonly auditService: AuditService,
+    private readonly insights: AdminInsightsService,
+    private readonly channels: PlatformChannelsService
   ) {}
 
   @Get('dashboard')
   async dashboard() {
-    return { success: true, data: await this.service.dashboard() };
+    return { success: true, data: await this.insights.dashboard() };
+  }
+
+  // ---------- قنوات الإرسال (إيميل وواتساب) ----------
+  @Get('notification-channels')
+  async getChannels() {
+    return { success: true, data: await this.channels.get() };
+  }
+
+  @Put('notification-channels')
+  async updateChannels(@Request() req, @Ip() ip: string, @Body() dto: UpdateChannelsDto) {
+    const data = await this.channels.update(dto, req.masterAdmin.email);
+    await this.service.audit(
+      req.masterAdmin.email,
+      'NOTIFICATION_CHANNELS_UPDATED',
+      'platform_settings',
+      undefined,
+      {
+        emailProvider: dto.email?.provider,
+        whatsapp: dto.whatsapp ? Boolean(dto.whatsapp.phoneNumberId) : undefined,
+        secretsChanged: [
+          dto.email?.smtpPassword ? 'smtpPassword' : null,
+          dto.email?.apiKey ? 'emailApiKey' : null,
+          dto.whatsapp?.accessToken ? 'whatsappToken' : null,
+          ...(dto.clearSecrets || []).map((key) => `cleared:${key}`),
+        ].filter(Boolean),
+      },
+      ip,
+      'warning'
+    );
+    return { success: true, data, message: 'تم حفظ إعدادات قنوات الإرسال' };
+  }
+
+  @Post('notification-channels/test')
+  @Throttle({ default: { limit: 6, ttl: 60_000 } })
+  async testChannels(@Body() dto: TestChannelsDto) {
+    return { success: true, data: await this.channels.test(dto) };
+  }
+
+  // ---------- ملف التاجر ----------
+  @Get('tenants/:id/profile')
+  async profile(@Param('id', ParseUUIDPipe) id: string) {
+    return { success: true, data: await this.insights.tenantProfile(id) };
+  }
+
+  @Get('tenants/:id/branches')
+  async branches(@Param('id', ParseUUIDPipe) id: string) {
+    await this.service.assertTenantExists(id);
+    return { success: true, data: await this.insights.tenantBranches(id) };
+  }
+
+  @Post('tenants/:id/users/:userId/revoke-sessions')
+  async revokeUserSessions(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string
+  ) {
+    await this.service.revokeTenantUserSessions(id, userId, req.masterAdmin.email, ip);
+    return { success: true, message: 'تم تسجيل خروج المستخدم من كل الأجهزة' };
+  }
+
+  @Post('tenants/:id/users/:userId/unlock')
+  async unlockUser(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string
+  ) {
+    await this.service.unlockTenantUser(id, userId, req.masterAdmin.email, ip);
+    return { success: true, message: 'تم فك قفل المستخدم' };
   }
 
   @Get('plans')

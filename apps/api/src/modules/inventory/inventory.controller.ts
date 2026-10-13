@@ -68,6 +68,7 @@ export class InventoryController {
   }
 
   @Post('adjust')
+  @RequireFeature('inventory.adjust')
   @RequirePermission('inventory.adjust')
   async adjust(@Request() req, @Body() dto: AdjustInventoryDto) {
     await this.warehousesService.findUsable(req.tenantId, dto.warehouseId);
@@ -84,6 +85,7 @@ export class InventoryController {
   }
 
   @Post('transfer')
+  @RequireFeature('inventory.transfers')
   @RequirePermission('inventory.transfer')
   @RequireFeature('warehouses')
   transfer() {

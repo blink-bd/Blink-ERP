@@ -331,20 +331,12 @@ async function main() {
   check('revoked API key → 401', revoked.status === 401, revoked);
 
   // ------------------------------------------------------------ change password
-  console.log('\n[6] Change own password');
-  const cpBad = await call('POST', '/auth/change-password', {
-    token: ot,
-    body: { currentPassword: 'wrong-wrong-1', newPassword: 'Another#Pass2024!' },
-  });
-  check('change password with wrong current → 403', cpBad.status === 403, cpBad);
+  console.log('\n[6] Own password is managed by the master admin only');
   const cp = await call('POST', '/auth/change-password', {
     token: ot,
     body: { currentPassword: ownerPassword, newPassword: 'Another#Pass2024!' },
   });
-  check('change password OK + new token', cp.status < 300 && data(cp)?.accessToken, cp);
-  const stale = await call('GET', '/users/me', { token: ot });
-  check('old owner token revoked after password change', stale.status === 401, stale);
-  ot = data(cp)?.accessToken;
+  check('tenant users cannot change their own password → 403', cp.status === 403, cp);
 
   // ------------------------------------------------------------ audit
   console.log('\n[7] Audit trail');
@@ -354,7 +346,6 @@ async function main() {
     'TENANT_LOGIN',
     'USER_CREATED',
     'USER_PASSWORD_RESET',
-    'PASSWORD_CHANGED',
     'API_KEY_CREATED',
   ]) {
     check(`audit has ${a}`, actions.has(a), Array.from(actions));

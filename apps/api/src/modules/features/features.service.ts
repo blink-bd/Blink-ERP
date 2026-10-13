@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Feature } from './entities/feature.entity';
 import { TenantFeature } from './entities/tenant-feature.entity';
+import { getFeatureDefinition, isActionFeature } from './features.catalog';
 
 /**
  * كاش في الذاكرة لمجموعة الميزات الفعّالة لكل تاجر (استعلام واحد بدل استعلامات
@@ -41,15 +42,16 @@ export class FeaturesService {
       this.tenantFeaturesRepository.find({ where: { tenantId } }),
     ]);
     const now = new Date();
-    const enabledIds = new Set(
-      assigned
-        .filter((t) => t.isEnabled && (!t.expiresAt || t.expiresAt > now))
-        .map((t) => t.featureId)
-    );
+    const assignedById = new Map(assigned.map((t) => [t.featureId, t]));
+    const isOn = (f: Feature) => {
+      if (f.isCore) return true;
+      const row = assignedById.get(f.id);
+      // الزراير/الإجراءات مفعّلة افتراضياً لحد ما المدير العام يقفلها صراحةً.
+      if (!row) return isActionFeature(f.code);
+      return row.isEnabled && (!row.expiresAt || row.expiresAt > now);
+    };
     const byId = new Map(features.map((f) => [f.id, f]));
-    const enabled = new Set<string>(
-      features.filter((f) => f.isCore || enabledIds.has(f.id)).map((f) => f.id)
-    );
+    const enabled = new Set<string>(features.filter(isOn).map((f) => f.id));
 
     let changed = true;
     while (changed) {
@@ -159,7 +161,8 @@ export class FeaturesService {
       while (grew) {
         grew = false;
         for (const f of features) {
-          if (toChange.has(f.id) || f.isCore) continue;
+          // الزراير جوه الصفحة مابتتكتبش «مقفولة»: بتقف تلقائياً مع الصفحة وترجع معاها.
+          if (toChange.has(f.id) || f.isCore || isActionFeature(f.code)) continue;
           if ((f.dependsOn || []).some((d) => toChange.has(d))) {
             toChange.add(f.id);
             grew = true;
@@ -173,7 +176,8 @@ export class FeaturesService {
     const changes: FeatureChange[] = [];
     for (const id of toChange) {
       const isTarget = id === featureId;
-      if (!isTarget && (currentMap.get(id) ?? false) === isEnabled) continue;
+      const fallback = isActionFeature(byId.get(id)!.code);
+      if (!isTarget && (currentMap.get(id) ?? fallback) === isEnabled) continue;
       await this.setFeatureStatus(tenantId, id, isEnabled, {
         expiresAt: isTarget ? options?.expiresAt : undefined,
         actorId: options?.actorId,
@@ -207,6 +211,7 @@ export class FeaturesService {
     const codeById = new Map(features.map((f) => [f.id, f.code]));
     return features.map((f) => {
       const tf = map.get(f.id);
+      const parent = getFeatureDefinition(f.code)?.parent || null;
       return {
         id: f.id,
         code: f.code,
@@ -217,7 +222,9 @@ export class FeaturesService {
         isCore: f.isCore,
         requiresPlan: f.requiresPlan,
         dependsOn: (f.dependsOn || []).map((d) => codeById.get(d)).filter(Boolean),
-        isEnabled: f.isCore || !!tf?.isEnabled,
+        parent,
+        kind: parent ? 'action' : 'page',
+        isEnabled: f.isCore || (tf ? !!tf.isEnabled : !!parent),
         config: tf?.config || {},
         isEffective: effective.has(f.code),
         expiresAt: tf?.expiresAt ?? null,

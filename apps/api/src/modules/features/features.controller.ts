@@ -55,7 +55,7 @@ class FeatureToggleDto {
 
 class UpdateTenantFeaturesDto {
   @IsArray()
-  @ArrayMaxSize(50)
+  @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => FeatureToggleDto)
   features: FeatureToggleDto[];

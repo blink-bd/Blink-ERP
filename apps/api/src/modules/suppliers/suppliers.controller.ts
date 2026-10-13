@@ -81,6 +81,7 @@ export class SuppliersController {
   }
 
   @Get(':id/statement')
+  @RequireFeature('suppliers.statement')
   async statement(
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
@@ -126,6 +127,7 @@ export class SuppliersController {
   }
 
   @Post(':id/settle')
+  @RequireFeature('suppliers.settle')
   @RequirePermission('suppliers.settle')
   async settle(
     @Request() req,
@@ -145,6 +147,7 @@ export class SuppliersController {
   }
 
   @Delete(':id')
+  @RequireFeature('suppliers.delete')
   @RequirePermission('suppliers.delete')
   async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.suppliersService.delete(req.tenantId, id);
