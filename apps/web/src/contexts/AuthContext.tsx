@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import toast from 'react-hot-toast';
+import { setTenantTimezone } from '@/lib/datetime';
 
 interface User {
   id: string;
@@ -11,6 +12,15 @@ interface User {
   permissions: string[];
   branchId?: string;
   warehouseId?: string;
+  tenant?: {
+    id: string;
+    businessName?: string;
+    businessNameAr?: string;
+    currency?: string;
+    timezone?: string;
+    country?: string;
+    phone?: string;
+  };
 }
 
 interface AuthContextValue {
@@ -42,6 +52,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkAuth = async () => {
     try {
       const response = await api.get('/auth/me');
+      // التواريخ في كل الشاشات بتتعرض بتوقيت التاجر اللي المدير العام محدده.
+      setTenantTimezone(response.data.data?.tenant?.timezone);
       setUser(response.data.data);
     } catch {
       setUser(null);
@@ -57,7 +69,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email,
         password,
       });
-      setUser(response.data.data.user);
+      const tenant = response.data.data.tenant;
+      setTenantTimezone(tenant?.timezone);
+      setUser({ ...response.data.data.user, tenant });
       toast.success('تم تسجيل الدخول بنجاح');
     } catch (error: any) {
       const message = error.response?.data?.error?.message || 'فشل تسجيل الدخول';

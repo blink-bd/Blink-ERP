@@ -5,6 +5,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Expense } from './entities/expense.entity';
 import { ExpenseCategory } from './entities/expense-category.entity';
+import { getTenantTimezone, normalizeBusinessDate, tenantYear } from '@/common/utils/tenant-time';
+import { normalizeInclusiveDateRange } from '@/common/utils/date-range';
 
 @Injectable()
 export class ExpensesService {
@@ -15,6 +17,11 @@ export class ExpensesService {
   ) {}
 
   async findAll(tenantId: string, startDate?: string, endDate?: string, branchIds?: string[]) {
+    // «من/إلى تاريخ» بتوقيت التاجر، وآخر يوم بيتحسب كامل.
+    const tz = await getTenantTimezone(this.expensesRepository.manager, tenantId);
+    const range = normalizeInclusiveDateRange(startDate, endDate, tz);
+    startDate = range.startDate;
+    endDate = range.endDate;
     const query = this.expensesRepository
       .createQueryBuilder('e')
       .where('e.tenantId = :tenantId', { tenantId });
@@ -51,11 +58,15 @@ export class ExpensesService {
       clean.branchId
     );
     const count = await this.expensesRepository.count({ where: { tenantId } });
+    // تاريخ من غير وقت (من نموذج المصروف) بيتخزن ظهر نفس اليوم بتوقيت التاجر.
+    const tz = await getTenantTimezone(this.expensesRepository.manager, tenantId);
+    const expenseDate = normalizeBusinessDate(clean.expenseDate as unknown as string, tz);
     const expense = this.expensesRepository.create({
       ...clean,
+      ...(expenseDate ? { expenseDate } : { expenseDate: undefined }),
       branchId,
       tenantId,
-      expenseNumber: `EXP-${new Date().getFullYear()}-${String(count + 1).padStart(4, '0')}`,
+      expenseNumber: `EXP-${await tenantYear(this.expensesRepository.manager, tenantId)}-${String(count + 1).padStart(4, '0')}`,
       createdBy: userId,
     });
     return this.expensesRepository.save(expense);
@@ -76,9 +87,15 @@ export class ExpensesService {
       `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*)::int AS count
        FROM expenses
        WHERE tenant_id = $1 AND status = 'approved'
-         AND date_trunc($2, expense_date) = date_trunc($2, CURRENT_DATE)
+         AND date_trunc($2, expense_date AT TIME ZONE 'UTC' AT TIME ZONE $4::text)
+             = date_trunc($2, NOW() AT TIME ZONE $4::text)
          AND ($3::uuid[] IS NULL OR branch_id = ANY($3::uuid[]))`,
-      [tenantId, trunc, branchIds?.length ? branchIds : null]
+      [
+        tenantId,
+        trunc,
+        branchIds?.length ? branchIds : null,
+        await getTenantTimezone(this.expensesRepository.manager, tenantId),
+      ]
     );
     return { period, total: Number(row.total), count: row.count };
   }

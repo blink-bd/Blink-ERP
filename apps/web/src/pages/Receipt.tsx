@@ -3,19 +3,28 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { DEFAULT_TIMEZONE, formatDateTime } from '@/lib/datetime';
 
 interface ReceiptData {
+  kind?: 'sale' | 'purchase';
   verified: boolean;
   receiptNumber: string;
+  supplierInvoiceNumber?: string;
   issuedAt: string;
   currency: string;
+  timezone?: string;
   seller: { businessName: string; phone?: string; address?: string };
+  customer?: { name: string };
+  supplier?: { name: string };
   totals: {
     subtotal: number;
     discount: number;
     tax: number;
+    shipping?: number;
     total: number;
     paid: number;
+    returned?: number;
+    remaining?: number;
     paymentStatus: string;
   };
   items: Array<{
@@ -36,7 +45,10 @@ const money = (value: number, currency: string) => {
   }
 };
 
-export function ReceiptPage() {
+/** الإيصال الإلكتروني لفاتورة البيع، أو فاتورة المشتريات المرسلة للمورد (kind="purchase"). */
+export function ReceiptPage({ kind = 'sale' }: { kind?: 'sale' | 'purchase' }) {
+  const isPurchase = kind === 'purchase';
+  const docLabel = isPurchase ? 'الفاتورة' : 'الإيصال';
   const { token = '' } = useParams();
   const [searchParams] = useSearchParams();
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
@@ -48,12 +60,16 @@ export function ReceiptPage() {
     let active = true;
     setLoading(true);
     api
-      .get(`/receipts/${encodeURIComponent(token)}`)
+      .get(
+        isPurchase
+          ? `/receipts/purchase/${encodeURIComponent(token)}`
+          : `/receipts/${encodeURIComponent(token)}`
+      )
       .then((response) => {
         if (active) setReceipt(response.data.data);
       })
       .catch(() => {
-        if (active) setError('الإيصال غير موجود أو لم يعد متاحاً.');
+        if (active) setError(`${docLabel} غير موجود أو لم يعد متاحاً.`);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -61,7 +77,7 @@ export function ReceiptPage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [token, isPurchase, docLabel]);
 
   useEffect(() => {
     if (receipt && searchParams.get('print') === '1') {
@@ -73,7 +89,7 @@ export function ReceiptPage() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50" dir="rtl">
-        جاري تحميل الإيصال الإلكتروني…
+        جاري تحميل {isPurchase ? 'الفاتورة' : 'الإيصال الإلكتروني'}…
       </div>
     );
   }
@@ -81,8 +97,8 @@ export function ReceiptPage() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6" dir="rtl">
         <div className="max-w-md rounded-xl bg-white p-8 text-center shadow">
-          <h1 className="text-xl font-bold">تعذر التحقق من الإيصال</h1>
-          <p className="mt-2 text-gray-500">{error || 'الإيصال غير موجود أو لم يعد متاحاً.'}</p>
+          <h1 className="text-xl font-bold">تعذر التحقق من {docLabel}</h1>
+          <p className="mt-2 text-gray-500">{error || `${docLabel} غير موجود أو لم يعد متاحاً.`}</p>
           <Link to="/login" className="mt-5 inline-block text-primary">
             العودة إلى النظام
           </Link>
@@ -91,12 +107,20 @@ export function ReceiptPage() {
     );
   }
 
+  // بعد المرتجعات حالة الفاتورة بتتحسب من المتبقي الفعلي.
+  const remaining = receipt.totals.remaining;
   const statusLabel =
-    receipt.totals.paymentStatus === 'paid'
-      ? 'مدفوع'
-      : receipt.totals.paymentStatus === 'partial'
-        ? 'مدفوع جزئياً'
-        : 'آجل';
+    remaining !== undefined
+      ? remaining <= 0.0001
+        ? 'مسدد بالكامل'
+        : receipt.totals.paid > 0
+          ? 'مدفوع جزئياً'
+          : 'آجل'
+      : receipt.totals.paymentStatus === 'paid'
+        ? 'مدفوع'
+        : receipt.totals.paymentStatus === 'partial'
+          ? 'مدفوع جزئياً'
+          : 'آجل';
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 sm:p-8" dir="rtl">
@@ -104,7 +128,8 @@ export function ReceiptPage() {
         <header className="flex flex-col gap-5 border-b pb-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-700">
-              <span aria-hidden="true">✓</span> إيصال إلكتروني موثّق من Blink ERP
+              <span aria-hidden="true">✓</span>{' '}
+              {isPurchase ? 'فاتورة مشتريات موثّقة من Blink ERP' : 'إيصال إلكتروني موثّق من Blink ERP'}
             </div>
             <h1 className="mt-4 text-2xl font-bold">{receipt.seller.businessName}</h1>
             {receipt.seller.address && (
@@ -113,15 +138,31 @@ export function ReceiptPage() {
             {receipt.seller.phone && (
               <p className="text-sm text-gray-500">{receipt.seller.phone}</p>
             )}
+            {receipt.customer && (
+              <p className="mt-3 text-sm">
+                <span className="text-gray-500">العميل:</span> {receipt.customer.name}
+              </p>
+            )}
+            {receipt.supplier && (
+              <p className="mt-3 text-sm">
+                <span className="text-gray-500">المورد:</span> {receipt.supplier.name}
+              </p>
+            )}
           </div>
           <div className="rounded-lg bg-gray-50 p-4 text-sm sm:min-w-48">
             <p>
-              <span className="text-gray-500">رقم الإيصال:</span>{' '}
+              <span className="text-gray-500">{isPurchase ? 'رقم الفاتورة:' : 'رقم الإيصال:'}</span>{' '}
               <strong>{receipt.receiptNumber}</strong>
             </p>
+            {receipt.supplierInvoiceNumber && (
+              <p className="mt-2">
+                <span className="text-gray-500">رقم فاتورة المورد:</span>{' '}
+                {receipt.supplierInvoiceNumber}
+              </p>
+            )}
             <p className="mt-2">
               <span className="text-gray-500">التاريخ:</span>{' '}
-              {new Date(receipt.issuedAt).toLocaleString('ar-EG')}
+              {formatDateTime(receipt.issuedAt, {}, receipt.timezone || DEFAULT_TIMEZONE)}
             </p>
             <p className="mt-2">
               <span className="text-gray-500">حالة الدفع:</span> {statusLabel}
@@ -173,6 +214,12 @@ export function ReceiptPage() {
               <span>الضريبة</span>
               <span>{money(receipt.totals.tax, receipt.currency)}</span>
             </div>
+            {Number(receipt.totals.shipping) > 0 && (
+              <div className="flex justify-between">
+                <span>الشحن</span>
+                <span>{money(Number(receipt.totals.shipping), receipt.currency)}</span>
+              </div>
+            )}
             <div className="flex justify-between border-t pt-3 text-lg font-bold">
               <span>الإجمالي</span>
               <span>{money(receipt.totals.total, receipt.currency)}</span>
@@ -181,25 +228,38 @@ export function ReceiptPage() {
               <span>المدفوع</span>
               <span>{money(receipt.totals.paid, receipt.currency)}</span>
             </div>
+            {Number(receipt.totals.returned) > 0 && (
+              <div className="flex justify-between text-red-600">
+                <span>المرتجع</span>
+                <span>-{money(Number(receipt.totals.returned), receipt.currency)}</span>
+              </div>
+            )}
+            {receipt.totals.remaining !== undefined && (
+              <div className="flex justify-between font-semibold">
+                <span>المتبقي</span>
+                <span>{money(Number(receipt.totals.remaining), receipt.currency)}</span>
+              </div>
+            )}
           </div>
           <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed p-4 text-center">
             <QRCodeSVG value={publicUrl} size={128} level="M" includeMargin />
-            <p className="text-xs text-gray-500">امسح الرمز للتحقق من الإيصال</p>
+            <p className="text-xs text-gray-500">امسح الرمز للتحقق من {docLabel}</p>
           </div>
         </section>
 
         <footer className="mt-8 flex flex-wrap justify-center gap-3 border-t pt-5 print:hidden">
           <Button onClick={() => window.print()}>طباعة / حفظ PDF</Button>
           <Button variant="outline" onClick={() => navigator.clipboard?.writeText(publicUrl)}>
-            نسخ رابط الإيصال
+            نسخ رابط {docLabel}
           </Button>
           <Link to="/login" className="self-center text-sm text-gray-500">
             Blink ERP
           </Link>
         </footer>
         <p className="mt-5 text-center text-xs text-gray-400">
-          هذا إيصال إلكتروني صادر من النظام. الإيصال الضريبي الرسمي يتطلب ربط واعتماد الجهة الضريبية
-          المختصة.
+          {isPurchase
+            ? 'هذه نسخة إلكترونية من فاتورة المشتريات صادرة من نظام التاجر.'
+            : 'هذا إيصال إلكتروني صادر من النظام. الإيصال الضريبي الرسمي يتطلب ربط واعتماد الجهة الضريبية المختصة.'}
         </p>
       </article>
     </main>

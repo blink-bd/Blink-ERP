@@ -64,8 +64,13 @@ export class ReturnedProductInputDto {
 }
 
 export class ResolveReturnItemDto {
-  @IsIn(['supplier', 'restocked'])
-  disposition: 'supplier' | 'restocked';
+  /**
+   * - supplier : يرجع للمورد ويتخصم من رصيده.
+   * - restocked: يدخل المخزن كصنف جديد مستقل (مستعمل/مفتوح) بكود وسعر جديد.
+   * - original : يرجع المخزن على نفس الصنف الأصلي (سليم) بنفس تكلفته.
+   */
+  @IsIn(['supplier', 'restocked', 'original'])
+  disposition: 'supplier' | 'restocked' | 'original';
 
   @IsOptional()
   @IsUUID()

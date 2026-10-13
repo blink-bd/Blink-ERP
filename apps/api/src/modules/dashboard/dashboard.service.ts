@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AccessScope, UNRESTRICTED_SCOPE, sqlIn } from '@/common/utils/access-scope';
+import { getTenantTimezone, todayRangeUtc } from '@/common/utils/tenant-time';
 
 @Injectable()
 export class DashboardService {
@@ -9,9 +10,12 @@ export class DashboardService {
 
   /** ملخص لوحة التحكم لفرع/مخزن العمل الحالي (أو كل الفروع لو مختار «الكل»). */
   async getSummary(tenantId: string, scope: AccessScope = UNRESTRICTED_SCOPE) {
-    const salesParams: any[] = [tenantId];
+    // «النهارده» بتوقيت التاجر (اللي المدير العام محدده) مش توقيت السيرفر.
+    const tz = await getTenantTimezone(this.dataSource, tenantId);
+    const today = todayRangeUtc(tz);
+    const salesParams: any[] = [tenantId, today.fromTs, today.toExclusiveTs];
     const salesBranch = sqlIn('branch_id', scope.branchIds, salesParams);
-    const expParams: any[] = [tenantId];
+    const expParams: any[] = [tenantId, today.fromTs, today.toExclusiveTs];
     const expBranch = sqlIn('branch_id', scope.branchIds, expParams);
     const stockParams: any[] = [tenantId];
     const stockWarehouse = sqlIn('i.warehouse_id', scope.warehouseIds, stockParams);
@@ -22,24 +26,24 @@ export class DashboardService {
          COALESCE(SUM(total), 0) AS "totalSales",
          COALESCE(SUM(total) FILTER (WHERE payment_status = 'paid'), 0) AS "cashSalesTotal"
        FROM sales
-       WHERE tenant_id = $1 AND status = 'completed' AND sale_date::date = CURRENT_DATE${salesBranch}`,
+       WHERE tenant_id = $1 AND status = 'completed' AND sale_date >= $2 AND sale_date < $3${salesBranch}`,
       salesParams
     );
 
     // مرتجعات اليوم (بتاريخ المرتجع) بتنزل من مبيعات اليوم.
-    const retParams: any[] = [tenantId];
+    const retParams: any[] = [tenantId, today.fromTs, today.toExclusiveTs];
     const retBranch = sqlIn('branch_id', scope.branchIds, retParams);
     const [returnsToday] = await this.dataSource.query(
       `SELECT COUNT(*)::int AS count, COALESCE(SUM(total), 0) AS total,
               COALESCE(SUM(refund_paid), 0) AS refunded
        FROM sale_returns
-       WHERE tenant_id = $1 AND return_date::date = CURRENT_DATE${retBranch}`,
+       WHERE tenant_id = $1 AND return_date >= $2 AND return_date < $3${retBranch}`,
       retParams
     );
 
     const [expensesToday] = await this.dataSource.query(
       `SELECT COALESCE(SUM(amount), 0) AS total, COUNT(*)::int AS count
-       FROM expenses WHERE tenant_id = $1 AND expense_date::date = CURRENT_DATE${expBranch}`,
+       FROM expenses WHERE tenant_id = $1 AND expense_date >= $2 AND expense_date < $3${expBranch}`,
       expParams
     );
 
@@ -87,6 +91,8 @@ export class DashboardService {
     const suppliersAgg = await partyAgg('supplier');
 
     return {
+      date: today.date,
+      timezone: tz,
       salesToday: {
         invoicesCount: salesToday.invoicesCount,
         totalSales: Number(salesToday.totalSales),

@@ -543,6 +543,57 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect([200, 201]).toContain(closePending.status);
     });
 
+    it('returns the item to the same original product (stock available again at its cost)', async () => {
+      const stockOf = async () => {
+        const [row] = await dataSource.query(
+          `SELECT quantity, reserved_quantity AS reserved FROM inventory
+           WHERE tenant_id = $1 AND product_id = $2 AND warehouse_id = $3`,
+          [state.tenantAId, state.productId, state.warehouse1Id]
+        );
+        return { quantity: Number(row.quantity), reserved: Number(row.reserved) };
+      };
+      const sale = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+      });
+      expect([200, 201]).toContain(sale.status);
+      const before = await stockOf();
+      const returned = await tenantA.post(api(`/sales/${sale.body.data.id}/return`), {
+        items: [{ saleItemId: sale.body.data.items[0].id, quantity: 1 }],
+      });
+      expect(returned.status).toBe(201);
+      const pending = await stockOf();
+      // المرتجع بيدخل المخزن محجوز لحد الفحص
+      expect(pending.quantity).toBe(before.quantity + 1);
+      expect(pending.reserved).toBe(before.reserved + 1);
+
+      const returnItemId = returned.body.data.items[0].id;
+      const resolution = await tenantA.post(
+        api(`/sales/returns/${returned.body.data.id}/items/${returnItemId}/disposition`),
+        { disposition: 'original' }
+      );
+      expect(resolution.status).toBe(201);
+      expect(resolution.body.data.newProductId ?? null).toBeNull();
+      const after = await stockOf();
+      // رجع على نفس الصنف: الكمية فضلت في المخزن واتفك حجزها (متاحة للبيع تاني)
+      expect(after.quantity).toBe(pending.quantity);
+      expect(after.reserved).toBe(before.reserved);
+
+      const [item] = await dataSource.query(
+        `SELECT disposition, waste_expense AS waste FROM sale_return_items WHERE id = $1`,
+        [returnItemId]
+      );
+      expect(item.disposition).toBe('original');
+      expect(Number(item.waste)).toBeCloseTo(0, 2);
+
+      const twice = await tenantA.post(
+        api(`/sales/returns/${returned.body.data.id}/items/${returnItemId}/disposition`),
+        { disposition: 'original' }
+      );
+      expect(twice.status).toBe(400);
+    });
+
     it('keeps profit reporting consistent after returns', async () => {
       const today = new Date().toISOString().slice(0, 10);
       const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
@@ -1343,6 +1394,145 @@ describe('Blink ERP — integration flows (e2e)', () => {
     });
   });
 
+  // ------------------------------------------- invoice sharing & merchant alerts
+  describe('invoice sharing (wa.me) and merchant alert settings', () => {
+    it('prepares a sales invoice summary for WhatsApp with the customer number', async () => {
+      const response = await tenantA.get(api(`/sales/${state.saleId}/share`));
+      expect(response.status).toBe(200);
+      const info = response.body.data;
+      expect(info.kind).toBe('sale');
+      expect(info.path).toMatch(/^\/receipt\/[a-f0-9]{64}$/);
+      expect(info.party.type).toBe('customer');
+      expect(info.party.name).toBe('عميل نقدي آجل');
+      expect(info.party.whatsapp).toBe('201111111111');
+      expect(info.timezone).toBe('Africa/Cairo');
+      expect(info.items[0].quantity).toBe(4);
+      expect(info.totals.total).toBeCloseTo(600, 2);
+      expect(info.totals.returned).toBeCloseTo(150, 2);
+      expect(info.totals.remaining).toBeCloseTo(450, 2);
+
+      const receipt = await new TestClient(baseUrl).get(
+        api(`/receipts/${info.path.split('/')[2]}`)
+      );
+      expect(receipt.status).toBe(200);
+      expect(receipt.body.data.totals.returned).toBeCloseTo(150, 2);
+      expect(receipt.body.data.totals.remaining).toBeCloseTo(450, 2);
+      expect(receipt.body.data.timezone).toBe('Africa/Cairo');
+
+      const other = await tenantB.get(api(`/sales/${state.saleId}/share`));
+      expect(other.status).toBe(404);
+    });
+
+    it('creates a public purchase invoice link for the supplier (stable token)', async () => {
+      const first = await tenantA.post(api(`/purchases/${state.purchaseId}/share`));
+      expect([200, 201]).toContain(first.status);
+      const info = first.body.data;
+      expect(info.kind).toBe('purchase');
+      expect(info.path).toMatch(/^\/purchase-invoice\/[a-f0-9]{64}$/);
+      expect(info.supplierInvoiceNumber).toBe('SUP-1001');
+      expect(info.party.type).toBe('supplier');
+      expect(info.totals.total).toBeCloseTo(1000, 2);
+
+      const again = await tenantA.post(api(`/purchases/${state.purchaseId}/share`));
+      expect(again.body.data.path).toBe(info.path);
+
+      const anonymous = new TestClient(baseUrl);
+      const token = info.path.split('/')[2];
+      const pub = await anonymous.get(api(`/receipts/purchase/${token}`));
+      expect(pub.status).toBe(200);
+      expect(pub.body.data.kind).toBe('purchase');
+      expect(pub.body.data.supplierInvoiceNumber).toBe('SUP-1001');
+      expect(pub.body.data.items[0].quantity).toBe(10);
+      expect(pub.body.data.totals.total).toBeCloseTo(1000, 2);
+
+      // توكن فاتورة الشراء مايفتحش كإيصال بيع والعكس
+      expect((await anonymous.get(api(`/receipts/${token}`))).status).toBe(404);
+      expect((await anonymous.get(api(`/receipts/purchase/${'b'.repeat(64)}`))).status).toBe(404);
+      expect((await tenantB.post(api(`/purchases/${state.purchaseId}/share`))).status).toBe(404);
+    });
+
+    it('lets the merchant save WhatsApp/email contacts and alert toggles', async () => {
+      const initial = await tenantA.get(api('/notifications/settings'));
+      expect(initial.status).toBe(200);
+      expect(initial.body.data.types.map((t: any) => t.key)).toEqual([
+        'sales',
+        'purchases',
+        'returns',
+        'low_stock',
+        'transfers',
+        'balance_reminders',
+        'supplier_limit',
+      ]);
+      expect(initial.body.data.types.every((t: any) => t.enabled)).toBe(true);
+      expect(initial.body.data.channels.email).toHaveProperty('configured');
+      // مايتسربش إيميل/رقم إدارة النظام للتاجر
+      expect(initial.body.data.channels.email.recipient).toBeUndefined();
+
+      const saved = await tenantA.put(api('/notifications/settings'), {
+        alertWhatsapp: '01001234567',
+        alertEmail: 'Owner@Shop.COM',
+        alertEvents: { sales: false, low_stock: true, unknown_type: true },
+      });
+      expect(saved.status).toBe(200);
+      expect(saved.body.data.alertWhatsapp).toBe('+201001234567');
+      expect(saved.body.data.alertEmail).toBe('owner@shop.com');
+      const enabled = Object.fromEntries(saved.body.data.types.map((t: any) => [t.key, t.enabled]));
+      expect(enabled.sales).toBe(false);
+      expect(enabled.low_stock).toBe(true);
+      const [row] = await dataSource.query(
+        `SELECT alert_events AS events FROM tenants WHERE id = $1`,
+        [state.tenantAId]
+      );
+      expect(row.events).toEqual({ sales: false, low_stock: true });
+
+      const invalid = await tenantA.put(api('/notifications/settings'), { alertWhatsapp: '12' });
+      expect(invalid.status).toBe(400);
+      const badEmail = await tenantA.put(api('/notifications/settings'), { alertEmail: 'x@' });
+      expect(badEmail.status).toBe(400);
+
+      // تفريغ الحقول = إيقاف الإرسال عليها
+      const cleared = await tenantA.put(api('/notifications/settings'), {
+        alertWhatsapp: '',
+        alertEmail: '',
+        alertEvents: { sales: true },
+      });
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.data.alertWhatsapp).toBeNull();
+      expect(cleared.body.data.alertEmail).toBeNull();
+      const test = await tenantA.post(api('/notifications/test'));
+      expect(test.status).toBe(400);
+
+      // إعدادات كل تاجر منفصلة
+      const other = await tenantB.get(api('/notifications/settings'));
+      expect(other.body.data.alertEmail).toBeNull();
+    });
+
+    it("follows the merchant's timezone for the dashboard 'today'", async () => {
+      const localDate = (timeZone: string) =>
+        new Intl.DateTimeFormat('en-CA', { timeZone }).format(new Date());
+      const setTz = (timezone: string) =>
+        master.put(api(`/admin/tenants/${state.tenantAId}`), { timezone });
+      try {
+        for (const tz of ['Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+          const update = await setTz(tz);
+          expect(update.status).toBe(200);
+          const dashboard = await tenantA.get(api('/dashboard/summary'));
+          expect(dashboard.status).toBe(200);
+          expect(dashboard.body.data.timezone).toBe(tz);
+          expect(dashboard.body.data.date).toBe(localDate(tz));
+          // فواتير النهارده (لسه معمولة حالاً) بتتحسب في «اليوم» بتوقيت التاجر
+          expect(dashboard.body.data.salesToday.invoicesCount).toBeGreaterThan(0);
+        }
+        const me = await tenantA.get(api('/auth/me'));
+        expect(me.body.data.tenant.timezone).toBe('Pacific/Pago_Pago');
+        const invalid = await setTz('Mars/Olympus');
+        expect(invalid.status).toBe(400);
+      } finally {
+        await setTz('Africa/Cairo');
+      }
+    });
+  });
+
   // ------------------------------------------------------ features & webhooks
   describe('feature toggles, webhooks and data retention', () => {
     it('blocks the maintenance API when the feature is disabled and keeps the data', async () => {
@@ -1619,8 +1809,11 @@ describe('Blink ERP — integration flows (e2e)', () => {
     it('reports notification channel configuration status', async () => {
       const response = await tenantA.get(api('/notifications/status'));
       expect([200, 201]).toContain(response.status);
-      expect(response.body.data.whatsapp.recipient).toBe('+201024898091');
-      expect(response.body.data.email.recipient).toBe('blinkbusinessdevelopment@gmail.com');
+      expect(typeof response.body.data.whatsapp.configured).toBe('boolean');
+      expect(typeof response.body.data.email.configured).toBe('boolean');
+      // عناوين إدارة النظام مابتظهرش للتاجر — التاجر بيحط واتساب/إيميل حسابه في الإعدادات
+      expect(JSON.stringify(response.body)).not.toContain('+201024898091');
+      expect(JSON.stringify(response.body)).not.toContain('blinkbusinessdevelopment@gmail.com');
     });
   });
 });

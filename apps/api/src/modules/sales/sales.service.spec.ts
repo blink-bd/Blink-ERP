@@ -127,7 +127,13 @@ describe('SalesService - createReturn', () => {
         { provide: InventoryService, useValue: mockInventoryService },
         { provide: CustomersService, useValue: mockCustomersService },
         { provide: SuppliersService, useValue: {} },
-        { provide: NotificationsService, useValue: { sendOperationalAlert: jest.fn().mockResolvedValue(undefined) } },
+        {
+          provide: NotificationsService,
+          useValue: {
+            sendOperationalAlert: jest.fn().mockResolvedValue(undefined),
+            sendTenantAlert: jest.fn().mockResolvedValue(undefined),
+          },
+        },
         { provide: WebhooksService, useValue: { emit: jest.fn().mockResolvedValue(undefined) } },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: FeaturesService, useValue: mockFeaturesService },

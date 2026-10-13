@@ -7,6 +7,11 @@ import { ReceiptsService } from './receipts.service';
 export class ReceiptsController {
   constructor(private readonly receipts: ReceiptsService) {}
 
+  @Get('purchase/:token')
+  async getPurchase(@Param('token') token: string) {
+    return { success: true, data: await this.receipts.findPublicPurchase(token) };
+  }
+
   @Get(':token')
   async getReceipt(@Param('token') token: string) {
     return { success: true, data: await this.receipts.findPublicReceipt(token) };

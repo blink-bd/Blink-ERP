@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { Paperclip, RotateCcw, Search } from 'lucide-react';
+import { MessageCircle, Paperclip, RotateCcw, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,6 +9,8 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { SaleReturnDialog } from '@/components/SaleReturnDialog';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { usePermissions } from '@/lib/permissions';
+import { formatDateTime } from '@/lib/datetime';
+import { ShareInvoiceDialog, type ShareSource } from '@/components/ShareInvoiceDialog';
 
 interface Sale {
   id: string;
@@ -41,6 +43,7 @@ export function SalesPage() {
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [returnSaleId, setReturnSaleId] = useState<string | null>(null);
+  const [shareSource, setShareSource] = useState<ShareSource | null>(null);
   const isDesktop = useIsDesktop();
   const returnsEnabled = useFeature('returns');
   const dispositionEnabled = useFeature('return_disposition');
@@ -78,7 +81,7 @@ export function SalesPage() {
         <div>
           <h1 className="text-2xl font-bold">فواتير المبيعات</h1>
           <p className="mt-1 text-sm text-gray-500">
-            عرض الفواتير وإرفاق إثباتات الدفع والتحويلات البنكية.
+            عرض الفواتير وإرفاق إثباتات الدفع، وإرسال الفاتورة للعميل على الواتساب.
           </p>
         </div>
         <form className="flex gap-2" onSubmit={submitSearch}>
@@ -106,7 +109,7 @@ export function SalesPage() {
                 <div>
                   <div className="font-semibold">{sale.saleNumber}</div>
                   <div className="text-xs text-gray-500">
-                    {new Date(sale.saleDate).toLocaleString('ar-EG')}
+                    {formatDateTime(sale.saleDate)}
                   </div>
                 </div>
                 <div className="text-left">
@@ -124,7 +127,17 @@ export function SalesPage() {
               </div>
               <div className="mt-2 flex items-center justify-between gap-2">
                 <span className="text-xs text-gray-600">{statusLabel(sale)}</span>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {sale.status === 'completed' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-[#128C7E]"
+                      onClick={() => setShareSource({ kind: 'sale', id: sale.id })}
+                    >
+                      <MessageCircle className="ml-1 h-4 w-4" /> إرسال
+                    </Button>
+                  )}
                   {canReturnSale(sale) && (
                     <Button size="sm" variant="outline" onClick={() => setReturnSaleId(sale.id)}>
                       <RotateCcw className="ml-1 h-4 w-4" /> مرتجع
@@ -184,7 +197,7 @@ export function SalesPage() {
                   <tr className="border-t">
                     <td className="p-3 font-medium">{sale.saleNumber}</td>
                     <td className="p-3 text-gray-500">
-                      {new Date(sale.saleDate).toLocaleString('ar-EG')}
+                      {formatDateTime(sale.saleDate)}
                     </td>
                     <td className="p-3">{money(sale.total)}</td>
                     <td className="p-3">{money(sale.paidAmount)}</td>
@@ -197,6 +210,17 @@ export function SalesPage() {
                     <td className="p-3">{statusLabel(sale)}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap gap-2">
+                        {sale.status === 'completed' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-[#128C7E]"
+                            title="إرسال الفاتورة للعميل على الواتساب"
+                            onClick={() => setShareSource({ kind: 'sale', id: sale.id })}
+                          >
+                            <MessageCircle className="ml-1 h-4 w-4" /> إرسال واتساب
+                          </Button>
+                        )}
                         {canReturnSale(sale) && (
                           <Button
                             size="sm"
@@ -231,6 +255,8 @@ export function SalesPage() {
           </table>
         </div>
       )}
+
+      <ShareInvoiceDialog source={shareSource} onClose={() => setShareSource(null)} />
 
       <SaleReturnDialog
         saleId={returnSaleId}

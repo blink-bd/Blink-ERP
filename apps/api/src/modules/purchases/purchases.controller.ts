@@ -45,6 +45,13 @@ export class PurchasesController {
     return { success: true, data: await this.purchasesService.findById(req.tenantId, id) };
   }
 
+  /** رابط عام + ملخص الفاتورة + رقم المورد عشان تتبعت له على الواتساب. */
+  @Post(':id/share')
+  async share(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await this.purchasesService.assertInScope(req.tenantId, id, scopeOf(req));
+    return { success: true, data: await this.purchasesService.getShareInfo(req.tenantId, id) };
+  }
+
   @Post()
   @RequirePermission('purchases.create')
   async create(@Request() req, @Body() dto: CreatePurchaseDto) {

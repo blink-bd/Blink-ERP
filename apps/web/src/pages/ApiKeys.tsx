@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { FeatureLocked } from '@/components/ui/feature-locked';
+import { formatDateTime, formatDate, todayKey } from '@/lib/datetime';
 
 interface ApiKeyRow {
   id: string;
@@ -40,7 +41,7 @@ const PERMISSION_LABELS: Record<string, string> = {
 };
 
 const fmt = (v?: string | null) =>
-  v ? new Date(v).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  v ? formatDateTime(v, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 
 export function ApiKeysPage() {
   const enabled = useFeature('api_access');
@@ -182,7 +183,7 @@ export function ApiKeysPage() {
                     <span className="rounded bg-green-50 px-2 py-0.5 text-xs text-green-700">
                       نشط
                       {k.expiresAt
-                        ? ` حتى ${new Date(k.expiresAt).toLocaleDateString('ar-EG')}`
+                        ? ` حتى ${formatDate(k.expiresAt)}`
                         : ''}
                     </span>
                   ) : k.status === 'expired' ? (
@@ -229,7 +230,7 @@ export function ApiKeysPage() {
             <Input
               type="date"
               value={expiresAt}
-              min={new Date().toISOString().slice(0, 10)}
+              min={todayKey()}
               onChange={(e) => setExpiresAt(e.target.value)}
             />
           </div>

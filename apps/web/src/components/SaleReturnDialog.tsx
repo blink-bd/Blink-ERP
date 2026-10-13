@@ -106,7 +106,7 @@ export function SaleReturnDialog({
       cancelled = true;
     };
     // onClose متعمد مش في الـ deps عشان النافذة متتحملش تاني مع كل render للأب
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [saleId, defaultReason]);
 
   // تقدير قيمة المرتجع بنفس معادلة السيرفر (توزيع خصم الفاتورة + الضريبة).

@@ -1,4 +1,5 @@
 /** أسماء عربية لأحداث سجل التدقيق (audit_logs.action). أي حدث جديد بيظهر بالكود لو مش موجود هنا. */
+import { formatDateTime as formatTenantDateTime } from '@/lib/datetime';
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TENANT_LOGIN: 'تسجيل دخول',
   TENANT_LOGIN_FAILED: 'محاولة دخول فاشلة',
@@ -51,4 +52,4 @@ export const severityClass = (severity?: string) =>
       : 'bg-gray-100 text-gray-700';
 
 export const formatDateTime = (v?: string | null) =>
-  v ? new Date(v).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  v ? formatTenantDateTime(v, { dateStyle: 'medium', timeStyle: 'short' }) : '—';

@@ -10,6 +10,7 @@ import { FeaturesService } from '@/modules/features/features.service';
 import { WarehousesService } from '@/modules/inventory/warehouses.service';
 import { ExpenseCategory } from '@/modules/expenses/entities/expense-category.entity';
 import { CashRegister } from '@/modules/cash-register/entities/cash-register.entity';
+import { invalidateTenantTimezone } from '@/common/utils/tenant-time';
 
 const DEFAULT_PAYMENT_METHODS = [
   { name: 'Cash', nameAr: 'نقدي', code: 'cash', sortOrder: 1 },
@@ -130,7 +131,10 @@ export class TenantsService {
   async update(id: string, dto: UpdateTenantDto): Promise<Tenant> {
     const tenant = await this.findById(id);
     Object.assign(tenant, dto);
-    return this.tenantsRepository.save(tenant);
+    const saved = await this.tenantsRepository.save(tenant);
+    // توقيت التاجر بيتقري بكاش دقيقة؛ نفضيه فوراً لما المدير العام يغيّره.
+    invalidateTenantTimezone(id);
+    return saved;
   }
 
   async deactivate(id: string): Promise<void> {

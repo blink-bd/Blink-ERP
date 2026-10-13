@@ -3,11 +3,13 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import toast from 'react-hot-toast';
-import { Trash2, Plus, Minus, FilePlus2, FolderOpen, X } from 'lucide-react';
+import { Trash2, Plus, Minus, FilePlus2, FolderOpen, X, MessageCircle } from 'lucide-react';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { escapeHtml } from '@/lib/escape';
 import { useAuth } from '@/contexts/AuthContext';
 import { keepIfValid, useWorkingWarehouses, useWorkspace } from '@/contexts/WorkspaceContext';
+import { formatDateTime } from '@/lib/datetime';
+import { ShareInvoiceDialog, type ShareSource } from '@/components/ShareInvoiceDialog';
 
 type PriceTier = 'retail' | 'half_wholesale' | 'wholesale';
 
@@ -102,6 +104,8 @@ export function POSPage() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warehouseId, setWarehouseId] = useState(stored.warehouseId || '');
   const [loading, setLoading] = useState(false);
+  const [lastSale, setLastSale] = useState<{ id: string; number: string } | null>(null);
+  const [shareSource, setShareSource] = useState<ShareSource | null>(null);
   const [drafts, setDrafts] = useState<PosDraft[]>(stored.drafts || []);
   const [showDrafts, setShowDrafts] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -332,7 +336,7 @@ export function POSPage() {
           `<tr><td>${escapeHtml(item.productName)}</td><td>${escapeHtml(item.productSku || item.productBarcode || '-')}</td><td>${escapeHtml(item.quantity)}</td><td>${Number(item.total).toFixed(2)}</td></tr>`
       )
       .join('');
-    const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة ${escapeHtml(sale.saleNumber)}</title><style>@page{size:A5;margin:10mm}body{font-family:Arial,sans-serif;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:6px;text-align:right}th{background:#eee}.totals{margin-top:12px;font-size:14px}.totals div{display:flex;justify-content:space-between;padding:2px 0}.grand{font-weight:bold;font-size:16px;border-top:2px solid #333;margin-top:6px;padding-top:6px}</style></head><body><h2>فاتورة مبيعات رقم ${escapeHtml(sale.saleNumber)}</h2><p>التاريخ: ${new Date(sale.saleDate).toLocaleString('ar')}</p>${selectedCustomer ? `<p>العميل: ${escapeHtml(selectedCustomer.name)} ${selectedCustomer.phone ? `- ${escapeHtml(selectedCustomer.phone)}` : ''}</p>` : ''}<table><thead><tr><th>المنتج</th><th>الرمز</th><th>الكمية</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div><span>المجموع الفرعي</span><span>${Number(sale.subtotal).toFixed(2)}</span></div><div><span>الضريبة</span><span>${Number(sale.taxAmount).toFixed(2)}</span></div><div><span>الخصم</span><span>-${Number(sale.discountAmount).toFixed(2)}</span></div><div class="grand"><span>الإجمالي</span><span>${Number(sale.total).toFixed(2)}</span></div></div><script>window.print()</script></body></html>`;
+    const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة ${escapeHtml(sale.saleNumber)}</title><style>@page{size:A5;margin:10mm}body{font-family:Arial,sans-serif;font-size:13px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:6px;text-align:right}th{background:#eee}.totals{margin-top:12px;font-size:14px}.totals div{display:flex;justify-content:space-between;padding:2px 0}.grand{font-weight:bold;font-size:16px;border-top:2px solid #333;margin-top:6px;padding-top:6px}</style></head><body><h2>فاتورة مبيعات رقم ${escapeHtml(sale.saleNumber)}</h2><p>التاريخ: ${formatDateTime(sale.saleDate)}</p>${selectedCustomer ? `<p>العميل: ${escapeHtml(selectedCustomer.name)} ${selectedCustomer.phone ? `- ${escapeHtml(selectedCustomer.phone)}` : ''}</p>` : ''}<table><thead><tr><th>المنتج</th><th>الرمز</th><th>الكمية</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><div><span>المجموع الفرعي</span><span>${Number(sale.subtotal).toFixed(2)}</span></div><div><span>الضريبة</span><span>${Number(sale.taxAmount).toFixed(2)}</span></div><div><span>الخصم</span><span>-${Number(sale.discountAmount).toFixed(2)}</span></div><div class="grand"><span>الإجمالي</span><span>${Number(sale.total).toFixed(2)}</span></div></div><script>window.print()</script></body></html>`;
     const windowRef = window.open('', '_blank', 'width=400,height=600');
     windowRef?.document.write(html);
     windowRef?.document.close();
@@ -382,6 +386,7 @@ export function POSPage() {
       });
       toast.success(methodId ? 'تمت عملية البيع بنجاح' : 'تم تسجيل الفاتورة آجلة على العميل بنجاح');
       printReceipt(response.data.data);
+      setLastSale({ id: response.data.data.id, number: response.data.data.saleNumber });
       clearCurrent();
     } catch (error: any) {
       // الرسالة بتظهر من api. لو الرفض بسبب الصلاحيات/المخزن بنزامن فرع العمل
@@ -410,7 +415,26 @@ export function POSPage() {
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-3 lg:h-full">
+      <ShareInvoiceDialog source={shareSource} onClose={() => setShareSource(null)} />
       <div className="flex flex-col lg:col-span-2">
+        {lastSale && (
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm">
+            <span>آخر فاتورة: <strong>{lastSale.number}</strong></span>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-[#128C7E]"
+                onClick={() => setShareSource({ kind: 'sale', id: lastSale.id })}
+              >
+                <MessageCircle className="ml-1 h-4 w-4" /> إرسال للعميل واتساب
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setLastSale(null)} aria-label="إخفاء">
+                ✕
+              </Button>
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap gap-3 mb-4 items-center">
           <form onSubmit={handleSearch} className="flex-1 relative">
             <Input

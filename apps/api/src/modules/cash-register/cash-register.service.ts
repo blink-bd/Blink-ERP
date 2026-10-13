@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { CashRegister } from './entities/cash-register.entity';
 import { CashRegisterShift } from './entities/cash-register-shift.entity';
 import { CashTransaction } from './entities/cash-transaction.entity';
+import { tenantYear } from '@/common/utils/tenant-time';
 
 @Injectable()
 export class CashRegisterService {
@@ -51,7 +52,7 @@ export class CashRegisterService {
       if (register.isOpen)
         throw new BadRequestException('يوجد وردية مفتوحة بالفعل على هذا الكاشير');
 
-      const year = new Date().getFullYear();
+      const year = await tenantYear(manager, tenantId);
       const [counter] = await manager.query(
         `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
          VALUES ($1, 'shift', $2, 2)

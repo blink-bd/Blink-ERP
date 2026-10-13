@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
 import { Plus, X } from 'lucide-react';
+import { formatDateTime } from '@/lib/datetime';
 
 interface Expense { id: string; expenseNumber: string; amount: number; description: string; expenseDate: string }
 
@@ -109,7 +110,7 @@ export function ExpensesPage() {
               <tr key={e.id} className="border-t">
                 <td className="p-3">{e.expenseNumber}</td>
                 <td className="p-3">{e.description}</td>
-                <td className="p-3 text-gray-500">{new Date(e.expenseDate).toLocaleString('ar')}</td>
+                <td className="p-3 text-gray-500">{formatDateTime(e.expenseDate)}</td>
                 <td className="p-3 font-medium">{Number(e.amount).toFixed(2)}</td>
               </tr>
             ))}

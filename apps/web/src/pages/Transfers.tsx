@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
+import { formatDateTime } from '@/lib/datetime';
 
 interface Branch {
   id: string;
@@ -602,7 +603,7 @@ export function TransfersPage() {
                         {warehouseLabel(transfer.destinationWarehouse, transfer.destinationBranch)}
                       </p>
                       <p className="mt-1 text-xs text-gray-400">
-                        {new Date(transfer.createdAt).toLocaleString('ar-EG')}
+                        {formatDateTime(transfer.createdAt)}
                       </p>
                     </div>
                     {canApprove && (

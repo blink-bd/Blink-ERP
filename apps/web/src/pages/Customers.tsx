@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
 import { Plus, X, Pencil, Trash2, FileText } from 'lucide-react';
 import { SaleReturnDialog } from '@/components/SaleReturnDialog';
+import { formatDate } from '@/lib/datetime';
 
 interface Customer {
   id: string;
@@ -136,7 +137,7 @@ export function CustomersPage() {
 
   const exportPdf = () => {
     const rows = customers.map((c) => `<tr><td>${c.name}</td><td>${c.phone || '-'}</td><td>${Number(c.balance).toFixed(2)}</td></tr>`).join('');
-    const html = `<html dir="rtl"><head><meta charset="utf-8"><title>كشف العملاء</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f0f0f0}h1{font-size:20px}.total{font-size:16px;font-weight:bold;margin-top:12px}</style></head><body><h1>كشف حساب العملاء</h1><p>تاريخ الطباعة: ${new Date().toLocaleDateString('ar')}</p><table><thead><tr><th>الاسم</th><th>الهاتف</th><th>المبلغ المستحق</th></tr></thead><tbody>${rows}</tbody></table><p class="total">إجمالي المبلغ المستحق على كل العملاء: ${totalOwed.toFixed(2)}</p><script>window.print()</script></body></html>`;
+    const html = `<html dir="rtl"><head><meta charset="utf-8"><title>كشف العملاء</title><style>body{font-family:Arial,sans-serif;padding:20px}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #ccc;padding:8px;text-align:right}th{background:#f0f0f0}h1{font-size:20px}.total{font-size:16px;font-weight:bold;margin-top:12px}</style></head><body><h1>كشف حساب العملاء</h1><p>تاريخ الطباعة: ${formatDate(new Date())}</p><table><thead><tr><th>الاسم</th><th>الهاتف</th><th>المبلغ المستحق</th></tr></thead><tbody>${rows}</tbody></table><p class="total">إجمالي المبلغ المستحق على كل العملاء: ${totalOwed.toFixed(2)}</p><script>window.print()</script></body></html>`;
     const w = window.open('', '_blank');
     w?.document.write(html);
     w?.document.close();
@@ -205,7 +206,7 @@ export function CustomersPage() {
             <table className="w-full min-w-[640px] text-sm mb-4">
               <thead><tr className="border-b"><th className="text-right p-2">التاريخ</th><th className="text-right p-2">البيان</th><th className="text-right p-2">مدين</th><th className="text-right p-2">دائن</th><th className="text-right p-2">الرصيد</th><th className="p-2"></th></tr></thead>
               <tbody>{statement.entries.map((entry: any, i: number) => <tr key={i} className="border-b">
-                <td className="p-2">{new Date(entry.date).toLocaleDateString('ar')}</td><td className="p-2">{entry.description} {entry.referenceNumber}</td>
+                <td className="p-2">{formatDate(entry.date)}</td><td className="p-2">{entry.description} {entry.referenceNumber}</td>
                 <td className="p-2">{entry.debit ? Number(entry.debit).toFixed(2) : '-'}</td><td className="p-2">{entry.credit ? Number(entry.credit).toFixed(2) : '-'}</td><td className="p-2 font-medium">{Number(entry.balance).toFixed(2)}</td>
                 <td className="p-2">{entry.type === 'sale' && <Button size="sm" variant="outline" onClick={() => setReturnSaleId(entry.id)}>استرجاع</Button>}</td>
               </tr>)}</tbody>

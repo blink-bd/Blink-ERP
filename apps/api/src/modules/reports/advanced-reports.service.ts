@@ -2,19 +2,37 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AccessScope, UNRESTRICTED_SCOPE, sqlIn } from '@/common/utils/access-scope';
+import {
+  getTenantTimezone,
+  safeTimezone,
+  todayInTimezone,
+  toUtcSql,
+  zonedDayStartUtc,
+} from '@/common/utils/tenant-time';
 
 export interface DateRange {
   from: string; // inclusive (YYYY-MM-DD)
   to: string; // inclusive (YYYY-MM-DD)
   fromTs: string;
   toExclusiveTs: string;
+  /** توقيت التاجر اللي اتحسب بيه النطاق. */
+  tz?: string;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/** يحوّل startDate/endDate لنطاق [from, to+1day) عشان آخر يوم يتحسب كامل. */
-export function parseRange(startDate?: string, endDate?: string, maxDays = 731): DateRange {
-  const today = new Date().toISOString().slice(0, 10);
+/**
+ * يحوّل startDate/endDate لنطاق [from, to+1day) عشان آخر يوم يتحسب كامل.
+ * الأيام بتتحسب بتوقيت التاجر (tz) وتتحول لـ UTC زي أعمدة القاعدة.
+ */
+export function parseRange(
+  startDate?: string,
+  endDate?: string,
+  maxDays = 731,
+  tz: string = 'UTC'
+): DateRange {
+  const zone = safeTimezone(tz);
+  const today = todayInTimezone(zone);
   const to = endDate && DATE_RE.test(endDate) ? endDate : today;
   const defaultFrom = new Date(Date.parse(to) - 29 * 86400000).toISOString().slice(0, 10);
   const from = startDate && DATE_RE.test(startDate) ? startDate : defaultFrom;
@@ -29,8 +47,9 @@ export function parseRange(startDate?: string, endDate?: string, maxDays = 731):
   return {
     from,
     to,
-    fromTs: `${from} 00:00:00`,
-    toExclusiveTs: new Date(toMs + 86400000).toISOString().slice(0, 10) + ' 00:00:00',
+    fromTs: toUtcSql(zonedDayStartUtc(from, zone)),
+    toExclusiveTs: toUtcSql(zonedDayStartUtc(to, zone, 1)),
+    tz: zone,
   };
 }
 
@@ -45,6 +64,12 @@ const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
 @Injectable()
 export class AdvancedReportsService {
   constructor(@InjectDataSource() private readonly db: DataSource) {}
+
+  /** نطاق تاريخ التقرير بتوقيت التاجر. */
+  async range(tenantId: string, startDate?: string, endDate?: string, maxDays = 731) {
+    const tz = await getTenantTimezone(this.db, tenantId);
+    return parseRange(startDate, endDate, maxDays, tz);
+  }
 
   /** ربحية المنتجات: الكمية والإيراد والتكلفة والربح والهامش (صافي بعد المرتجعات). */
   async productProfitability(
@@ -376,12 +401,7 @@ export class AdvancedReportsService {
 
   /** خريطة المبيعات بالساعة وأيام الأسبوع (بتوقيت التاجر) لتنظيم الورديات. */
   async salesHeatmap(tenantId: string, range: DateRange, scope: AccessScope = UNRESTRICTED_SCOPE) {
-    const [tenant] = await this.db.query(`SELECT timezone FROM tenants WHERE id = $1`, [tenantId]);
-    let tz = tenant?.timezone || 'Africa/Cairo';
-    const [valid] = await this.db.query(`SELECT 1 AS ok FROM pg_timezone_names WHERE name = $1`, [
-      tz,
-    ]);
-    if (!valid) tz = 'UTC';
+    const tz = range.tz || (await getTenantTimezone(this.db, tenantId));
     const params: any[] = [tenantId, range.fromTs, range.toExclusiveTs, tz];
     const sScope =
       sqlIn('s.branch_id', scope.branchIds, params) +

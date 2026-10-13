@@ -1,6 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InjectDataSource } from '@nestjs/typeorm';
 import nodemailer, { Transporter } from 'nodemailer';
+import { DataSource } from 'typeorm';
+import { DEFAULT_TENANT_TIMEZONE, safeTimezone } from '@/common/utils/tenant-time';
 
 export interface OperationalAlert {
   event: string;
@@ -10,12 +13,244 @@ export interface OperationalAlert {
 
 type ChannelResult = 'sent' | 'skipped' | 'failed';
 
+/**
+ * أنواع تنبيهات التاجر اللي يقدر يفعّلها/يقفلها من «الإعدادات».
+ * التنبيهات بتوصل على واتساب وإيميل التاجر اللي حافظهم في الإعدادات.
+ */
+export const TENANT_ALERT_TYPES = [
+  { key: 'sales', label: 'فاتورة بيع جديدة', events: ['sale.created'] },
+  { key: 'purchases', label: 'فاتورة مشتريات جديدة', events: ['purchase.created'] },
+  { key: 'returns', label: 'مرتجع مبيعات جديد', events: ['sale.return.created'] },
+  { key: 'low_stock', label: 'نقص أو نفاد المخزون', events: ['inventory.low_stock'] },
+  {
+    key: 'transfers',
+    label: 'تحويلات المخزون بين الفروع',
+    events: [
+      'inventory.transfer.requested',
+      'inventory.transfer.approved',
+      'inventory.transfer.rejected',
+    ],
+  },
+  {
+    key: 'balance_reminders',
+    label: 'تذكير مديونيات العملاء والموردين',
+    events: ['balance.customer_overdue', 'balance.supplier_due'],
+  },
+  {
+    key: 'supplier_limit',
+    label: 'تجاوز حد مستحقات الموردين',
+    events: ['supplier.payables_limit_exceeded'],
+  },
+] as const;
+
+export type TenantAlertType = (typeof TENANT_ALERT_TYPES)[number]['key'];
+
+export function alertTypeForEvent(event: string): TenantAlertType | undefined {
+  return TENANT_ALERT_TYPES.find((type) => (type.events as readonly string[]).includes(event))?.key;
+}
+
+/** null/undefined = كل الأنواع مفعّلة (الافتراضي). */
+export function isTenantAlertEnabled(
+  alertEvents: Record<string, boolean> | null | undefined,
+  event: string
+): boolean {
+  const type = alertTypeForEvent(event);
+  if (!type) return true;
+  return alertEvents?.[type] !== false;
+}
+
+/** أسماء عربية لتفاصيل التنبيه اللي بتوصل للتاجر. */
+const DETAIL_LABELS: Record<string, string> = {
+  saleNumber: 'رقم الفاتورة',
+  purchaseNumber: 'رقم فاتورة الشراء',
+  returnNumber: 'رقم المرتجع',
+  transferNumber: 'رقم التحويل',
+  total: 'الإجمالي',
+  paidAmount: 'المدفوع',
+  paymentStatus: 'حالة الدفع',
+  itemCount: 'عدد الأصناف',
+  receiptUrl: 'رابط الإيصال',
+  status: 'الحالة',
+  productName: 'الصنف',
+  availableQuantity: 'الكمية المتاحة',
+  minimumQuantity: 'حد إعادة الطلب',
+  quantity: 'الكمية',
+  reason: 'السبب',
+  notes: 'ملاحظات',
+  sourceBranch: 'من فرع',
+  destinationBranch: 'إلى فرع',
+  sourceWarehouse: 'من مخزن',
+  destinationWarehouse: 'إلى مخزن',
+  items: 'الأصناف',
+};
+
+const VALUE_LABELS: Record<string, string> = {
+  paid: 'مدفوع',
+  partial: 'مدفوع جزئياً',
+  pending: 'آجل',
+  pending_inspection: 'بانتظار الفحص',
+  completed: 'مكتمل',
+  approved: 'معتمد',
+  rejected: 'مرفوض',
+};
+
+interface TenantAlertSettings {
+  businessName: string;
+  timezone: string;
+  alertEmail?: string | null;
+  alertWhatsapp?: string | null;
+  accountEmail?: string | null;
+  accountPhone?: string | null;
+  alertEvents?: Record<string, boolean> | null;
+}
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private mailTransport?: Transporter;
+  private readonly tenantCache = new Map<
+    string,
+    { value: TenantAlertSettings; expiresAt: number }
+  >();
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() @InjectDataSource() private readonly dataSource?: DataSource
+  ) {}
+
+  /** إعدادات تنبيهات التاجر (كاش 30 ثانية). */
+  async getTenantAlertSettings(tenantId: string): Promise<TenantAlertSettings | undefined> {
+    if (!this.dataSource) return undefined;
+    const cached = this.tenantCache.get(tenantId);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const [row] = await this.dataSource.query(
+      `SELECT COALESCE(business_name_ar, business_name) AS "businessName", timezone,
+              alert_email AS "alertEmail", alert_whatsapp AS "alertWhatsapp",
+              email AS "accountEmail", phone AS "accountPhone", alert_events AS "alertEvents"
+       FROM tenants WHERE id = $1`,
+      [tenantId]
+    );
+    if (!row) return undefined;
+    const value: TenantAlertSettings = { ...row, timezone: safeTimezone(row.timezone) };
+    this.tenantCache.set(tenantId, { value, expiresAt: Date.now() + 30_000 });
+    return value;
+  }
+
+  invalidateTenant(tenantId: string) {
+    this.tenantCache.delete(tenantId);
+  }
+
+  /**
+   * تنبيه خاص بحساب تاجر: بيوصل لإدارة النظام (زي الأول) ولواتساب/إيميل التاجر اللي
+   * حافظهم في الإعدادات — لو نوع التنبيه ده مفعّل عنده. كل طرف بيستلم رسالته لوحده.
+   */
+  async sendTenantAlert(
+    tenantId: string,
+    alert: OperationalAlert,
+    options: { fallbackToAccountContacts?: boolean } = {}
+  ): Promise<{ email: ChannelResult; whatsapp: ChannelResult }> {
+    let settings: TenantAlertSettings | undefined;
+    try {
+      settings = await this.getTenantAlertSettings(tenantId);
+    } catch (error) {
+      this.logger.warn(`Could not load tenant alert settings: ${this.safeError(error)}`);
+    }
+    const operatorAlert: OperationalAlert = {
+      ...alert,
+      details: { التاجر: settings?.businessName || tenantId, ...alert.details, tenantId },
+    };
+    const operator = this.sendOperationalAlert(operatorAlert, undefined, {
+      timezone: settings?.timezone,
+    });
+    if (!settings || !isTenantAlertEnabled(settings.alertEvents, alert.event)) return operator;
+
+    const email =
+      settings.alertEmail ||
+      (options.fallbackToAccountContacts ? settings.accountEmail : undefined) ||
+      undefined;
+    const whatsapp =
+      settings.alertWhatsapp ||
+      (options.fallbackToAccountContacts ? settings.accountPhone : undefined) ||
+      undefined;
+    if (!email && !whatsapp) return operator;
+
+    const merchantMessage = this.formatMessage(
+      { ...alert, details: this.friendlyDetails(alert.details) },
+      settings.timezone,
+      settings.businessName
+    );
+    const [operatorResult, merchantEmail, merchantWhatsapp] = await Promise.all([
+      operator,
+      email ? this.sendEmail(alert.title, merchantMessage, [email]) : 'skipped',
+      whatsapp ? this.sendWhatsApp(merchantMessage, [whatsapp]) : 'skipped',
+    ]);
+    return {
+      email: this.combine(operatorResult.email, merchantEmail as ChannelResult),
+      whatsapp: this.combine(operatorResult.whatsapp, merchantWhatsapp as ChannelResult),
+    };
+  }
+
+  /** رسالة تجريبية لواتساب/إيميل التاجر بس (من صفحة الإعدادات). */
+  async sendTenantTest(
+    tenantId: string,
+    recipients: { email?: string | null; whatsapp?: string | null },
+    userEmail?: string
+  ): Promise<{ email: ChannelResult; whatsapp: ChannelResult }> {
+    const settings = await this.getTenantAlertSettings(tenantId);
+    const message = this.formatMessage(
+      {
+        event: 'system.test',
+        title: 'رسالة تجريبية لتنبيهات حسابك',
+        details: {
+          المستخدم: userEmail || '-',
+          الرسالة: 'التنبيهات المفعّلة في الإعدادات هتوصلك على هذا الرقم/الإيميل.',
+        },
+      },
+      settings?.timezone,
+      settings?.businessName
+    );
+    const [email, whatsapp] = await Promise.all([
+      recipients.email
+        ? this.sendEmail('رسالة تجريبية لتنبيهات حسابك', message, [recipients.email])
+        : ('skipped' as ChannelResult),
+      recipients.whatsapp
+        ? this.sendWhatsApp(message, [recipients.whatsapp])
+        : ('skipped' as ChannelResult),
+    ]);
+    return { email, whatsapp };
+  }
+
+  private combine(a: ChannelResult, b: ChannelResult): ChannelResult {
+    if (a === 'sent' || b === 'sent') return 'sent';
+    if (a === 'failed' || b === 'failed') return 'failed';
+    return 'skipped';
+  }
+
+  private friendlyDetails(details: Record<string, unknown>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(details)) {
+      if (key === 'tenantId' || /Id$/.test(key) || key === 'id') continue;
+      const label = (DETAIL_LABELS[key] || key).replace(/_/g, ' ');
+      if (value === undefined || value === null || value === '') continue;
+      if (Array.isArray(value)) {
+        out[label] = value
+          .map((entry: any) =>
+            entry && typeof entry === 'object'
+              ? [
+                  entry.productName || entry.name,
+                  entry.quantity != null ? `× ${entry.quantity}` : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')
+              : String(entry)
+          )
+          .join('، ');
+        continue;
+      }
+      out[label] = typeof value === 'string' && VALUE_LABELS[value] ? VALUE_LABELS[value] : value;
+    }
+    return out;
+  }
 
   getStatus() {
     const email = this.isEmailConfigured();
@@ -36,30 +271,31 @@ export class NotificationsService {
 
   async sendOperationalAlert(
     alert: OperationalAlert,
-    recipients?: { email?: string; whatsapp?: string }
+    recipients?: { email?: string; whatsapp?: string },
+    options: { timezone?: string } = {}
   ): Promise<{ email: ChannelResult; whatsapp: ChannelResult }> {
-    const message = this.formatMessage(alert);
-    const emailRecipients = Array.from(
-      new Set(
-        [
-          this.config.get<string>('NOTIFICATION_EMAIL_TO') || 'blinkbusinessdevelopment@gmail.com',
-          recipients?.email,
-        ]
-          .map((value) => value?.trim())
-          .filter((value): value is string => Boolean(value))
-      )
-    );
+    const message = this.formatMessage(alert, options.timezone);
+    const operatorEmail = (
+      this.config.get<string>('NOTIFICATION_EMAIL_TO') || 'blinkbusinessdevelopment@gmail.com'
+    ).trim();
+    const operatorWhatsapp = (this.config.get<string>('WHATSAPP_TO') || '+201024898091').trim();
+    const extraEmail = recipients?.email?.trim();
+    const extraWhatsapp = recipients?.whatsapp?.trim();
+    // كل مستلم بياخد رسالته لوحده — التاجر ما يشوفش عناوين إدارة النظام والعكس.
+    const emailGroups = [
+      [operatorEmail],
+      extraEmail && extraEmail !== operatorEmail ? [extraEmail] : [],
+    ].filter((group) => group.length && group.every(Boolean)) as string[][];
     const whatsappRecipients = Array.from(
-      new Set(
-        [this.config.get<string>('WHATSAPP_TO') || '+201024898091', recipients?.whatsapp]
-          .map((value) => value?.trim())
-          .filter((value): value is string => Boolean(value))
-      )
+      new Set([operatorWhatsapp, extraWhatsapp].filter((value): value is string => Boolean(value)))
     );
-    const [email, whatsapp] = await Promise.all([
-      this.sendEmail(alert.title, message, emailRecipients),
+    const [emailResults, whatsapp] = await Promise.all([
+      Promise.all(emailGroups.map((group) => this.sendEmail(alert.title, message, group))),
       this.sendWhatsApp(message, whatsappRecipients),
     ]);
+    const email = emailResults.length
+      ? emailResults.reduce((acc, result) => this.combine(acc, result), 'skipped' as ChannelResult)
+      : 'skipped';
     return { email, whatsapp };
   }
 
@@ -91,14 +327,20 @@ export class NotificationsService {
     );
   }
 
-  private formatMessage(alert: OperationalAlert): string {
+  private formatMessage(alert: OperationalAlert, timezone?: string, businessName?: string): string {
     const details = Object.entries(alert.details)
       .map(([key, value]) => {
         const printable = typeof value === 'string' ? value : JSON.stringify(value);
         return `${key}: ${printable ?? '-'}`;
       })
       .join('\n');
-    const message = `Blink ERP\n${alert.title}\nالحدث: ${alert.event}\n${details}\nالوقت: ${new Date().toLocaleString('ar-EG', { timeZone: 'Africa/Cairo' })}`;
+    const header = businessName ? `Blink ERP — ${businessName}` : 'Blink ERP';
+    const time = new Date().toLocaleString('ar-EG', {
+      timeZone: safeTimezone(timezone || DEFAULT_TENANT_TIMEZONE),
+    });
+    // رسالة التاجر (businessName) من غير اسم الحدث التقني.
+    const eventLine = businessName ? '' : `الحدث: ${alert.event}\n`;
+    const message = `${header}\n${alert.title}\n${eventLine}${details}\nالوقت: ${time}`;
     return message.length > 3500 ? `${message.slice(0, 3480)}\n… تم اختصار التفاصيل` : message;
   }
 

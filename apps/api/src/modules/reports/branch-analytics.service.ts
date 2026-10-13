@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { normalizeInclusiveDateRange } from '@/common/utils/date-range';
+import { getTenantTimezone } from '@/common/utils/tenant-time';
 
 interface BranchOptions {
   branchIds?: string[];
@@ -16,7 +17,9 @@ export class BranchAnalyticsService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   async report(tenantId: string, options: BranchOptions = {}) {
-    const range = normalizeInclusiveDateRange(options.startDate, options.endDate);
+    // الأيام بتوقيت التاجر (اللي المدير العام محدده).
+    const tz = await getTenantTimezone(this.dataSource, tenantId);
+    const range = normalizeInclusiveDateRange(options.startDate, options.endDate, tz);
     const branches = await this.dataSource.query(
       `SELECT id, name, code, is_main AS "isMain"
        FROM branches
@@ -37,7 +40,7 @@ export class BranchAnalyticsService {
     const branchIds = branches.map((branch: any) => branch.id);
     if (!branchIds.length)
       return {
-        period: this.period({ ...options, ...range }),
+        period: this.period(options),
         summary: this.emptySummary(),
         branches: [],
         details: this.emptyDetails(),
@@ -213,7 +216,13 @@ export class BranchAnalyticsService {
       return total;
     }, this.emptySummary());
 
-    return { period: { startDate, endDate }, summary, branches: byBranch, details };
+    return {
+      period: this.period(options),
+      timezone: tz,
+      summary,
+      branches: byBranch,
+      details,
+    };
   }
 
   private async loadDetails(
