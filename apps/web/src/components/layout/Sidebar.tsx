@@ -40,7 +40,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { to: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard },
+  { to: '/dashboard', labelKey: 'dashboard', icon: LayoutDashboard, feature: 'dashboard' },
   { to: '/workspace', labelKey: 'workspace', icon: MapPin, requiresWorkspaceChoice: true },
   { to: '/pos', labelKey: 'pos', icon: ShoppingCart, feature: 'pos' },
   { to: '/sales', labelKey: 'sales', icon: FileText, feature: 'sales' },
@@ -57,7 +57,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/reports', labelKey: 'reports', icon: BarChart3, feature: 'reports' },
   { to: '/branch-reports', labelKey: 'branchReports', icon: Building2, feature: 'branch_analytics' },
   { to: '/balance-reminders', labelKey: 'balanceReminders', icon: BellRing, feature: 'balance_reminders' },
-  { to: '/users', labelKey: 'users', icon: UserCog, permission: ['users.view', 'roles.manage'] },
+  { to: '/users', labelKey: 'users', icon: UserCog, feature: 'users', permission: ['users.view', 'roles.manage'] },
   {
     to: '/data',
     labelKey: 'dataTransfer',
@@ -72,7 +72,7 @@ const NAV_ITEMS: NavItem[] = [
     feature: 'api_access',
     permission: ['api_keys.manage'],
   },
-  { to: '/settings', labelKey: 'settings', icon: Settings },
+  { to: '/settings', labelKey: 'settings', icon: Settings, feature: 'settings' },
 ];
 
 function NavItemLink({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {

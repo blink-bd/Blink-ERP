@@ -30,7 +30,7 @@ export interface FeatureDefinition {
 }
 
 export const FEATURE_CATALOG: FeatureDefinition[] = [
-  // ---------- أساسية (إجبارية) ----------
+  // ---------- أساسية (مفتوحة افتراضياً — المدير العام يقدر يقفلها) ----------
   {
     code: 'dashboard',
     name: 'Dashboard',

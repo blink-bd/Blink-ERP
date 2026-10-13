@@ -6,13 +6,16 @@ import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { PermissionGuard } from '@/common/guards/permission.guard';
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { FeaturesService } from '@/modules/features/features.service';
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { DashboardService } from './dashboard.service';
 
 @ApiTags('dashboard')
 @ApiBearerAuth()
 @RequirePermission('dashboard.view')
+@RequireFeature('dashboard')
 @Controller({ path: 'dashboard', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class DashboardController {
   constructor(
     private readonly dashboardService: DashboardService,
