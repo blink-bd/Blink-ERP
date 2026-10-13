@@ -1,6 +1,8 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { BadgeDollarSign, Plus, RefreshCw, Wrench, X } from 'lucide-react';
+import { BadgeDollarSign, MessageCircle, Plus, RefreshCw, Wrench, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
+import { ShareMaintenanceDialog } from '@/components/ShareMaintenanceDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,6 +65,8 @@ const money = (value: unknown) =>
   `${Number(value || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
 
 export function MaintenancePage() {
+  const shareEnabled = useFeature('maintenance.share');
+  const [shareInvoiceId, setShareInvoiceId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const { workspace, loading: workspaceLoading } = useWorkspace();
   // احتياطي لو بيانات فرع العمل ماتحمّلتش.
@@ -421,19 +425,20 @@ export function MaintenancePage() {
                 <th className="p-3 text-right">إيراد الخدمة</th>
                 <th className="p-3 text-right">تكلفة القطع</th>
                 <th className="p-3 text-right">الربح</th>
+                {shareEnabled && <th className="p-3 text-right">إرسال</th>}
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-400">
+                  <td colSpan={shareEnabled ? 7 : 6} className="p-8 text-center text-gray-400">
                     جاري تحميل الفواتير...
                   </td>
                 </tr>
               )}
               {!loading && invoices.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-400">
+                  <td colSpan={shareEnabled ? 7 : 6} className="p-8 text-center text-gray-400">
                     لا توجد فواتير صيانة في الفترة المحددة.
                   </td>
                 </tr>
@@ -474,10 +479,29 @@ export function MaintenancePage() {
                     >
                       {money(invoice.profit)}
                     </td>
+                    {shareEnabled && (
+                      <td className="p-3">
+                        {invoice.source === 'manual' ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            title="إرسال الفاتورة للعميل على الواتساب"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setShareInvoiceId(invoice.id);
+                            }}
+                          >
+                            <MessageCircle className="ml-1 h-4 w-4" /> واتساب
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-400">صيانة داخلية</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                   {expandedInvoice === invoice.id && (
                     <tr className="border-t bg-gray-50">
-                      <td colSpan={6} className="space-y-2 p-4">
+                      <td colSpan={shareEnabled ? 7 : 6} className="space-y-2 p-4">
                         <div>
                           <strong>وصف الصيانة:</strong> {invoice.maintenanceDescription}
                         </div>
@@ -506,6 +530,11 @@ export function MaintenancePage() {
           </table>
         </div>
       </section>
+
+      <ShareMaintenanceDialog
+        invoiceId={shareInvoiceId}
+        onClose={() => setShareInvoiceId(null)}
+      />
     </div>
   );
 }

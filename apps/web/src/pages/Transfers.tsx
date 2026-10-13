@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRightLeft, Check, Link2, RefreshCw, Unlink, X } from 'lucide-react';
+import { ArrowRightLeft, Check, RefreshCw, X } from 'lucide-react';
 import { defaultWorkingWarehouseId, useWorkspace } from '@/contexts/WorkspaceContext';
 import { api } from '@/lib/api';
 import { useFeature } from '@/contexts/FeaturesContext';
@@ -60,7 +60,7 @@ const statusLabel: Record<Transfer['status'], string> = {
 export function TransfersPage() {
   const { user } = useAuth();
   const transfersEnabled = useFeature('inventory.transfers');
-  const { workspace, loading: workspaceLoading, reload: reloadWorkspace } = useWorkspace();
+  const { workspace, loading: workspaceLoading } = useWorkspace();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -74,13 +74,6 @@ export function TransfersPage() {
   const [filter, setFilter] = useState<'all' | Transfer['status']>('all');
   const [rejecting, setRejecting] = useState<Transfer | null>(null);
   const [rejectReason, setRejectReason] = useState('');
-  const [newBranchName, setNewBranchName] = useState('');
-  const [newBranchCode, setNewBranchCode] = useState('');
-  const [newWarehouseName, setNewWarehouseName] = useState('');
-  const [newWarehouseBranch, setNewWarehouseBranch] = useState('');
-  const [linkWarehouseId, setLinkWarehouseId] = useState('');
-  const [assignBranchId, setAssignBranchId] = useState('');
-  const [settingUp, setSettingUp] = useState(false);
 
   const workspaceBranches = workspace?.branches;
   const preferredSourceId = defaultWorkingWarehouseId(workspace);
@@ -115,25 +108,6 @@ export function TransfersPage() {
       );
       setBranches(activeBranches);
       setWarehouses(activeWarehouses);
-      setNewWarehouseBranch((previous) =>
-        activeBranches.some((branch: Branch) => branch.id === previous)
-          ? previous
-          : activeBranches[0]?.id || ''
-      );
-      // الافتراضي في «ربط فرع بمخزن» = أول فرع مالوش مخزن (ده غالباً اللي محتاج ربط).
-      const branchWithoutWarehouse = activeBranches.find(
-        (branch: Branch) =>
-          !activeWarehouses.some(
-            (warehouse: Warehouse) =>
-              warehouse.branchId === branch.id ||
-              (warehouse.sharedBranchIds || []).includes(branch.id)
-          )
-      );
-      setAssignBranchId((previous) =>
-        activeBranches.some((branch: Branch) => branch.id === previous)
-          ? previous
-          : branchWithoutWarehouse?.id || activeBranches[0]?.id || ''
-      );
       setProducts(
         (productResponse.data.data || []).filter((product: Product) => product.trackInventory)
       );
@@ -190,41 +164,6 @@ export function TransfersPage() {
       warehouses.filter((warehouse) => warehouse.branchId && branchById.has(warehouse.branchId)),
     [warehouses, branchById]
   );
-  // المخازن اللي ينفع تتربط بالفرع المختار: أي مخزن مش مستخدم فيه بالفعل — حتى لو تابع
-  // لفرع تاني (يبقى مخزن مشترك بين الفرعين).
-  const linkCandidates = useMemo(
-    () =>
-      assignBranchId
-        ? warehouses.filter(
-            (warehouse) =>
-              warehouse.branchId !== assignBranchId &&
-              !(warehouse.sharedBranchIds || []).includes(assignBranchId)
-          )
-        : [],
-    [warehouses, assignBranchId]
-  );
-  useEffect(() => {
-    setLinkWarehouseId((previous) =>
-      linkCandidates.some((warehouse) => warehouse.id === previous)
-        ? previous
-        : linkCandidates[0]?.id || ''
-    );
-  }, [linkCandidates]);
-  // مخازن كل فرع: بتاعته + المشتركة معاه.
-  const branchLinks = useMemo(
-    () =>
-      branches.map((branch) => ({
-        branch,
-        own: warehouses.filter((warehouse) => warehouse.branchId === branch.id),
-        shared: warehouses.filter(
-          (warehouse) =>
-            !!warehouse.branchId &&
-            warehouse.branchId !== branch.id &&
-            (warehouse.sharedBranchIds || []).includes(branch.id)
-        ),
-      })),
-    [branches, warehouses]
-  );
   const visibleTransfers = useMemo(
     () =>
       filter === 'all' ? transfers : transfers.filter((transfer) => transfer.status === filter),
@@ -238,98 +177,6 @@ export function TransfersPage() {
     );
   const removeItem = (index: number) =>
     setItems((previous) => previous.filter((_, itemIndex) => itemIndex !== index));
-
-  const createBranch = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!newBranchName.trim()) return;
-    setSettingUp(true);
-    try {
-      const response = await api.post('/branches', {
-        name: newBranchName.trim(),
-        code: newBranchCode.trim() || undefined,
-      });
-      const branchId = response.data.data.id;
-      setNewBranchName('');
-      setNewBranchCode('');
-      setNewWarehouseBranch(branchId);
-      setAssignBranchId(branchId);
-      toast.success('تم إنشاء الفرع. اربط به مخزناً أو أنشئ مخزناً جديداً.');
-      // صفحة «فرع العمل» في القائمة بتظهر أول ما يبقى فيه أكتر من فرع/مخزن
-      await Promise.all([load(), reloadWorkspace()]);
-    } catch {
-      // يعرض عميل API رسالة الخطأ.
-    } finally {
-      setSettingUp(false);
-    }
-  };
-
-  const createWarehouse = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!newWarehouseBranch || !newWarehouseName.trim()) {
-      toast.error('اختر الفرع واكتب اسم المخزن');
-      return;
-    }
-    setSettingUp(true);
-    try {
-      await api.post('/warehouses', {
-        branchId: newWarehouseBranch,
-        name: newWarehouseName.trim(),
-      });
-      setNewWarehouseName('');
-      toast.success('تم إنشاء المخزن وربطه بالفرع');
-      // صفحة «فرع العمل» في القائمة بتظهر أول ما يبقى فيه أكتر من فرع/مخزن
-      await Promise.all([load(), reloadWorkspace()]);
-    } catch {
-      // يعرض عميل API رسالة الخطأ.
-    } finally {
-      setSettingUp(false);
-    }
-  };
-
-  const linkWarehouse = async (event: FormEvent) => {
-    event.preventDefault();
-    const warehouse = warehouses.find((item) => item.id === linkWarehouseId);
-    if (!warehouse || !assignBranchId) {
-      toast.error('اختر الفرع والمخزن');
-      return;
-    }
-    setSettingUp(true);
-    try {
-      if (warehouse.branchId) {
-        // مخزن تابع لفرع تاني: الفرعين هيستخدموه مع بعض.
-        await api.post(`/warehouses/${warehouse.id}/branches`, { branchId: assignBranchId });
-        toast.success('تم ربط الفرع بالمخزن — الفرعين بيستخدموا نفس المخزن دلوقتي');
-      } else {
-        await api.put(`/warehouses/${warehouse.id}`, { branchId: assignBranchId });
-        toast.success('تم ربط المخزن بالفرع');
-      }
-      // صفحة «فرع العمل» في القائمة بتظهر أول ما يبقى فيه أكتر من فرع/مخزن
-      await Promise.all([load(), reloadWorkspace()]);
-    } catch {
-      // يعرض عميل API رسالة الخطأ.
-    } finally {
-      setSettingUp(false);
-    }
-  };
-
-  const unlinkWarehouse = async (warehouse: Warehouse, branch: Branch) => {
-    if (
-      !window.confirm(
-        `فك ربط «${warehouse.name}» من «${branch.name}»؟ الفرع ده مش هيقدر يبيع أو يشتري من المخزن ده بعد كده.`
-      )
-    )
-      return;
-    setSettingUp(true);
-    try {
-      await api.delete(`/warehouses/${warehouse.id}/branches/${branch.id}`);
-      toast.success('تم فك ربط الفرع من المخزن');
-      await Promise.all([load(), reloadWorkspace()]);
-    } catch {
-      // يعرض عميل API رسالة الخطأ.
-    } finally {
-      setSettingUp(false);
-    }
-  };
 
   const createTransfer = async (event: FormEvent) => {
     event.preventDefault();
@@ -408,193 +255,9 @@ export function TransfersPage() {
         </Button>
       </div>
 
-      <section className="rounded-xl bg-white p-5 shadow-sm">
-        <h2 className="mb-1 text-lg font-bold">إعداد الفروع والمخازن</h2>
-        <p className="mb-4 text-sm text-gray-500">
-          كل فرع محتاج مخزن يبيع منه. تقدر تنشئ مخزن جديد للفرع، أو تربط الفرع بمخزن موجود — حتى لو
-          تابع لفرع تاني — فالفرعين يبيعوا من نفس المخزون.
-        </p>
-        <div className="grid gap-5 lg:grid-cols-3">
-          <form onSubmit={createBranch} className="space-y-3 rounded-lg border p-4">
-            <h3 className="font-semibold">إنشاء فرع</h3>
-            <div>
-              <Label>اسم الفرع</Label>
-              <Input
-                value={newBranchName}
-                onChange={(event) => setNewBranchName(event.target.value)}
-                required
-                maxLength={255}
-              />
-            </div>
-            <div>
-              <Label>رمز الفرع (اختياري)</Label>
-              <Input
-                value={newBranchCode}
-                onChange={(event) => setNewBranchCode(event.target.value)}
-                maxLength={50}
-              />
-            </div>
-            <Button type="submit" variant="outline" disabled={settingUp}>
-              {settingUp ? 'جاري الحفظ…' : 'إضافة فرع'}
-            </Button>
-          </form>
-
-          <form onSubmit={createWarehouse} className="space-y-3 rounded-lg border p-4">
-            <h3 className="font-semibold">إنشاء مخزن لفرع</h3>
-            <div>
-              <Label>الفرع</Label>
-              <select
-                className="mt-1 h-10 w-full rounded-md border px-3"
-                value={newWarehouseBranch}
-                onChange={(event) => setNewWarehouseBranch(event.target.value)}
-                disabled={!branches.length}
-              >
-                <option value="">{branches.length ? 'اختر الفرع' : 'أنشئ فرعاً أولاً'}</option>
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>اسم المخزن</Label>
-              <Input
-                value={newWarehouseName}
-                onChange={(event) => setNewWarehouseName(event.target.value)}
-                required
-                maxLength={255}
-              />
-            </div>
-            <Button type="submit" variant="outline" disabled={settingUp || !branches.length}>
-              {settingUp ? 'جاري الحفظ…' : 'إضافة مخزن'}
-            </Button>
-          </form>
-
-          <form onSubmit={linkWarehouse} className="space-y-3 rounded-lg border p-4">
-            <h3 className="font-semibold">ربط فرع بمخزن موجود</h3>
-            <div>
-              <Label>الفرع</Label>
-              <select
-                className="mt-1 h-10 w-full rounded-md border px-3"
-                value={assignBranchId}
-                onChange={(event) => setAssignBranchId(event.target.value)}
-                disabled={!branches.length}
-              >
-                <option value="">{branches.length ? 'اختر الفرع' : 'أنشئ فرعاً أولاً'}</option>
-                {branches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <Label>المخزن</Label>
-              <select
-                className="mt-1 h-10 w-full rounded-md border px-3"
-                value={linkWarehouseId}
-                onChange={(event) => setLinkWarehouseId(event.target.value)}
-                disabled={!linkCandidates.length}
-              >
-                {!linkCandidates.length && (
-                  <option value="">
-                    {assignBranchId ? 'كل المخازن مربوطة بالفرع ده' : 'اختر الفرع الأول'}
-                  </option>
-                )}
-                {linkCandidates.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.name}
-                    {warehouse.branchId
-                      ? ` — تابع لـ ${branchById.get(warehouse.branchId)?.name || 'فرع تاني'}`
-                      : ' — غير مرتبط بفرع'}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-gray-500">
-                لو اخترت مخزن تابع لفرع تاني هيبقى مشترك: الفرعين يبيعوا من نفس الرصيد، وكل فاتورة
-                تتسجل على الفرع اللي اتعملت فيه.
-              </p>
-            </div>
-            <Button
-              type="submit"
-              variant="outline"
-              disabled={settingUp || !assignBranchId || !linkWarehouseId}
-            >
-              <Link2 className="ml-2 h-4 w-4" /> ربط
-            </Button>
-          </form>
-        </div>
-
-        {branchLinks.length > 0 && (
-          <div className="mt-5">
-            <h3 className="mb-2 font-semibold">الفروع ومخازنها</h3>
-            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-              {branchLinks.map(({ branch, own, shared }) => (
-                <div key={branch.id} className="rounded-lg border p-3" data-testid="branch-links">
-                  <p className="mb-2 font-medium">{branch.name}</p>
-                  {own.length + shared.length === 0 ? (
-                    <p className="text-sm text-red-600">
-                      مالوش مخزن — مش هيقدر يبيع أو يشتري. اربطه بمخزن من فوق.
-                    </p>
-                  ) : (
-                    <ul className="space-y-1.5 text-sm">
-                      {own.map((warehouse) => (
-                        <li
-                          key={warehouse.id}
-                          className="flex items-center justify-between rounded bg-gray-50 px-2 py-1.5"
-                        >
-                          <span>
-                            {warehouse.name}
-                            {(warehouse.sharedBranchIds || []).length > 0 && (
-                              <span className="ms-2 text-xs text-indigo-600">
-                                (مشترك مع{' '}
-                                {(warehouse.sharedBranchIds || [])
-                                  .map((id) => branchById.get(id)?.name)
-                                  .filter(Boolean)
-                                  .join('، ') || 'فروع تانية'}
-                                )
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-xs text-gray-400">أساسي</span>
-                        </li>
-                      ))}
-                      {shared.map((warehouse) => (
-                        <li
-                          key={warehouse.id}
-                          className="flex items-center justify-between gap-2 rounded bg-indigo-50 px-2 py-1.5"
-                        >
-                          <span>
-                            {warehouse.name}
-                            <span className="ms-2 text-xs text-indigo-600">
-                              مشترك من{' '}
-                              {branchById.get(warehouse.branchId || '')?.name || 'فرع تاني'}
-                            </span>
-                          </span>
-                          <button
-                            type="button"
-                            className="inline-flex items-center gap-1 text-xs text-red-600 hover:underline disabled:opacity-50"
-                            onClick={() => void unlinkWarehouse(warehouse, branch)}
-                            disabled={settingUp}
-                          >
-                            <Unlink className="h-3.5 w-3.5" /> فك الربط
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
-
       {!transfersEnabled && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          التحويلات بين الفروع مش مفعّلة لحسابك. تقدر تدير الفروع والمخازن من فوق، ولتفعيل التحويلات
-          تواصل مع إدارة النظام.
+          التحويلات بين الفروع مش مفعّلة لحسابك — تتفعّل من إدارة النظام فقط.
         </div>
       )}
       {transfersEnabled && (
@@ -605,7 +268,8 @@ export function TransfersPage() {
             </h2>
             {availableWarehouses.length < 2 ? (
               <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                يلزم إنشاء فرعين على الأقل وربط مخزن نشط بكل فرع قبل طلب التحويل.
+                يلزم فرعين على الأقل، وكل فرع مرتبط بمخزن نشط، قبل طلب التحويل. إنشاء الفروع
+                والمخازن وربطها بيتم من إدارة النظام — تواصل معاهم لو ناقصك فرع أو مخزن.
               </div>
             ) : (
               <>

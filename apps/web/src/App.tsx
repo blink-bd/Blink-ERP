@@ -98,7 +98,7 @@ function AppRoutes() {
           <Route path="/reports" element={<FeatureRoute feature="reports" title="التقارير"><ReportsPage /></FeatureRoute>} />
           <Route path="/branch-reports" element={<FeatureRoute feature="branch_analytics" title="تقارير الفروع"><BranchReportsPage /></FeatureRoute>} />
           <Route path="/balance-reminders" element={<FeatureRoute feature="balance_reminders" title="تذكير المديونيات"><BalanceRemindersPage /></FeatureRoute>} />
-          <Route path="/transfers" element={<FeatureRoute feature="inventory" title="الفروع والتحويلات"><TransfersPage /></FeatureRoute>} />
+          <Route path="/transfers" element={<FeatureRoute feature="inventory.transfers" title="تحويلات المخزون بين الفروع"><TransfersPage /></FeatureRoute>} />
           <Route path="/users" element={<FeatureRoute feature="users" title="المستخدمين والصلاحيات"><UsersPage /></FeatureRoute>} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/data" element={<DataTransferPage />} />

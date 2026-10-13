@@ -487,6 +487,14 @@ GET    /admin/tenants/:id/usage
             limits: { maxUsers, maxBranches, maxWarehouses, maxProducts } }
 GET    /admin/tenants/:id/features
 PUT    /admin/tenants/:id/features      { features: [{ featureId, isEnabled }] }  الاعتماديات بتتفعل تلقائياً
+GET    /admin/tenants/:id/branches
+POST   /admin/tenants/:id/branches                  { name, code?, phone? }  إنشاء فرع للتاجر
+PUT    /admin/tenants/:id/branches/:branchId
+GET    /admin/tenants/:id/warehouses
+POST   /admin/tenants/:id/warehouses                { name, branchId? }      إنشاء مخزن وربطه بفرع
+PUT    /admin/tenants/:id/warehouses/:warehouseId   { branchId?, name?, isActive? }
+POST   /admin/tenants/:id/warehouses/:warehouseId/branches  { branchId }     فرع يستخدم مخزن موجود (مشترك)
+DELETE /admin/tenants/:id/warehouses/:warehouseId/branches/:branchId         فك ربط فرع مشترك
 GET    /admin/tenants/:id/users
 POST   /admin/tenants/:id/reset-user-password
 GET    /admin/tenants/:id/audit-logs
@@ -494,6 +502,13 @@ GET    /admin/tenants/:id/backup        نسخة JSON (بدون هاشات أو 
 POST   /admin/tenants/restore
 DELETE /admin/tenants/:id               { businessName } للتأكيد
 ```
+
+إنشاء الفروع والمخازن وربطها (بما فيها المخازن المشتركة بين الفروع) متاح للمدير العام فقط من
+المسارات أعلاه؛ التاجر يستهلك الفروع والمخازن الموجودة في البيع والشراء والتحويلات.
+
+`GET /api/v1/maintenance/:id/share` (Feature: `maintenance.share`) يرجع بيانات إرسال فاتورة الصيانة
+للعميل: رقم الفاتورة والتاريخ وبيانات العميل ورقم الواتساب و`servicePrice` و`message` جاهزة.
+الرد لا يحتوي على `partsCost` أو `profit`، والرسالة تعرض إيراد الخدمة بمسمى «تكلفة الصيانة».
 
 الإعدادات الإقليمية:
 - `timezone`: اسم IANA صحيح (`Africa/Cairo`، `Asia/Riyadh`، …). أي قيمة تانية بترجع 400.

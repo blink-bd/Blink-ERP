@@ -63,6 +63,20 @@ export class MaintenanceController {
     };
   }
 
+  /** بيانات إرسال فاتورة الصيانة للعميل واتساب (بتكلفة الصيانة اللي دفعها بس). */
+  @Get(':id/share')
+  @RequireFeature('maintenance.share')
+  async share(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await assertRowAllowed(
+      this.dataSource.manager,
+      'maintenance_invoices',
+      req.tenantId,
+      id,
+      scopeOf(req)
+    );
+    return { success: true, data: await this.maintenance.getShareInfo(req.tenantId, id) };
+  }
+
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await assertRowAllowed(
