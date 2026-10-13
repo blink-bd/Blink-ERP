@@ -292,7 +292,9 @@ export const FEATURE_CATALOG: FeatureDefinition[] = [
 ];
 
 /** زراير وإجراءات جوه الصفحات — كل واحد يتقفل/يتفتح لكل تاجر من لوحة المدير العام. */
-const ACTIONS: Array<Omit<FeatureDefinition, 'category' | 'sortOrder' | 'name'> & { name?: string }> = [
+const ACTIONS: Array<
+  Omit<FeatureDefinition, 'category' | 'sortOrder' | 'name'> & { name?: string }
+> = [
   // لوحة التحكم
   {
     code: 'dashboard.balances',
@@ -473,7 +475,9 @@ const ACTIONS: Array<Omit<FeatureDefinition, 'category' | 'sortOrder' | 'name'> 
     parent: 'users',
     nameAr: 'تغيير كلمات مرور الموظفين',
     descriptionAr:
-      'صاحب الحساب يغيّر كلمة مرور موظفيه. كلمة مرور صاحب الحساب نفسه بتتغير من الإدارة بس.',
+      'صاحب الحساب يغيّر كلمة مرور موظفيه بنفسه. مقفولة افتراضياً — كل كلمات المرور بتتغير من الإدارة.',
+    // مقفول افتراضياً: كلمات المرور بتتغير من المدير العام بس، إلا لو فتحه لتاجر معين.
+    isDefault: false,
   },
   // الإعدادات
   {
@@ -505,7 +509,7 @@ for (const [index, action] of ACTIONS.entries()) {
     ...action,
     name: action.name || action.code,
     category: parent?.category || 'core',
-    isDefault: true,
+    isDefault: action.isDefault ?? true,
     dependsOn: [action.parent as string, ...(action.dependsOn || [])],
     sortOrder: parentSortOrder(action.parent as string) * 100 + index + 1,
   });
@@ -513,6 +517,15 @@ for (const [index, action] of ACTIONS.entries()) {
 
 export const isActionFeature = (code: string): boolean =>
   Boolean(FEATURE_CATALOG.find((feature) => feature.code === code)?.parent);
+
+/**
+ * حالة الزرار لو المدير العام عمره ما لمسه لتاجر معين: الزراير مفتوحة افتراضياً
+ * إلا اللي متعلّم عليها isDefault: false (زي تغيير كلمات مرور الموظفين).
+ */
+export const actionDefaultEnabled = (code: string): boolean => {
+  const def = FEATURE_CATALOG.find((feature) => feature.code === code);
+  return Boolean(def?.parent) && def?.isDefault !== false;
+};
 
 export const FEATURE_CODES = new Set(FEATURE_CATALOG.map((f) => f.code));
 

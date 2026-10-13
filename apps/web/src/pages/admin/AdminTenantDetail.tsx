@@ -29,18 +29,22 @@ export function AdminTenantDetailPage() {
   const tab = params.get('tab') || 'overview';
   const [tenant, setTenant] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [failed, setFailed] = useState<{ tenant?: boolean; profile?: boolean }>({});
 
+  // كل طلب لوحده: لو ملخص الملف وقع، باقي الصفحة (المستخدمين، الميزات...) تفضل شغالة.
   const load = async () => {
-    const [t, p] = await Promise.all([
+    const [t, p] = await Promise.allSettled([
       adminApi.get(`/admin/tenants/${id}`),
       adminApi.get(`/admin/tenants/${id}/profile`),
     ]);
-    setTenant(t.data.data);
-    setProfile(p.data.data);
+    if (t.status === 'fulfilled') setTenant(t.value.data.data);
+    if (p.status === 'fulfilled') setProfile(p.value.data.data);
+    setFailed({ tenant: t.status === 'rejected', profile: p.status === 'rejected' });
   };
   useEffect(() => {
     setTenant(null);
     setProfile(null);
+    setFailed({});
     load();
   }, [id]);
 
@@ -65,7 +69,18 @@ export function AdminTenantDetailPage() {
     toast.success('تم تنزيل النسخة الاحتياطية');
   };
 
-  if (!tenant || !profile) {
+  if (failed.tenant && !tenant) {
+    return (
+      <div className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-center">
+        <p className="text-sm text-rose-800">ماقدرناش نحمّل بيانات التاجر.</p>
+        <Button className="mt-3" size="sm" variant="outline" onClick={load}>
+          إعادة المحاولة
+        </Button>
+      </div>
+    );
+  }
+
+  if (!tenant || (!profile && !failed.profile)) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-28" />
@@ -82,7 +97,7 @@ export function AdminTenantDetailPage() {
   const status = tenantStatus({
     isActive: tenant.isActive,
     subscriptionStatus: tenant.subscriptionStatus,
-    daysLeft: profile.subscription.daysLeft,
+    daysLeft: profile?.subscription?.daysLeft ?? null,
   });
   const name = tenant.businessNameAr || tenant.businessName;
 
@@ -105,13 +120,15 @@ export function AdminTenantDetailPage() {
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-xl font-bold text-slate-900 sm:text-2xl">{name}</h1>
                 <Badge tone={status.tone}>{status.label}</Badge>
-                {profile.subscription.planName && (
+                {profile?.subscription?.planName && (
                   <Badge tone="violet">{profile.subscription.planName}</Badge>
                 )}
-                <Badge tone="slate">{daysLeftLabel(profile.subscription.daysLeft)}</Badge>
+                {profile && (
+                  <Badge tone="slate">{daysLeftLabel(profile.subscription.daysLeft)}</Badge>
+                )}
               </div>
               <div className="mt-1 text-sm text-slate-500" dir="auto">
-                {[profile.owner?.fullName, tenant.email, tenant.phone].filter(Boolean).join(' · ')}
+                {[profile?.owner?.fullName, tenant.email, tenant.phone].filter(Boolean).join(' · ')}
               </div>
               <button
                 className="mt-1 inline-flex items-center gap-1 font-mono text-[11px] text-slate-400 hover:text-slate-600"
@@ -137,7 +154,7 @@ export function AdminTenantDetailPage() {
             </Button>
           </div>
         </div>
-        {profile.health.length > 0 && (
+        {(profile?.health || []).length > 0 && (
           <div className="mt-4 border-t border-slate-100 pt-4">
             <HealthFlags flags={profile.health} />
           </div>
@@ -160,10 +177,21 @@ export function AdminTenantDetailPage() {
         </div>
       </div>
 
-      {tab === 'overview' && (
+      {!profile && (tab === 'overview' || tab === 'subscription') && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+          <p className="text-sm text-amber-900">
+            ملخص التاجر ماتحمّلش دلوقتي. باقي التبويبات (المستخدمين، الصفحات والزراير، الفروع...)
+            شغالة عادي.
+          </p>
+          <Button className="mt-3" size="sm" variant="outline" onClick={load}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      )}
+      {tab === 'overview' && profile && (
         <OverviewTab profile={profile} onNavigate={(t) => setParams({ tab: t })} />
       )}
-      {tab === 'subscription' && (
+      {tab === 'subscription' && profile && (
         <SubscriptionTab id={id!} tenant={tenant} profile={profile} onSaved={load} />
       )}
       {tab === 'features' && <FeaturesTab id={id!} onSaved={load} />}

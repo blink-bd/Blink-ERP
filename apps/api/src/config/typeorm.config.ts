@@ -34,7 +34,9 @@ export const typeormConfig = (configService: ConfigService): TypeOrmModuleOption
     logging: dbLogging(),
     ssl: dbSslOptions(),
     extra: {
-      max: 20, // Maximum pool size
+      // Supabase (Session pooler) بيقفل على ~15 اتصال للمشروع كله؛ 20 كانت بتعدّي الحد
+      // وقت الضغط فترجع أخطاء 500. خليها قابلة للتغيير من DB_POOL_MAX.
+      max: Math.max(2, Number(process.env.DB_POOL_MAX) || 10),
       connectionTimeoutMillis: 5000,
       idleTimeoutMillis: 30000,
     },

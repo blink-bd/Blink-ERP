@@ -14,6 +14,7 @@ import {
   Min,
   ValidateIf,
 } from 'class-validator';
+import { UpdateTenantUserDto } from '@/modules/users/dto/user-management.dto';
 
 export class MasterLoginDto {
   @IsEmail() email: string;
@@ -63,7 +64,8 @@ export class TenantSubscriptionDto {
   @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsDateString() subscriptionStartDate?: string;
   /** null = بدون تاريخ انتهاء. */
-  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() subscriptionEndDate?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() subscriptionEndDate?:
+    string | null;
   @IsOptional() @IsNumber() @Min(0) subscriptionAmount?: number;
   @IsOptional() @IsIn(['monthly', 'yearly']) subscriptionCycle?: string;
   @IsOptional() @IsString() @Length(0, 2000) subscriptionNote?: string;
@@ -72,4 +74,9 @@ export class TenantSubscriptionDto {
 export class ResetTenantUserPasswordDto {
   @IsUUID() userId: string;
   @IsString() @Length(8, 128) newPassword: string;
+}
+
+/** تعديل مستخدم تاجر من المدير العام — كل اللي التاجر يقدر يعدله + بريد الدخول. */
+export class AdminUpdateTenantUserDto extends UpdateTenantUserDto {
+  @IsOptional() @IsEmail() @Length(3, 255) email?: string;
 }

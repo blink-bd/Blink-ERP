@@ -16,6 +16,8 @@ import { User } from '@/modules/users/entities/user.entity';
 import { Plan } from '@/modules/features/entities/plan.entity';
 import { Feature } from '@/modules/features/entities/feature.entity';
 import { UsersService } from '@/modules/users/users.service';
+import { Actor, UserManagementService } from '@/modules/users/user-management.service';
+import { CreateTenantUserDto, UpdateTenantUserDto } from '@/modules/users/dto/user-management.dto';
 import { assertStrongPassword } from '@/common/utils/password-policy';
 import { burnPasswordVerification } from '@/common/security/timing';
 import { TenantLimitsDto, TenantStatusDto, TenantSubscriptionDto } from './dto/master-admin.dto';
@@ -44,7 +46,8 @@ export class MasterAdminService implements OnModuleInit {
     @InjectDataSource() private readonly dataSource: DataSource,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
-    private readonly usersService: UsersService
+    private readonly usersService: UsersService,
+    private readonly userManagement: UserManagementService
   ) {}
 
   onModuleInit() {
@@ -427,19 +430,108 @@ export class MasterAdminService implements OnModuleInit {
     await this.getTenant(tenantId);
     return this.dataSource.query(
       `SELECT u.id, u.email, u.full_name AS "fullName", u.phone, u.is_active AS "isActive",
+              u.branch_id AS "branchId", u.warehouse_id AS "warehouseId",
+              u.allowed_branch_ids AS "allowedBranchIds", u.allowed_warehouse_ids AS "allowedWarehouseIds",
               u.last_login_at AS "lastLoginAt", u.last_login_ip AS "lastLoginIp",
               u.locked_until AS "lockedUntil", u.failed_login_attempts AS "failedLoginAttempts",
               u.password_changed_at AS "passwordChangedAt", u.created_at AS "createdAt",
               u.access_all_branches AS "accessAllBranches",
               COALESCE(array_length(u.allowed_branch_ids, 1), 0)::int AS "allowedBranches",
               COALESCE(
-                (SELECT json_agg(json_build_object('name', r.name, 'nameAr', r.name_ar))
+                (SELECT json_agg(json_build_object('id', r.id, 'name', r.name, 'nameAr', r.name_ar))
                  FROM user_roles ur JOIN roles r ON r.id = ur.role_id
                  WHERE ur.user_id = u.id), '[]'::json) AS roles
        FROM users u
        WHERE u.tenant_id = $1 AND u.deleted_at IS NULL
        ORDER BY u.created_at`,
       [tenantId]
+    );
+  }
+
+  // ---------- إدارة مستخدمي التاجر من المدير العام ----------
+  // المدير العام بيتعامل كأنه «مالك» الحساب، فكل قواعد الأمان بتاعة إدارة المستخدمين
+  // بتنطبق (مثلاً مايتشالش آخر مالك)، بس من غير حد عدد المستخدمين.
+  private adminActor(tenantId: string): Actor {
+    return { id: 'master-admin', tenantId, roles: ['owner'], permissions: [], platformAdmin: true };
+  }
+
+  private adminRequest(tenantId: string, adminEmail: string, ip: string) {
+    return { tenantId, ip, headers: {}, user: { email: `master-admin:${adminEmail}` } };
+  }
+
+  async listTenantRoles(tenantId: string) {
+    await this.getTenant(tenantId);
+    const roles = await this.userManagement.listRoles(tenantId);
+    return roles.map(({ permissions, ...role }) => ({
+      ...role,
+      permissionsCount: permissions.length,
+    }));
+  }
+
+  async createTenantUser(
+    tenantId: string,
+    dto: CreateTenantUserDto,
+    adminEmail: string,
+    ip: string
+  ) {
+    await this.getTenant(tenantId);
+    const user = await this.userManagement.createUser(
+      this.adminActor(tenantId),
+      dto,
+      this.adminRequest(tenantId, adminEmail, ip)
+    );
+    await this.audit(
+      adminEmail,
+      'TENANT_USER_CREATED',
+      'user',
+      user.id,
+      { tenantId, email: user.email },
+      ip,
+      'warning'
+    );
+    return user;
+  }
+
+  async updateTenantUser(
+    tenantId: string,
+    userId: string,
+    dto: UpdateTenantUserDto & { email?: string },
+    adminEmail: string,
+    ip: string
+  ) {
+    await this.getTenant(tenantId);
+    const actor = this.adminActor(tenantId);
+    const req = this.adminRequest(tenantId, adminEmail, ip);
+    const { email, ...rest } = dto;
+    if (email) await this.userManagement.changeEmail(actor, userId, email, req);
+    const user = await this.userManagement.updateUser(actor, userId, rest, req);
+    await this.audit(
+      adminEmail,
+      'TENANT_USER_UPDATED',
+      'user',
+      userId,
+      { tenantId, ...dto },
+      ip,
+      'warning'
+    );
+    return user;
+  }
+
+  async deleteTenantUser(tenantId: string, userId: string, adminEmail: string, ip: string) {
+    await this.getTenant(tenantId);
+    await this.userManagement.deleteUser(
+      this.adminActor(tenantId),
+      userId,
+      this.adminRequest(tenantId, adminEmail, ip)
+    );
+    await this.audit(
+      adminEmail,
+      'TENANT_USER_DELETED',
+      'user',
+      userId,
+      { tenantId },
+      ip,
+      'warning'
     );
   }
 
@@ -452,7 +544,15 @@ export class MasterAdminService implements OnModuleInit {
   async revokeTenantUserSessions(tenantId: string, userId: string, adminEmail: string, ip: string) {
     await this.getTenantUser(tenantId, userId);
     await this.usersService.revokeSessions(userId);
-    await this.audit(adminEmail, 'TENANT_USER_SESSIONS_REVOKED', 'user', userId, { tenantId }, ip, 'warning');
+    await this.audit(
+      adminEmail,
+      'TENANT_USER_SESSIONS_REVOKED',
+      'user',
+      userId,
+      { tenantId },
+      ip,
+      'warning'
+    );
   }
 
   async unlockTenantUser(tenantId: string, userId: string, adminEmail: string, ip: string) {

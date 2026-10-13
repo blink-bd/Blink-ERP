@@ -1,10 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { Copy, KeyRound, LogOut, RefreshCw, Unlock } from 'lucide-react';
+import {
+  Copy,
+  KeyRound,
+  LogOut,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Unlock,
+  UserCheck,
+  UserX,
+} from 'lucide-react';
 import { adminApi } from '@/lib/adminApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge, EmptyState, Section, Skeleton, fmtDateTime, timeAgo } from '../ui';
+import { Label } from '@/components/ui/label';
+import { Modal } from '@/components/ui/modal';
+import { Badge, EmptyState, Section, Skeleton, fmtDate, fmtDateTime, timeAgo } from '../ui';
 
 const ROLE_LABELS: Record<string, string> = {
   owner: 'صاحب النشاط',
@@ -32,9 +45,43 @@ function generatePassword() {
   return chars.join('');
 }
 
+interface UserForm {
+  id?: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  password: string;
+  isActive: boolean;
+  roleIds: string[];
+  accessAllBranches: boolean;
+  allowedBranchIds: string[];
+  allowedWarehouseIds: string[];
+  branchId?: string | null;
+  warehouseId?: string | null;
+}
+
+const emptyForm = (): UserForm => ({
+  fullName: '',
+  email: '',
+  phone: '',
+  password: generatePassword(),
+  isActive: true,
+  roleIds: [],
+  accessAllBranches: true,
+  allowedBranchIds: [],
+  allowedWarehouseIds: [],
+});
+
+const copy = (text: string) => {
+  navigator.clipboard?.writeText(text).catch(() => undefined);
+};
+
 export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
   const [users, setUsers] = useState<any[] | null>(null);
-  const [resetFor, setResetFor] = useState<string | null>(null);
+  const [roles, setRoles] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+  const [form, setForm] = useState<UserForm | null>(null);
+  const [resetFor, setResetFor] = useState<any | null>(null);
   const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -43,11 +90,123 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
     setUsers(r.data.data);
   };
   useEffect(() => {
-    load();
+    setUsers(null);
+    load().catch(() => setUsers([]));
+    adminApi
+      .get(`/admin/tenants/${id}/roles`)
+      .then((r) => setRoles(r.data.data))
+      .catch(() => undefined);
+    adminApi
+      .get(`/admin/tenants/${id}/branches`)
+      .then((r) => setBranches(r.data.data))
+      .catch(() => undefined);
   }, [id]);
 
-  const openReset = (userId: string) => {
-    setResetFor(userId);
+  const ownerRoleId = useMemo(() => roles.find((r) => r.name === 'owner')?.id, [roles]);
+  const formIsOwner = !!form && !!ownerRoleId && form.roleIds.includes(ownerRoleId);
+  const refresh = () => {
+    load();
+    onSaved();
+  };
+
+  const openCreate = () => setForm(emptyForm());
+  const openEdit = (u: any) =>
+    setForm({
+      id: u.id,
+      fullName: u.fullName || '',
+      email: u.email || '',
+      phone: u.phone || '',
+      password: '',
+      isActive: !!u.isActive,
+      roleIds: (u.roles || []).map((r: any) => r.id).filter(Boolean),
+      accessAllBranches: u.accessAllBranches !== false,
+      allowedBranchIds: u.allowedBranchIds || [],
+      allowedWarehouseIds: u.allowedWarehouseIds || [],
+      branchId: u.branchId || null,
+      warehouseId: u.warehouseId || null,
+    });
+
+  const toggleIn = (list: string[], value: string) =>
+    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+
+  const toggleBranch = (branchId: string) => {
+    if (!form) return;
+    const removing = form.allowedBranchIds.includes(branchId);
+    const branchWarehouses = (branches.find((b) => b.id === branchId)?.warehouses || []).map(
+      (w: any) => w.id
+    );
+    setForm({
+      ...form,
+      allowedBranchIds: toggleIn(form.allowedBranchIds, branchId),
+      // شيل الفرع = شيل مخازنه؛ إضافة الفرع = كل مخازنه (تقدر تشيل منها بعد كده).
+      allowedWarehouseIds: removing
+        ? form.allowedWarehouseIds.filter((w) => !branchWarehouses.includes(w))
+        : Array.from(new Set([...form.allowedWarehouseIds, ...branchWarehouses])),
+    });
+  };
+
+  const save = async () => {
+    if (!form) return;
+    if (form.fullName.trim().length < 2) return toast.error('اكتب اسم المستخدم');
+    if (!form.email.trim()) return toast.error('اكتب البريد الإلكتروني');
+    if (!form.id && form.password.length < 8) return toast.error('كلمة المرور 8 أحرف على الأقل');
+    if (!form.roleIds.length) return toast.error('اختار دور واحد على الأقل');
+    if (!formIsOwner && !form.accessAllBranches && !form.allowedBranchIds.length) {
+      return toast.error('اختار فرع واحد على الأقل أو «كل الفروع»');
+    }
+    const access = formIsOwner
+      ? {}
+      : {
+          accessAllBranches: form.accessAllBranches,
+          allowedBranchIds: form.accessAllBranches ? [] : form.allowedBranchIds,
+          allowedWarehouseIds: form.accessAllBranches ? [] : form.allowedWarehouseIds,
+          // الفرع/المخزن الافتراضي لازم يكونوا ضمن المسموح — لو خرجوا بره نشيلهم.
+          ...(!form.accessAllBranches &&
+          form.branchId &&
+          !form.allowedBranchIds.includes(form.branchId)
+            ? { branchId: null }
+            : {}),
+          ...(!form.accessAllBranches &&
+          form.warehouseId &&
+          !form.allowedWarehouseIds.includes(form.warehouseId)
+            ? { warehouseId: null }
+            : {}),
+        };
+    setSaving(true);
+    try {
+      if (form.id) {
+        await adminApi.put(`/admin/tenants/${id}/users/${form.id}`, {
+          fullName: form.fullName.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim(),
+          isActive: form.isActive,
+          roleIds: form.roleIds,
+          ...access,
+        });
+        toast.success('تم حفظ بيانات المستخدم');
+      } else {
+        await adminApi.post(`/admin/tenants/${id}/users`, {
+          fullName: form.fullName.trim(),
+          email: form.email.trim(),
+          phone: form.phone.trim() || undefined,
+          password: form.password,
+          roleIds: form.roleIds,
+          ...access,
+        });
+        copy(`${form.email.trim()}\n${form.password}`);
+        toast.success('تم إضافة المستخدم ونسخ بيانات الدخول — ابعتها له', { duration: 6000 });
+      }
+      setForm(null);
+      refresh();
+    } catch {
+      // الرسالة ظهرت من الـ interceptor
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openReset = (u: any) => {
+    setResetFor(u);
     setPassword(generatePassword());
   };
 
@@ -59,19 +218,43 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
     setSaving(true);
     try {
       await adminApi.post(`/admin/tenants/${id}/reset-user-password`, {
-        userId: resetFor,
+        userId: resetFor.id,
         newPassword: password,
       });
-      navigator.clipboard?.writeText(password).catch(() => undefined);
-      toast.success(
-        'تم تغيير كلمة المرور ونسخها — ابعتها للمستخدم. تم تسجيل خروجه من كل الأجهزة.',
-        { duration: 6000 }
-      );
+      copy(password);
+      toast.success('تم تغيير كلمة المرور ونسخها — ابعتها للمستخدم. اتعمله خروج من كل الأجهزة.', {
+        duration: 6000,
+      });
       setResetFor(null);
       setPassword('');
       load();
+    } catch {
+      // handled by interceptor
     } finally {
       setSaving(false);
+    }
+  };
+
+  const setActive = async (u: any, isActive: boolean) => {
+    if (!isActive && !window.confirm(`إيقاف ${u.fullName}؟ مش هيقدر يدخل لحد ما تفعّله تاني.`))
+      return;
+    try {
+      await adminApi.put(`/admin/tenants/${id}/users/${u.id}`, { isActive });
+      toast.success(isActive ? 'تم التفعيل' : 'تم الإيقاف');
+      refresh();
+    } catch {
+      // handled by interceptor
+    }
+  };
+
+  const remove = async (u: any) => {
+    if (!window.confirm(`حذف المستخدم ${u.fullName} نهائياً؟`)) return;
+    try {
+      await adminApi.delete(`/admin/tenants/${id}/users/${u.id}`);
+      toast.success('تم حذف المستخدم');
+      refresh();
+    } catch {
+      // handled by interceptor
     }
   };
 
@@ -84,16 +267,22 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
   const unlock = async (userId: string) => {
     await adminApi.post(`/admin/tenants/${id}/users/${userId}/unlock`);
     toast.success('تم فك القفل');
-    load();
-    onSaved();
+    refresh();
   };
+
+  const branchName = (branchId: string) => branches.find((b) => b.id === branchId)?.name;
 
   if (!users) return <Skeleton className="h-64" />;
 
   return (
     <Section
       title={`المستخدمين (${users.length})`}
-      description="كلمات المرور بتتغير من هنا بس — التاجر وموظفينه مش هيقدروا يغيروها بنفسهم."
+      description="كل بيانات مستخدمي التاجر من هنا: البيانات، الأدوار، الفروع، كلمة المرور، الإيقاف والحذف. التاجر وموظفينه مش بيغيروا كلمات المرور بنفسهم."
+      actions={
+        <Button size="sm" onClick={openCreate}>
+          <Plus className="ml-1 h-4 w-4" /> مستخدم جديد
+        </Button>
+      }
     >
       {users.length === 0 ? (
         <EmptyState>مفيش مستخدمين</EmptyState>
@@ -101,6 +290,12 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
         <div className="space-y-3">
           {users.map((u) => {
             const locked = u.lockedUntil && new Date(u.lockedUntil) > new Date();
+            const isOwner = (u.roles || []).some((r: any) => r.name === 'owner');
+            const branchLabel =
+              isOwner || u.accessAllBranches
+                ? 'كل الفروع'
+                : (u.allowedBranchIds || []).map(branchName).filter(Boolean).join('، ') ||
+                  `${u.allowedBranches} فرع`;
             return (
               <div key={u.id} className="rounded-xl border border-slate-200 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -108,7 +303,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-semibold text-slate-900">{u.fullName}</span>
                       {(u.roles || []).map((r: any) => (
-                        <Badge key={r.name} tone={r.name === 'owner' ? 'violet' : 'blue'}>
+                        <Badge key={r.id || r.name} tone={r.name === 'owner' ? 'violet' : 'blue'}>
                           {r.nameAr || ROLE_LABELS[r.name] || r.name}
                         </Badge>
                       ))}
@@ -120,33 +315,64 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                         <Badge tone="slate">موقوف</Badge>
                       )}
                     </div>
-                    <div
-                      className="mt-0.5 text-xs text-slate-500"
-                      dir="ltr"
-                      style={{ textAlign: 'right' }}
-                    >
-                      {[u.email, u.phone].filter(Boolean).join(' · ')}
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                      <button
+                        type="button"
+                        className="hover:text-slate-800"
+                        dir="ltr"
+                        title="نسخ البريد"
+                        onClick={() => {
+                          copy(u.email);
+                          toast.success('اتنسخ البريد');
+                        }}
+                      >
+                        {u.email}
+                      </button>
+                      {u.phone && <span dir="ltr">{u.phone}</span>}
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {locked && (
                       <Button size="sm" variant="outline" onClick={() => unlock(u.id)}>
                         <Unlock className="ml-1 h-4 w-4" /> فك القفل
                       </Button>
                     )}
-                    <Button size="sm" variant="outline" onClick={() => revoke(u.id)}>
-                      <LogOut className="ml-1 h-4 w-4" /> خروج من كل الأجهزة
+                    <Button size="sm" variant="outline" onClick={() => openEdit(u)}>
+                      <Pencil className="ml-1 h-4 w-4" /> تعديل
                     </Button>
-                    <Button size="sm" onClick={() => openReset(u.id)}>
-                      <KeyRound className="ml-1 h-4 w-4" /> تغيير كلمة المرور
+                    <Button size="sm" onClick={() => openReset(u)}>
+                      <KeyRound className="ml-1 h-4 w-4" /> كلمة المرور
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title="خروج من كل الأجهزة"
+                      onClick={() => revoke(u.id)}
+                    >
+                      <LogOut className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      title={u.isActive ? 'إيقاف' : 'تفعيل'}
+                      onClick={() => setActive(u, !u.isActive)}
+                    >
+                      {u.isActive ? (
+                        <UserX className="h-4 w-4 text-orange-600" />
+                      ) : (
+                        <UserCheck className="h-4 w-4 text-emerald-600" />
+                      )}
+                    </Button>
+                    <Button size="icon" variant="ghost" title="حذف" onClick={() => remove(u)}>
+                      <Trash2 className="h-4 w-4 text-rose-600" />
                     </Button>
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-3 lg:grid-cols-6">
                   <Info
                     label="آخر دخول"
-                    value={u.lastLoginAt ? `${timeAgo(u.lastLoginAt)}` : 'عمره ما دخل'}
+                    value={u.lastLoginAt ? timeAgo(u.lastLoginAt) : 'عمره ما دخل'}
                     title={fmtDateTime(u.lastLoginAt)}
                   />
                   <Info
@@ -160,20 +386,21 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                   <Info
                     label="آخر تغيير لكلمة المرور"
                     value={u.passwordChangedAt ? timeAgo(u.passwordChangedAt) : '—'}
+                    title={fmtDateTime(u.passwordChangedAt)}
                   />
+                  <Info label="الفروع" value={branchLabel} />
+                  <Info label="اتضاف في" value={fmtDate(u.createdAt)} />
                   <Info
-                    label="الفروع"
-                    value={u.accessAllBranches ? 'كل الفروع' : `${u.allowedBranches} فرع`}
+                    label="محاولات فاشلة متتالية"
+                    value={
+                      <span className={u.failedLoginAttempts > 0 ? 'text-rose-600' : ''}>
+                        {u.failedLoginAttempts || 0}
+                      </span>
+                    }
                   />
-                  {u.failedLoginAttempts > 0 && (
-                    <Info
-                      label="محاولات فاشلة متتالية"
-                      value={<span className="text-rose-600">{u.failedLoginAttempts}</span>}
-                    />
-                  )}
                 </div>
 
-                {resetFor === u.id && (
+                {resetFor?.id === u.id && (
                   <div className="mt-3 rounded-lg bg-slate-50 p-3">
                     <div className="mb-2 text-xs text-slate-500">
                       كلمة المرور الجديدة (اتولدت تلقائياً — تقدر تكتب غيرها):
@@ -197,7 +424,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                         size="sm"
                         variant="ghost"
                         onClick={() => {
-                          navigator.clipboard?.writeText(password);
+                          copy(password);
                           toast.success('اتنسخت');
                         }}
                         title="نسخ"
@@ -218,6 +445,180 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
           })}
         </div>
       )}
+
+      <Modal
+        open={!!form}
+        title={form?.id ? `تعديل ${form.fullName || 'المستخدم'}` : 'مستخدم جديد'}
+        onClose={() => setForm(null)}
+        wide
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setForm(null)}>
+              إلغاء
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving ? 'جاري الحفظ...' : form?.id ? 'حفظ التعديلات' : 'إضافة المستخدم'}
+            </Button>
+          </>
+        }
+      >
+        {form && (
+          <div className="space-y-5">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label>الاسم</Label>
+                <Input
+                  value={form.fullName}
+                  onChange={(e) => setForm({ ...form, fullName: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>البريد الإلكتروني (للدخول)</Label>
+                <Input
+                  dir="ltr"
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+                />
+                {form.id && (
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    لو غيّرته، المستخدم هيتعمله خروج ويدخل بالبريد الجديد.
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label>الموبايل</Label>
+                <Input
+                  dir="ltr"
+                  value={form.phone}
+                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+                />
+              </div>
+              {form.id ? (
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.isActive}
+                      onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
+                    />
+                    الحساب نشط (يقدر يدخل)
+                  </label>
+                </div>
+              ) : (
+                <div>
+                  <Label>كلمة المرور</Label>
+                  <div className="flex gap-1">
+                    <Input
+                      dir="ltr"
+                      className="font-mono"
+                      value={form.password}
+                      onChange={(e) => setForm({ ...form, password: e.target.value })}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      title="توليد جديدة"
+                      onClick={() => setForm({ ...form, password: generatePassword() })}
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <Label>الأدوار</Label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {roles.map((r) => (
+                  <label
+                    key={r.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      form.roleIds.includes(r.id)
+                        ? 'border-primary bg-primary/5'
+                        : 'border-slate-200'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.roleIds.includes(r.id)}
+                      onChange={() => setForm({ ...form, roleIds: toggleIn(form.roleIds, r.id) })}
+                    />
+                    {r.nameAr || ROLE_LABELS[r.name] || r.name}
+                  </label>
+                ))}
+                {!roles.length && (
+                  <span className="text-sm text-slate-400">جاري تحميل الأدوار...</span>
+                )}
+              </div>
+            </div>
+
+            <div>
+              <Label>الفروع والمخازن</Label>
+              {formIsOwner ? (
+                <p className="mt-2 text-sm text-slate-500">
+                  صاحب النشاط بيشوف كل الفروع والمخازن دايماً.
+                </p>
+              ) : (
+                <div className="mt-2 space-y-3">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.accessAllBranches}
+                      onChange={(e) => setForm({ ...form, accessAllBranches: e.target.checked })}
+                    />
+                    كل الفروع والمخازن
+                  </label>
+                  {!form.accessAllBranches && (
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {branches.map((b) => (
+                        <div key={b.id} className="rounded-lg border border-slate-200 p-3">
+                          <label className="flex items-center gap-2 text-sm font-medium">
+                            <input
+                              type="checkbox"
+                              checked={form.allowedBranchIds.includes(b.id)}
+                              onChange={() => toggleBranch(b.id)}
+                            />
+                            {b.name}
+                          </label>
+                          {form.allowedBranchIds.includes(b.id) &&
+                            (b.warehouses || []).length > 0 && (
+                              <div className="mt-2 space-y-1 pr-6">
+                                {b.warehouses.map((w: any) => (
+                                  <label
+                                    key={w.id}
+                                    className="flex items-center gap-2 text-xs text-slate-600"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={form.allowedWarehouseIds.includes(w.id)}
+                                      onChange={() =>
+                                        setForm({
+                                          ...form,
+                                          allowedWarehouseIds: toggleIn(
+                                            form.allowedWarehouseIds,
+                                            w.id
+                                          ),
+                                        })
+                                      }
+                                    />
+                                    {w.name}
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </Modal>
     </Section>
   );
 }
