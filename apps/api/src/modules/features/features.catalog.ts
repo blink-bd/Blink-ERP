@@ -388,7 +388,8 @@ const ACTIONS: Array<Omit<FeatureDefinition, 'category' | 'sortOrder' | 'name'> 
     code: 'customers.payments',
     parent: 'customers',
     nameAr: 'تحصيل من العملاء',
-    descriptionAr: 'تسجيل مبلغ محصّل من العميل على حسابه.',
+    descriptionAr: 'تسجيل مبلغ محصّل من العميل على حسابه (من شاشة كشف الحساب).',
+    dependsOn: ['customers.statement'],
   },
   {
     code: 'customers.statement',

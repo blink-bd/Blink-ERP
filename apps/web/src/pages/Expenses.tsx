@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +13,7 @@ interface Expense { id: string; expenseNumber: string; amount: number; descripti
 export function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
+  const categoriesEnabled = useFeature('expenses.categories');
   const [summary, setSummary] = useState<any>({ day: null, month: null, year: null });
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -92,7 +94,7 @@ export function ExpensesPage() {
                 {categories.map((c) => <option key={c.id} value={c.id}>{c.nameAr || c.name}</option>)}
               </select>
             </div>
-            <div className="flex gap-2 mt-2"><Input placeholder="اسم فئة جديدة" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} /><Button type="button" variant="outline" size="sm" disabled={addingCategory || !newCategoryName.trim()} onClick={addCategory}>إضافة فئة</Button></div>
+            {categoriesEnabled && (<div className="flex gap-2 mt-2"><Input placeholder="اسم فئة جديدة" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} /><Button type="button" variant="outline" size="sm" disabled={addingCategory || !newCategoryName.trim()} onClick={addCategory}>إضافة فئة</Button></div>)}
           </div>
           <div><Label>الوصف</Label><Input required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} /></div>
           <div><Label>المبلغ</Label><Input type="number" required value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></div>

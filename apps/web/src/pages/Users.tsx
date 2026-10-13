@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { FeatureLocked } from '@/components/ui/feature-locked';
 import { formatDateTime } from '@/lib/datetime';
+import { useFeature } from '@/contexts/FeaturesContext';
 
 interface RoleRef {
   id: string;
@@ -89,7 +90,8 @@ function formatDate(v?: string | null) {
 export function UsersPage() {
   const { has } = usePermissions();
   const canViewUsers = has('users.view');
-  const canManageRoles = has('roles.manage');
+  const rolesEnabled = useFeature('users.roles');
+  const canManageRoles = has('roles.manage') && rolesEnabled;
   const [tab, setTab] = useState<'users' | 'roles'>(canViewUsers ? 'users' : 'roles');
 
   if (!canViewUsers && !canManageRoles) {
@@ -111,7 +113,7 @@ export function UsersPage() {
               <UsersIcon className="h-4 w-4" /> المستخدمين
             </button>
           )}
-          {(canManageRoles || canViewUsers) && (
+          {rolesEnabled && (canManageRoles || canViewUsers) && (
             <button
               onClick={() => setTab('roles')}
               className={`flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium ${tab === 'roles' ? 'bg-primary text-white' : 'border bg-white'}`}
@@ -121,7 +123,7 @@ export function UsersPage() {
           )}
         </div>
       </div>
-      {tab === 'users' ? <UsersTab /> : <RolesTab />}
+      {tab === 'users' || !rolesEnabled ? <UsersTab /> : <RolesTab />}
     </div>
   );
 }
@@ -142,6 +144,8 @@ function UsersTab() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resetFor, setResetFor] = useState<TenantUser | null>(null);
+  const manageEnabled = useFeature('users.manage');
+  const resetEnabled = useFeature('users.reset_password');
   const [newPassword, setNewPassword] = useState('');
 
   const load = async () => {
@@ -373,7 +377,7 @@ function UsersTab() {
             </>
           )}
         </p>
-        {has('users.create') && (
+        {manageEnabled && has('users.create') && (
           <Button
             onClick={openCreate}
             disabled={atLimit}
@@ -447,7 +451,7 @@ function UsersTab() {
                   </td>
                   <td className="p-3">
                     <div className="flex gap-1">
-                      {has('users.update') && (
+                      {manageEnabled && has('users.update') && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -457,7 +461,7 @@ function UsersTab() {
                           <Pencil className="h-4 w-4" />
                         </Button>
                       )}
-                      {has('users.update') && !isMe && (
+                      {resetEnabled && has('users.update') && !isMe && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -470,7 +474,7 @@ function UsersTab() {
                           <KeyRound className="h-4 w-4" />
                         </Button>
                       )}
-                      {has('users.update') && !isMe && (
+                      {manageEnabled && has('users.update') && !isMe && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -484,7 +488,7 @@ function UsersTab() {
                           )}
                         </Button>
                       )}
-                      {has('users.update') && (
+                      {manageEnabled && has('users.update') && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -494,7 +498,7 @@ function UsersTab() {
                           <LogOut className="h-4 w-4" />
                         </Button>
                       )}
-                      {has('users.delete') && !isMe && (
+                      {manageEnabled && has('users.delete') && !isMe && (
                         <Button size="icon" variant="ghost" title="حذف" onClick={() => remove(u)}>
                           <Trash2 className="h-4 w-4 text-red-600" />
                         </Button>

@@ -11,6 +11,7 @@ import { useIsDesktop } from '@/lib/useMediaQuery';
 import { keepIfValid, useWorkingWarehouses } from '@/contexts/WorkspaceContext';
 import { formatDateTime, formatDate } from '@/lib/datetime';
 import { ShareInvoiceDialog, type ShareSource } from '@/components/ShareInvoiceDialog';
+import { useFeature } from '@/contexts/FeaturesContext';
 
 const PAYMENT_STATUS: Record<string, string> = { paid: 'مدفوعة', partial: 'مدفوعة جزئياً', pending: 'آجل' };
 
@@ -33,6 +34,9 @@ export function PurchasesPage() {
   const [saving, setSaving] = useState(false);
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
   const [shareSource, setShareSource] = useState<ShareSource | null>(null);
+  const shareEnabled = useFeature('purchases.share');
+  const printEnabled = useFeature('purchases.print');
+  const attachmentsEnabled = useFeature('invoice_attachments');
   const isDesktop = useIsDesktop();
 
   const [supplierId, setSupplierId] = useState('');
@@ -207,15 +211,21 @@ export function PurchasesPage() {
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap justify-end gap-2">
-                <Button type="button" size="sm" variant="outline" className="text-[#128C7E]" onClick={() => setShareSource({ kind: 'purchase', id: p.id })}>
-                  <MessageCircle className="ml-1 h-4 w-4" /> إرسال
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}>
-                  <Paperclip className="ml-1 h-4 w-4" /> مرفقات
-                </Button>
-                <Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}>
-                  <Printer className="h-4 w-4 ml-1" /> طباعة
-                </Button>
+                {shareEnabled && (
+                  <Button type="button" size="sm" variant="outline" className="text-[#128C7E]" onClick={() => setShareSource({ kind: 'purchase', id: p.id })}>
+                    <MessageCircle className="ml-1 h-4 w-4" /> إرسال
+                  </Button>
+                )}
+                {attachmentsEnabled && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}>
+                    <Paperclip className="ml-1 h-4 w-4" /> مرفقات
+                  </Button>
+                )}
+                {printEnabled && (
+                  <Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}>
+                    <Printer className="h-4 w-4 ml-1" /> طباعة
+                  </Button>
+                )}
               </div>
               {attachmentsFor === p.id && (
                 <div className="mt-3">
@@ -251,27 +261,33 @@ export function PurchasesPage() {
                   <td className="p-3">{PAYMENT_STATUS[p.paymentStatus] || p.paymentStatus}</td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="text-[#128C7E]"
-                        title="إرسال الفاتورة للمورد على الواتساب"
-                        onClick={() => setShareSource({ kind: 'purchase', id: p.id })}
-                      >
-                        <MessageCircle className="ml-1 h-4 w-4" /> إرسال واتساب
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}
-                      >
-                        <Paperclip className="ml-1 h-4 w-4" /> مرفقات
-                      </Button>
-                      <Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}>
-                        <Printer className="h-4 w-4 ml-1" /> طباعة
-                      </Button>
+                      {shareEnabled && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          className="text-[#128C7E]"
+                          title="إرسال الفاتورة للمورد على الواتساب"
+                          onClick={() => setShareSource({ kind: 'purchase', id: p.id })}
+                        >
+                          <MessageCircle className="ml-1 h-4 w-4" /> إرسال واتساب
+                        </Button>
+                      )}
+                      {attachmentsEnabled && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}
+                        >
+                          <Paperclip className="ml-1 h-4 w-4" /> مرفقات
+                        </Button>
+                      )}
+                      {printEnabled && (
+                        <Button type="button" size="sm" variant="outline" onClick={() => printPurchase(p.id)}>
+                          <Printer className="h-4 w-4 ml-1" /> طباعة
+                        </Button>
+                      )}
                     </div>
                   </td>
                 </tr>

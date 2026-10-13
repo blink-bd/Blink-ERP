@@ -8,6 +8,7 @@ import { BrandingProvider } from './contexts/BrandingContext';
 import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
+import { FeatureRoute } from './components/FeatureRoute';
 import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 
 const LoginPage = lazy(() => import('./pages/Login').then((m) => ({ default: m.LoginPage })));
@@ -40,6 +41,7 @@ const AdminLayout = lazy(() => import('./pages/admin/AdminLayout').then((m) => (
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboardPage })));
 const AdminTenantsPage = lazy(() => import('./pages/admin/AdminTenants').then((m) => ({ default: m.AdminTenantsPage })));
 const AdminTenantDetailPage = lazy(() => import('./pages/admin/AdminTenantDetail').then((m) => ({ default: m.AdminTenantDetailPage })));
+const AdminChannelsPage = lazy(() => import('./pages/admin/AdminChannels').then((m) => ({ default: m.AdminChannelsPage })));
 const AdminSecurityPage = lazy(() => import('./pages/admin/AdminSecurity').then((m) => ({ default: m.AdminSecurityPage })));
 
 function LoadingScreen() {
@@ -69,6 +71,7 @@ function AppRoutes() {
           <Route index element={<AdminDashboardPage />} />
           <Route path="tenants" element={<AdminTenantsPage />} />
           <Route path="tenants/:id" element={<AdminTenantDetailPage />} />
+          <Route path="channels" element={<AdminChannelsPage />} />
           <Route path="security" element={<AdminSecurityPage />} />
         </Route>
         <Route
@@ -80,21 +83,21 @@ function AppRoutes() {
         >
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/workspace" element={<WorkspacePage />} />
-          <Route path="/pos" element={<POSPage />} />
-          <Route path="/sales" element={<SalesPage />} />
-          <Route path="/returns" element={<ReturnsPage />} />
-          <Route path="/maintenance" element={<MaintenancePage />} />
-          <Route path="/products" element={<ProductsPage />} />
-          <Route path="/inventory" element={<InventoryPage />} />
-          <Route path="/customers" element={<CustomersPage />} />
-          <Route path="/suppliers" element={<SuppliersPage />} />
-          <Route path="/purchases" element={<PurchasesPage />} />
-          <Route path="/expenses" element={<ExpensesPage />} />
-          <Route path="/cash-register" element={<CashRegisterPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
-          <Route path="/branch-reports" element={<BranchReportsPage />} />
-          <Route path="/balance-reminders" element={<BalanceRemindersPage />} />
-          <Route path="/transfers" element={<TransfersPage />} />
+          <Route path="/pos" element={<FeatureRoute feature="pos" title="نقطة البيع"><POSPage /></FeatureRoute>} />
+          <Route path="/sales" element={<FeatureRoute feature="sales" title="المبيعات"><SalesPage /></FeatureRoute>} />
+          <Route path="/returns" element={<FeatureRoute feature="return_disposition" title="المرتجعات"><ReturnsPage /></FeatureRoute>} />
+          <Route path="/maintenance" element={<FeatureRoute feature="maintenance_management" title="الصيانة"><MaintenancePage /></FeatureRoute>} />
+          <Route path="/products" element={<FeatureRoute feature="products" title="المنتجات"><ProductsPage /></FeatureRoute>} />
+          <Route path="/inventory" element={<FeatureRoute feature="inventory" title="المخزون"><InventoryPage /></FeatureRoute>} />
+          <Route path="/customers" element={<FeatureRoute feature="customers" title="العملاء"><CustomersPage /></FeatureRoute>} />
+          <Route path="/suppliers" element={<FeatureRoute feature="suppliers" title="الموردين"><SuppliersPage /></FeatureRoute>} />
+          <Route path="/purchases" element={<FeatureRoute feature="purchases" title="المشتريات"><PurchasesPage /></FeatureRoute>} />
+          <Route path="/expenses" element={<FeatureRoute feature="expenses" title="المصروفات"><ExpensesPage /></FeatureRoute>} />
+          <Route path="/cash-register" element={<FeatureRoute feature="cash_register" title="الخزينة"><CashRegisterPage /></FeatureRoute>} />
+          <Route path="/reports" element={<FeatureRoute feature="reports" title="التقارير"><ReportsPage /></FeatureRoute>} />
+          <Route path="/branch-reports" element={<FeatureRoute feature="branch_analytics" title="تقارير الفروع"><BranchReportsPage /></FeatureRoute>} />
+          <Route path="/balance-reminders" element={<FeatureRoute feature="balance_reminders" title="تذكير المديونيات"><BalanceRemindersPage /></FeatureRoute>} />
+          <Route path="/transfers" element={<FeatureRoute feature="inventory" title="الفروع والتحويلات"><TransfersPage /></FeatureRoute>} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/data" element={<DataTransferPage />} />

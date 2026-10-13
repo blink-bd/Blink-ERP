@@ -40,6 +40,9 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TENANT_BACKUP_EXPORTED: 'تنزيل نسخة احتياطية لتاجر',
   TENANT_BACKUP_RESTORED: 'استعادة تاجر من نسخة',
   TENANT_USER_PASSWORD_RESET: 'الإدارة غيّرت كلمة مرور مستخدم',
+  TENANT_USER_SESSIONS_REVOKED: 'الإدارة سجّلت خروج مستخدم من كل الأجهزة',
+  TENANT_USER_UNLOCKED: 'الإدارة فكّت قفل مستخدم',
+  NOTIFICATION_CHANNELS_UPDATED: 'تعديل قنوات الإرسال (إيميل/واتساب)',
 };
 
 export const auditLabel = (action: string) => AUDIT_ACTION_LABELS[action] || action;

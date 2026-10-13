@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { defaultWorkingBranchId, keepIfValid, useWorkspace } from '@/contexts/WorkspaceContext';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -13,6 +14,7 @@ export function CashRegisterPage() {
   const [summary, setSummary] = useState<any>(null);
   const [openingBalance, setOpeningBalance] = useState('');
   const [registerName, setRegisterName] = useState('الكاشير الرئيسي');
+  const registersEnabled = useFeature('cash_register.registers');
   const [loading, setLoading] = useState(true);
   const [creatingRegister, setCreatingRegister] = useState(false);
   const [registerId, setRegisterId] = useState('');
@@ -84,9 +86,15 @@ export function CashRegisterPage() {
         <p className="text-gray-400">جاري التحميل...</p>
       ) : registers.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-6 max-w-md space-y-4">
-          <p className="text-sm text-gray-500">أضف أول كاشير عشان تقدر تفتح وردية:</p>
-          <div><Label>اسم الكاشير</Label><Input value={registerName} onChange={(e) => setRegisterName(e.target.value)} /></div>
-          <Button onClick={createRegister} disabled={creatingRegister}>{creatingRegister ? 'جاري الإضافة...' : 'إضافة الكاشير'}</Button>
+          {registersEnabled ? (
+            <>
+              <p className="text-sm text-gray-500">أضف أول كاشير عشان تقدر تفتح وردية:</p>
+              <div><Label>اسم الكاشير</Label><Input value={registerName} onChange={(e) => setRegisterName(e.target.value)} /></div>
+              <Button onClick={createRegister} disabled={creatingRegister}>{creatingRegister ? 'جاري الإضافة...' : 'إضافة الكاشير'}</Button>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500">مفيش كاشير متسجل، وإضافة كاشير مقفولة لحسابك. تواصل مع إدارة النظام.</p>
+          )}
         </div>
       ) : !shift ? (
         <div className="bg-white rounded-lg shadow p-6 max-w-md space-y-4">
@@ -112,7 +120,7 @@ export function CashRegisterPage() {
           <div><Label>رصيد الافتتاح</Label><Input type="number" value={openingBalance} onChange={(e) => setOpeningBalance(e.target.value)} /></div>
           <p className="text-xs text-gray-400">بيتسجل بالتاريخ والوقت الحاليين تلقائيًا.</p>
           <Button onClick={openShift}>فتح وردية جديدة</Button>
-          {workspace?.features.branches && (
+          {workspace?.features.branches && registersEnabled && (
             <div className="border-t pt-3">
               {showAddRegister ? (
                 <div className="space-y-2">

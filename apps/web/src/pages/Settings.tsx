@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
 import { formatDateTime, formatDate } from '@/lib/datetime';
 import { AlertSettingsSection } from '@/components/AlertSettingsSection';
+import { useFeature } from '@/contexts/FeaturesContext';
 
 interface Webhook {
   id: string;
@@ -42,8 +43,9 @@ export function SettingsPage() {
   const { has } = usePermissions();
   const { user } = useAuth();
   const [downloading, setDownloading] = useState(false);
-  const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
-  const [changing, setChanging] = useState(false);
+  const canBackup = useFeature('settings.backup');
+  const canAlerts = useFeature('settings.alerts');
+  const canWebhooks = useFeature('settings.webhooks');
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [url, setUrl] = useState('');
   const [events, setEvents] = useState<string[]>(['sale.created']);
@@ -55,6 +57,10 @@ export function SettingsPage() {
   );
 
   const load = useCallback(async () => {
+    if (!canWebhooks) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const webhookResponse = await api.get('/webhooks');
@@ -64,7 +70,7 @@ export function SettingsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [canWebhooks]);
 
   useEffect(() => {
     void load();
@@ -93,33 +99,6 @@ export function SettingsPage() {
       // يعرض عميل API رسالة الخطأ.
     } finally {
       setDownloading(false);
-    }
-  };
-
-  const changePassword = async (event: FormEvent) => {
-    event.preventDefault();
-    if (pw.newPassword !== pw.confirm) {
-      toast.error('كلمة المرور الجديدة وتأكيدها مش متطابقين');
-      return;
-    }
-    if (pw.newPassword === pw.currentPassword) {
-      toast.error('كلمة المرور الجديدة لازم تختلف عن الحالية');
-      return;
-    }
-
-    setChanging(true);
-    try {
-      await api.post('/auth/change-password', {
-        currentPassword: pw.currentPassword,
-        newPassword: pw.newPassword,
-      });
-      // The server rotates the HttpOnly auth cookies; never persist tokens in browser storage.
-      toast.success('تم تغيير كلمة المرور وتسجيل الخروج من كل الأجهزة الأخرى');
-      setPw({ currentPassword: '', newPassword: '', confirm: '' });
-    } catch {
-      // يعرض عميل API رسالة الخطأ.
-    } finally {
-      setChanging(false);
     }
   };
 
@@ -211,60 +190,24 @@ export function SettingsPage() {
 
       <div className="max-w-3xl space-y-6">
         <section className="rounded-xl border bg-white p-6">
-          <div className="mb-4 flex items-start gap-4">
+          <div className="flex items-start gap-4">
             <div className="rounded-lg bg-primary/10 p-3 text-primary">
               <KeyRound className="h-6 w-6" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">تغيير كلمة المرور</h2>
+              <h2 className="text-lg font-semibold">كلمة المرور</h2>
               <p className="mt-1 text-sm text-gray-500">
-                حسابك: <span dir="ltr">{user?.email}</span>. سيتم إنهاء الجلسات الأخرى بعد التغيير.
+                حسابك: <span dir="ltr">{user?.email}</span>
+              </p>
+              <p className="mt-2 text-sm text-gray-600">
+                لحماية حسابك، تغيير كلمة المرور بيتم من خلال إدارة النظام بس. لو محتاج تغيّرها أو حاسس إن حد عرفها،
+                تواصل مع الإدارة وهتتغير فوراً ويتعمل تسجيل خروج من كل الأجهزة.
               </p>
             </div>
           </div>
-          <form onSubmit={changePassword} className="space-y-3">
-            <div>
-              <Label>كلمة المرور الحالية</Label>
-              <Input
-                required
-                type="password"
-                autoComplete="current-password"
-                value={pw.currentPassword}
-                onChange={(event) => setPw({ ...pw, currentPassword: event.target.value })}
-              />
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label>كلمة المرور الجديدة</Label>
-                <Input
-                  required
-                  type="password"
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={pw.newPassword}
-                  onChange={(event) => setPw({ ...pw, newPassword: event.target.value })}
-                />
-              </div>
-              <div>
-                <Label>تأكيد كلمة المرور</Label>
-                <Input
-                  required
-                  type="password"
-                  minLength={8}
-                  autoComplete="new-password"
-                  value={pw.confirm}
-                  onChange={(event) => setPw({ ...pw, confirm: event.target.value })}
-                />
-              </div>
-            </div>
-            <p className="text-xs text-gray-500">8 أحرف على الأقل، وتحتوي على حروف وأرقام.</p>
-            <Button type="submit" disabled={changing}>
-              {changing ? 'جاري التغيير...' : 'تغيير كلمة المرور'}
-            </Button>
-          </form>
         </section>
 
-        {has('backup.export') && (
+        {has('backup.export') && canBackup && (
           <section className="rounded-xl border bg-white p-6">
             <div className="flex items-start gap-4">
               <div className="rounded-lg bg-primary/10 p-3 text-primary">
@@ -287,13 +230,14 @@ export function SettingsPage() {
         <div className="flex gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
           <ShieldCheck className="h-5 w-5 shrink-0" />
           <div>
-            العمليات الحساسة تُسجّل في سجل التدقيق، ومالك النظام يستطيع مراجعتها. إذا لاحظت دخولاً غير معتاد، غيّر كلمة المرور فوراً.
+            العمليات الحساسة تُسجّل في سجل التدقيق، ومالك النظام يستطيع مراجعتها. إذا لاحظت دخولاً غير معتاد، كلّم الإدارة فوراً لتغيير كلمة المرور.
           </div>
         </div>
       </div>
 
-      {has('settings.view') && <AlertSettingsSection canEdit={has('settings.update')} />}
+      {has('settings.view') && canAlerts && <AlertSettingsSection canEdit={has('settings.update')} />}
 
+      {canWebhooks && (
       <section className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-4">
           <h2 className="text-lg font-bold">Webhooks الصادرة</h2>
@@ -465,6 +409,7 @@ export function SettingsPage() {
           بعد إصلاح وجهة Webhook.
         </p>
       </section>
+      )}
     </div>
   );
 }

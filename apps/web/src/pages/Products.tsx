@@ -79,6 +79,10 @@ const formatQuantity = (value: number | string | null | undefined) => {
 export function ProductsPage() {
   const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
   const barcodePrintingEnabled = useFeature('barcode_printing');
+  const deleteEnabled = useFeature('products.delete');
+  // «إظهار سعر التكلفة»: لما يتقفل، التكلفة بتختفي من الجدول ومن تعديل الأصناف الموجودة
+  // (لسه ينفع تتكتب لصنف جديد عشان حساب الربح يفضل صح).
+  const costVisible = useFeature('products.cost_price');
 
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<any[]>([]);
@@ -451,17 +455,19 @@ export function ProductsPage() {
               </Button>
             </div>
           </div>
-          <div>
-            <Label>سعر التكلفة</Label>
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
-              required
-              value={form.costPrice}
-              onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
-            />
-          </div>
+          {(costVisible || !form.id) && (
+            <div>
+              <Label>سعر التكلفة</Label>
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                required
+                value={form.costPrice}
+                onChange={(e) => setForm({ ...form, costPrice: e.target.value })}
+              />
+            </div>
+          )}
           <div>
             <Label>الحد الأدنى للتنبيه</Label>
             <Input
@@ -610,7 +616,7 @@ export function ProductsPage() {
               <th className="text-right p-3">رمز المنتج</th>
               <th className="text-right p-3">الباركود</th>
               <th className="text-right p-3">الصنف</th>
-              <th className="text-right p-3">التكلفة</th>
+              {costVisible && <th className="text-right p-3">التكلفة</th>}
               <th className="text-right p-3">قطاعي</th>
               {halfWholesaleEnabled && <th className="text-right p-3">نصف جملة</th>}
               <th className="text-right p-3">جملة</th>
@@ -623,7 +629,11 @@ export function ProductsPage() {
             {loading && (
               <tr>
                 <td
-                  colSpan={(halfWholesaleEnabled ? 11 : 10) + (barcodePrintingEnabled ? 1 : 0)}
+                  colSpan={
+                    (halfWholesaleEnabled ? 11 : 10) +
+                    (barcodePrintingEnabled ? 1 : 0) -
+                    (costVisible ? 0 : 1)
+                  }
                   className="text-center py-8 text-gray-400"
                 >
                   جاري التحميل...
@@ -633,7 +643,11 @@ export function ProductsPage() {
             {!loading && products.length === 0 && (
               <tr>
                 <td
-                  colSpan={(halfWholesaleEnabled ? 11 : 10) + (barcodePrintingEnabled ? 1 : 0)}
+                  colSpan={
+                    (halfWholesaleEnabled ? 11 : 10) +
+                    (barcodePrintingEnabled ? 1 : 0) -
+                    (costVisible ? 0 : 1)
+                  }
                   className="text-center py-8 text-gray-400"
                 >
                   لا توجد منتجات
@@ -677,7 +691,7 @@ export function ProductsPage() {
                   <td className="p-3 text-gray-500">{p.sku || '-'}</td>
                   <td className="p-3 text-gray-500">{p.barcode || '-'}</td>
                   <td className="p-3 text-gray-500">{p.category?.name || '-'}</td>
-                  <td className="p-3">{Number(p.costPrice).toFixed(2)}</td>
+                  {costVisible && <td className="p-3">{Number(p.costPrice).toFixed(2)}</td>}
                   <td className="p-3 font-medium">{Number(p.sellingPrice).toFixed(2)}</td>
                   {halfWholesaleEnabled && (
                     <td className="p-3 text-gray-500">
@@ -709,14 +723,16 @@ export function ProductsPage() {
                         <Printer className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => removeProduct(p)}
-                      title="حذف"
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
+                    {deleteEnabled && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => removeProduct(p)}
+                        title="حذف"
+                      >
+                        <Trash2 className="h-4 w-4 text-red-500" />
+                      </Button>
+                    )}
                   </td>
                 </tr>
               );
