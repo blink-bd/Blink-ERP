@@ -27,6 +27,9 @@ import {
   durationToMilliseconds,
 } from '@/common/utils/auth-cookies';
 import { randomBytes } from 'node:crypto';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { safeTimezone } from '@/common/utils/tenant-time';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -36,6 +39,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    @InjectDataSource() private readonly dataSource: DataSource,
     private readonly config: ConfigService
   ) {}
 
@@ -144,7 +148,19 @@ export class AuthController {
   @NoApiKey()
   @ApiBearerAuth()
   async me(@Request() req: any) {
-    return { success: true, data: req.user };
+    // بيانات التاجر الأساسية (التوقيت والعملة اللي المدير العام محددهم) عشان الواجهة
+    // تعرض التواريخ بتوقيت التاجر.
+    let tenant: Record<string, unknown> | undefined;
+    if (req.user?.tenantId) {
+      const [row] = await this.dataSource.query(
+        `SELECT id, business_name AS "businessName", business_name_ar AS "businessNameAr",
+                currency, timezone, country, phone
+         FROM tenants WHERE id = $1`,
+        [req.user.tenantId]
+      );
+      if (row) tenant = { ...row, timezone: safeTimezone(row.timezone) };
+    }
+    return { success: true, data: { ...req.user, tenant } };
   }
 
   private setAuthCookies(

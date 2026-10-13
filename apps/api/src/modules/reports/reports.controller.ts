@@ -17,7 +17,7 @@ import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { ReportsService } from './reports.service';
 import { BranchAnalyticsService } from './branch-analytics.service';
-import { AdvancedReportsService, parseRange } from './advanced-reports.service';
+import { AdvancedReportsService } from './advanced-reports.service';
 import { scopeOf } from '@/common/utils/access-scope';
 
 @ApiTags('reports')
@@ -161,7 +161,7 @@ export class AdvancedReportsController {
   ) {
     const data = await this.advanced.productProfitability(
       req.tenantId,
-      parseRange(startDate, endDate),
+      await this.advanced.range(req.tenantId, startDate, endDate),
       200,
       scopeOf(req)
     );
@@ -178,7 +178,7 @@ export class AdvancedReportsController {
       success: true,
       data: await this.advanced.byCashier(
         req.tenantId,
-        parseRange(startDate, endDate),
+        await this.advanced.range(req.tenantId, startDate, endDate),
         scopeOf(req)
       ),
     };
@@ -194,7 +194,7 @@ export class AdvancedReportsController {
       success: true,
       data: await this.advanced.byPaymentMethod(
         req.tenantId,
-        parseRange(startDate, endDate),
+        await this.advanced.range(req.tenantId, startDate, endDate),
         scopeOf(req)
       ),
     };
@@ -224,7 +224,7 @@ export class AdvancedReportsController {
       success: true,
       data: await this.advanced.salesHeatmap(
         req.tenantId,
-        parseRange(startDate, endDate),
+        await this.advanced.range(req.tenantId, startDate, endDate),
         scopeOf(req)
       ),
     };
@@ -240,7 +240,7 @@ export class AdvancedReportsController {
       success: true,
       data: await this.advanced.topCustomers(
         req.tenantId,
-        parseRange(startDate, endDate),
+        await this.advanced.range(req.tenantId, startDate, endDate),
         scopeOf(req)
       ),
     };

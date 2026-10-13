@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
+import { formatDateTime } from '@/lib/datetime';
 
 export function CashRegisterPage() {
   const [shift, setShift] = useState<any>(null);
@@ -137,7 +138,7 @@ export function CashRegisterPage() {
           <div className="bg-white rounded-lg shadow p-5 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="font-bold">وردية مفتوحة: {shift.shiftNumber}</p>
-              <p className="text-sm text-gray-500">فُتحت في {new Date(shift.openedAt).toLocaleString('ar')} — رصيد افتتاحي {Number(shift.openingBalance).toFixed(2)}</p>
+              <p className="text-sm text-gray-500">فُتحت في {formatDateTime(shift.openedAt)} — رصيد افتتاحي {Number(shift.openingBalance).toFixed(2)}</p>
             </div>
             <Button variant="destructive" onClick={closeShift}>إغلاق الوردية</Button>
           </div>

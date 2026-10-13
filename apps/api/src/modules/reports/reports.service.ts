@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { parseRange } from './advanced-reports.service';
+import { getTenantTimezone } from '@/common/utils/tenant-time';
 import { AccessScope, UNRESTRICTED_SCOPE, sqlIn } from '@/common/utils/access-scope';
 
 /** شرط فلترة فرع/مخزن العمل لجدول فيه branch_id (وwarehouse_id اختياري). */
@@ -20,6 +21,12 @@ const OPEN_RANGE_DAYS = Number.POSITIVE_INFINITY;
 export class ReportsService {
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
+  /** نطاق التقرير بتوقيت التاجر (اللي المدير العام محدده). */
+  private async range(tenantId: string, startDate?: string, endDate?: string, maxDays = 731) {
+    const tz = await getTenantTimezone(this.dataSource, tenantId);
+    return parseRange(startDate, endDate, maxDays, tz);
+  }
+
   async salesReport(
     tenantId: string,
     startDate: string,
@@ -27,17 +34,17 @@ export class ReportsService {
     scope: AccessScope = UNRESTRICTED_SCOPE
   ) {
     // نهاية الفترة شاملة اليوم كله (BETWEEN على تاريخ بس كان بيستبعد آخر يوم).
-    const range = parseRange(startDate, endDate, OPEN_RANGE_DAYS);
+    const range = await this.range(tenantId, startDate, endDate, OPEN_RANGE_DAYS);
     const base = [tenantId, range.fromTs, range.toExclusiveTs];
     const p1: any[] = [...base];
     const c1 = scopeClause(scope, p1);
-    const p2: any[] = [...base];
+    const p2: any[] = [...base, range.tz];
     const c2 = scopeClause(scope, p2);
     const p3: any[] = [...base];
     const c3 = scopeClause(scope, p3, 's');
     const p4: any[] = [...base];
     const c4 = scopeClause(scope, p4);
-    const p5: any[] = [...base];
+    const p5: any[] = [...base, range.tz];
     const c5 = scopeClause(scope, p5);
     const summary = await this.dataSource.query(
       `
@@ -57,14 +64,14 @@ export class ReportsService {
     const breakdown = await this.dataSource.query(
       `
       SELECT
-        DATE(sale_date) AS "date",
+        TO_CHAR(DATE(sale_date AT TIME ZONE 'UTC' AT TIME ZONE $4::text), 'YYYY-MM-DD') AS "date",
         COUNT(*)::int AS "salesCount",
         COALESCE(SUM(total), 0) AS "totalSales",
         COALESCE(SUM(total - cogs), 0) AS "grossProfit"
       FROM sales
       WHERE tenant_id = $1 AND status = 'completed' AND sale_date >= $2 AND sale_date < $3${c2}
-      GROUP BY DATE(sale_date)
-      ORDER BY DATE(sale_date) ASC
+      GROUP BY 1
+      ORDER BY 1 ASC
       `,
       p2
     );
@@ -95,10 +102,10 @@ export class ReportsService {
       p4
     );
     const returnsByDay = await this.dataSource.query(
-      `SELECT TO_CHAR(DATE(return_date), 'YYYY-MM-DD') AS "date", COALESCE(SUM(total), 0) AS "total",
+      `SELECT TO_CHAR(DATE(return_date AT TIME ZONE 'UTC' AT TIME ZONE $4::text), 'YYYY-MM-DD') AS "date", COALESCE(SUM(total), 0) AS "total",
               COALESCE(SUM(cogs_adjustment), 0) AS "cost"
        FROM sale_returns WHERE tenant_id = $1 AND return_date >= $2 AND return_date < $3${c5}
-       GROUP BY DATE(return_date)`,
+       GROUP BY 1`,
       p5
     );
     const dayKey = (d: any) =>
@@ -185,7 +192,7 @@ export class ReportsService {
     endDate: string,
     scope: AccessScope = UNRESTRICTED_SCOPE
   ) {
-    const range = parseRange(startDate, endDate);
+    const range = await this.range(tenantId, startDate, endDate);
     const base = [tenantId, range.fromTs, range.toExclusiveTs];
     const salesParams: any[] = [...base];
     const salesScope = scopeClause(scope, salesParams);
@@ -278,7 +285,7 @@ export class ReportsService {
     endDate: string,
     scope: AccessScope = UNRESTRICTED_SCOPE
   ) {
-    const range = parseRange(startDate, endDate, OPEN_RANGE_DAYS);
+    const range = await this.range(tenantId, startDate, endDate, OPEN_RANGE_DAYS);
     const p1: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
     const c1 = scopeClause(scope, p1);
     const p2: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
@@ -313,7 +320,7 @@ export class ReportsService {
     endDate: string,
     scope: AccessScope = UNRESTRICTED_SCOPE
   ) {
-    const range = parseRange(startDate, endDate, OPEN_RANGE_DAYS);
+    const range = await this.range(tenantId, startDate, endDate, OPEN_RANGE_DAYS);
     const p1: any[] = [tenantId, range.fromTs, range.toExclusiveTs];
     const c1 = scopeClause(scope, p1, '', false);
     const p2: any[] = [tenantId, range.fromTs, range.toExclusiveTs];

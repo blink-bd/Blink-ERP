@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
 import { useFeature } from '@/contexts/FeaturesContext';
+import { formatDateTime } from '@/lib/datetime';
 
-type Disposition = 'supplier' | 'restocked';
+type Disposition = 'supplier' | 'restocked' | 'original';
 
 interface ReturnItem {
   id: string;
@@ -16,7 +17,7 @@ interface ReturnItem {
   unitPrice: number;
   unitCost: number;
   total: number;
-  disposition: 'pending' | 'supplier' | 'restocked';
+  disposition: 'pending' | 'supplier' | 'restocked' | 'original';
   product?: { name: string; sku?: string; barcode?: string; unit?: string };
 }
 
@@ -115,7 +116,7 @@ export function ReturnsPage() {
     };
     if (draft.disposition === 'supplier') {
       payload.supplierId = draft.supplierId;
-    } else {
+    } else if (draft.disposition === 'restocked') {
       payload.product = {
         name: draft.name.trim(),
         sku: draft.sku.trim() || undefined,
@@ -143,7 +144,9 @@ export function ReturnsPage() {
       toast.success(
         (draft.disposition === 'supplier'
           ? 'تم تسجيل الإرجاع للمورد وتحديث رصيده'
-          : 'تم إنشاء الصنف المستقل وإضافته للمخزون') + (extra.length ? ` ${extra.join(' ')}` : ''),
+          : draft.disposition === 'original'
+            ? 'رجعت الكمية للمخزون على نفس الصنف وبقت متاحة للبيع'
+            : 'تم إنشاء الصنف المستقل وإضافته للمخزون') + (extra.length ? ` ${extra.join(' ')}` : ''),
         { duration: 6000 }
       );
       await load();
@@ -160,7 +163,7 @@ export function ReturnsPage() {
         <div>
           <h1 className="text-2xl font-bold">فحص مرتجعات المبيعات</h1>
           <p className="mt-1 text-sm text-gray-500">
-            راجع سعر البيع والتكلفة، ثم أعد الصنف للمورد أو أنشئ له بطاقة مخزون مستقلة.
+            راجع الصنف: رجّعه المخزن على نفس الصنف لو سليم، أو أعده للمورد، أو أنشئ له بطاقة مخزون مستقلة (مستعمل/مفتوح).
           </p>
         </div>
         <Button variant="outline" onClick={() => load()} disabled={loading}>
@@ -189,7 +192,7 @@ export function ReturnsPage() {
                   <h2 className="font-bold">مرتجع {saleReturn.returnNumber}</h2>
                   <p className="mt-1 text-xs text-gray-500">
                     الفاتورة: {saleReturn.originalSale?.saleNumber || '—'} ·{' '}
-                    {new Date(saleReturn.returnDate).toLocaleString('ar-EG')}
+                    {formatDateTime(saleReturn.returnDate)}
                     {saleReturn.reason ? ` · السبب: ${saleReturn.reason}` : ''}
                   </p>
                 </div>
@@ -232,7 +235,15 @@ export function ReturnsPage() {
                               إجمالي القيمة: {Number(item.total).toFixed(2)} ج.م
                             </p>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={draft.disposition === 'original' ? 'default' : 'outline'}
+                              onClick={() => updateDraft(item, { disposition: 'original' })}
+                            >
+                              رجوع على نفس الصنف
+                            </Button>
                             <Button
                               type="button"
                               size="sm"
@@ -280,6 +291,13 @@ export function ReturnsPage() {
                               .
                             </div>
                           </div>
+                        ) : draft.disposition === 'original' ? (
+                          <p className="rounded bg-emerald-50 p-3 text-sm text-emerald-800">
+                            الصنف سليم وهيرجع المخزن على نفس الصنف الأصلي
+                            {item.product?.sku ? ` (${item.product.sku})` : ''} بتكلفته الأصلية{' '}
+                            {Number(item.unitCost).toFixed(2)} ج.م، والكمية ({Number(item.quantity)})
+                            هتبقى متاحة للبيع تاني فوراً.
+                          </p>
                         ) : (
                           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <div>

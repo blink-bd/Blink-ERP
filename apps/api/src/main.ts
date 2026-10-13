@@ -1,3 +1,6 @@
+// كل التواريخ بتتخزن UTC، وتوقيت كل تاجر (tenants.timezone) بيتطبق وقت الحساب/العرض.
+process.env.TZ = 'UTC';
+
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';

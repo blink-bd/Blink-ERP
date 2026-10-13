@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
+import { formatDateTime, daysAgoKey, todayKey } from '@/lib/datetime';
 
 type DetailType =
   'sales' | 'purchases' | 'returns' | 'maintenance' | 'expenses' | 'customers' | 'suppliers';
@@ -29,15 +30,15 @@ const detailTabs: Array<{ id: DetailType; title: string }> = [
 
 const currency = (value: unknown) =>
   `${Number(value || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
-const dateText = (value: string) => (value ? new Date(value).toLocaleString('ar-EG') : '—');
+const dateText = (value: string) => (value ? formatDateTime(value) : '—');
 
 export function BranchReportsPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(
-    new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    daysAgoKey(30)
   );
-  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(todayKey());
   const [report, setReport] = useState<any>(null);
   const [detailType, setDetailType] = useState<DetailType>('sales');
   const [loading, setLoading] = useState(false);

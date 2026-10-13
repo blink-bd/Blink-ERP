@@ -4,6 +4,7 @@ import { isUUID } from 'class-validator';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
 import { normalizeInclusiveDateRange } from '@/common/utils/date-range';
+import { getTenantTimezone, tenantYear } from '@/common/utils/tenant-time';
 import { Customer } from '@/modules/customers/entities/customer.entity';
 import { CreateMaintenanceInvoiceDto } from './dto/create-maintenance-invoice.dto';
 import { MaintenanceInvoice } from './maintenance-invoice.entity';
@@ -83,7 +84,7 @@ export class MaintenanceService {
         'SELECT COUNT(*)::int AS count FROM maintenance_invoices WHERE tenant_id = $1',
         [tenantId]
       );
-      const year = new Date().getFullYear();
+      const year = await tenantYear(manager, tenantId);
       const invoiceNumber = `MNT-${year}-${String(Number(count) + 1).padStart(5, '0')}`;
       const invoice = await manager.save(
         manager.create(MaintenanceInvoice, {
@@ -136,7 +137,8 @@ export class MaintenanceService {
         throw new NotFoundException('أحد الفروع المحددة غير موجود أو غير نشط');
       }
     }
-    const dateRange = normalizeInclusiveDateRange(options.startDate, options.endDate);
+    const tz = await getTenantTimezone(this.dataSource, tenantId);
+    const dateRange = normalizeInclusiveDateRange(options.startDate, options.endDate, tz);
     const startDate = dateRange.startDate || undefined;
     const endDate = dateRange.endDate || undefined;
     if (startDate && Number.isNaN(Date.parse(startDate))) {

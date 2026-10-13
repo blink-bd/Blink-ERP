@@ -4,6 +4,7 @@ import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import toast from 'react-hot-toast';
+import { formatDateTime } from '@/lib/datetime';
 
 // عارض الـ PDF (pdf.js) بيتحمّل بس لما حد يفتح ملف PDF على الموبايل.
 const PdfPagesViewer = lazy(() => import('./PdfPagesViewer'));
@@ -198,7 +199,7 @@ export function InvoiceAttachments({
                 </div>
                 <div className="text-xs text-gray-500">
                   {(item.sizeBytes / 1024 / 1024).toFixed(2)} م.ب ·{' '}
-                  {new Date(item.createdAt).toLocaleString('ar-EG')}
+                  {formatDateTime(item.createdAt)}
                 </div>
               </div>
               <div className="flex flex-wrap gap-1">

@@ -87,6 +87,13 @@ export class SalesController {
     };
   }
 
+  /** بيانات إرسال الفاتورة للعميل (لينك + ملخص + رقم الموبايل). */
+  @Get(':id/share')
+  async share(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
+    await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));
+    return { success: true, data: await this.salesService.getShareInfo(req.tenantId, id) };
+  }
+
   @Get(':id')
   async findOne(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));

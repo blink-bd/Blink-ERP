@@ -287,7 +287,7 @@ export class InventoryService {
         title: available <= 0 ? `نفد مخزون ${product.name}` : `انخفاض مخزون ${product.name}`,
         details,
       };
-      void this.notifications.sendOperationalAlert(alert).catch(() => undefined);
+      void this.notifications.sendTenantAlert(tenantId, alert).catch(() => undefined);
       void this.webhooks.emit(tenantId, 'inventory.low_stock', details).catch(() => undefined);
     } catch {
       // تنبيهات المخزون مساندة ولا ينبغي أن تفشل عملية البيع/الشراء بسببها.

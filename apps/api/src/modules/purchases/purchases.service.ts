@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { assertWarehouseUsable } from '@/modules/inventory/location-limits';
 import { FeaturesService } from '@/modules/features/features.service';
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
@@ -15,6 +16,8 @@ import { Warehouse } from '@/modules/inventory/entities/warehouse.entity';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
 import { AccessScope, UNRESTRICTED_SCOPE, assertRowAllowed } from '@/common/utils/access-scope';
+import { safeTimezone, tenantYear } from '@/common/utils/tenant-time';
+import { callingCodeFor, toInternationalPhone } from '@/common/utils/phone';
 
 @Injectable()
 export class PurchasesService {
@@ -30,7 +33,7 @@ export class PurchasesService {
   ) {}
 
   private async generatePurchaseNumber(manager: EntityManager, tenantId: string): Promise<string> {
-    const year = new Date().getFullYear();
+    const year = await tenantYear(manager, tenantId);
     const [row] = await manager.query(
       `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
        VALUES ($1, 'purchase', $2, 2)
@@ -56,6 +59,79 @@ export class PurchasesService {
       take: limit,
     });
     return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
+  /**
+   * توكن الرابط العام لفاتورة المشتريات (لإرسالها للمورد على الواتساب). الفواتير القديمة
+   * بيتولد لها توكن عند أول مشاركة.
+   */
+  async getShareToken(tenantId: string, id: string): Promise<string> {
+    const [row] = await this.dataSource.query(
+      `SELECT share_token AS "shareToken" FROM purchases WHERE id = $1 AND tenant_id = $2`,
+      [id, tenantId]
+    );
+    if (!row) throw new NotFoundException('فاتورة المشتريات غير موجودة');
+    if (row.shareToken) return row.shareToken;
+    const [updated] = await this.dataSource.query(
+      `UPDATE purchases SET share_token = COALESCE(share_token, $3)
+       WHERE id = $1 AND tenant_id = $2 RETURNING share_token AS "shareToken"`,
+      [id, tenantId, randomBytes(32).toString('hex')]
+    );
+    return updated?.[0]?.shareToken ?? updated?.shareToken;
+  }
+
+  /** بيانات إرسال فاتورة المشتريات للمورد على الواتساب (لينك + ملخص + رقم المورد). */
+  async getShareInfo(tenantId: string, id: string) {
+    const token = await this.getShareToken(tenantId, id);
+    const [row] = await this.dataSource.query(
+      `SELECT p.purchase_number AS "number", p.purchase_date AS "date", p.total,
+              p.paid_amount AS "paid", p.supplier_invoice_number AS "supplierInvoiceNumber",
+              s.name AS "partyName", s.phone AS "partyPhone",
+              t.currency, t.timezone, t.country,
+              COALESCE(t.business_name_ar, t.business_name) AS "businessName"
+       FROM purchases p
+       JOIN tenants t ON t.id = p.tenant_id
+       LEFT JOIN suppliers s ON s.id = p.supplier_id AND s.tenant_id = p.tenant_id
+       WHERE p.id = $1 AND p.tenant_id = $2`,
+      [id, tenantId]
+    );
+    const items = await this.dataSource.query(
+      `SELECT COALESCE(pr.name, 'صنف') AS "name", pi.quantity
+       FROM purchase_items pi
+       LEFT JOIN products pr ON pr.id = pi.product_id AND pr.tenant_id = pi.tenant_id
+       WHERE pi.purchase_id = $1 AND pi.tenant_id = $2
+       ORDER BY pi.created_at, pi.id`,
+      [id, tenantId]
+    );
+    const total = Number(row.total) || 0;
+    const paid = Number(row.paid) || 0;
+    const timezone = safeTimezone(row.timezone);
+    return {
+      kind: 'purchase' as const,
+      token,
+      path: `/purchase-invoice/${token}`,
+      documentNumber: row.number,
+      supplierInvoiceNumber: row.supplierInvoiceNumber || undefined,
+      date: row.date,
+      currency: row.currency,
+      timezone,
+      businessName: row.businessName,
+      party: row.partyName
+        ? {
+            type: 'supplier' as const,
+            name: row.partyName,
+            phone: row.partyPhone || null,
+            whatsapp: toInternationalPhone(row.partyPhone, callingCodeFor(timezone, row.country)),
+          }
+        : null,
+      totals: {
+        total,
+        paid,
+        returned: 0,
+        remaining: Math.max(0, Math.round((total - paid) * 100) / 100),
+      },
+      items: items.map((item: any) => ({ name: item.name, quantity: Number(item.quantity) })),
+    };
   }
 
   assertInScope(tenantId: string, id: string, scope: AccessScope): Promise<void> {
@@ -176,6 +252,7 @@ export class PurchasesService {
           branchId,
           warehouseId: dto.warehouseId,
           purchaseDate: new Date(),
+          shareToken: randomBytes(32).toString('hex'),
           subtotal,
           taxAmount,
           total,
@@ -221,10 +298,10 @@ export class PurchasesService {
       void this.inventoryService.checkLowStock(tenantId, item.productId, dto.warehouseId);
     }
     void this.notifications
-      .sendOperationalAlert({
+      .sendTenantAlert(tenantId, {
         event: 'purchase.created',
         title: `فاتورة مشتريات جديدة ${purchase.purchaseNumber}`,
-        details: { tenantId, ...eventData },
+        details: eventData,
       })
       .catch(() => undefined);
     void this.webhooks.emit(tenantId, 'purchase.created', eventData);

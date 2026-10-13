@@ -4,6 +4,7 @@ import { Repository, IsNull, EntityManager } from 'typeorm';
 import { stripProtected } from '@/common/utils/sanitize';
 import { adjustBranchPartyBalance, resolveTenantBranch } from '@/common/utils/branch-accounting';
 import { Customer } from './entities/customer.entity';
+import { tenantYear } from '@/common/utils/tenant-time';
 
 @Injectable()
 export class CustomersService {
@@ -385,7 +386,7 @@ export class CustomersService {
         throw new BadRequestException('مبلغ التحصيل أكبر من رصيد العميل المستحق في هذا الفرع');
       }
 
-      const year = new Date().getFullYear();
+      const year = await tenantYear(manager, tenantId);
       const [counter] = await manager.query(
         `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
          VALUES ($1, 'payment', $2, 2)

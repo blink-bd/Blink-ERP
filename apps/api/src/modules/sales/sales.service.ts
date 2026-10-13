@@ -29,6 +29,8 @@ import {
   assertRowAllowed,
   qbIn,
 } from '@/common/utils/access-scope';
+import { safeTimezone, tenantYear } from '@/common/utils/tenant-time';
+import { callingCodeFor, toInternationalPhone } from '@/common/utils/phone';
 
 const HALF_WHOLESALE_FEATURE_CODE = 'half_wholesale_pricing';
 
@@ -55,7 +57,7 @@ export class SalesService {
   ) {}
 
   private async generateSaleNumber(manager: EntityManager, tenantId: string): Promise<string> {
-    const year = new Date().getFullYear();
+    const year = await tenantYear(manager, tenantId);
     const [row] = await manager.query(
       `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
        VALUES ($1, 'sale', $2, 2)
@@ -68,7 +70,7 @@ export class SalesService {
   }
 
   private async generatePaymentNumber(manager: EntityManager, tenantId: string): Promise<string> {
-    const year = new Date().getFullYear();
+    const year = await tenantYear(manager, tenantId);
     const [row] = await manager.query(
       `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
        VALUES ($1, 'payment', $2, 2)
@@ -479,10 +481,10 @@ export class SalesService {
       void this.inventoryService.checkLowStock(tenantId, item.productId, sale.warehouseId);
     }
     void this.notifications
-      .sendOperationalAlert({
+      .sendTenantAlert(tenantId, {
         event: 'sale.created',
         title: `فاتورة بيع جديدة ${sale.saleNumber}`,
-        details: { tenantId, ...eventData },
+        details: eventData,
       })
       .catch(() => undefined);
     void this.webhooks.emit(tenantId, 'sale.created', eventData);
@@ -615,6 +617,64 @@ export class SalesService {
     for (const productId of result.productIds) {
       void this.inventoryService.checkLowStock(tenantId, productId, result.warehouseId);
     }
+  }
+
+  /**
+   * بيانات إرسال الفاتورة للعميل على الواتساب: اللينك العام (الإيصال الإلكتروني) + ملخص
+   * الفاتورة + رقم موبايل العميل المحفوظ بصيغة دولية.
+   */
+  async getShareInfo(tenantId: string, id: string) {
+    const [row] = await this.dataSource.query(
+      `SELECT s.id, s.sale_number AS "number", s.sale_date AS "date", s.total,
+              s.paid_amount AS "paid", s.receipt_token AS "token", s.status,
+              c.name AS "partyName", c.phone AS "partyPhone",
+              t.currency, t.timezone, t.country,
+              COALESCE(t.business_name_ar, t.business_name) AS "businessName",
+              COALESCE((SELECT SUM(r.total) FROM sale_returns r
+                        WHERE r.tenant_id = s.tenant_id AND r.original_sale_id = s.id), 0) AS "returned",
+              COALESCE((SELECT SUM(r.invoice_credit) FROM sale_returns r
+                        WHERE r.tenant_id = s.tenant_id AND r.original_sale_id = s.id), 0) AS "credited"
+       FROM sales s
+       JOIN tenants t ON t.id = s.tenant_id
+       LEFT JOIN customers c ON c.id = s.customer_id AND c.tenant_id = s.tenant_id
+       WHERE s.id = $1 AND s.tenant_id = $2`,
+      [id, tenantId]
+    );
+    if (!row) throw new NotFoundException('الفاتورة غير موجودة');
+    if (row.status !== 'completed') throw new BadRequestException('الفاتورة ملغاة');
+    const items = await this.dataSource.query(
+      `SELECT product_name AS "name", quantity FROM sale_items
+       WHERE sale_id = $1 AND tenant_id = $2 ORDER BY created_at, id`,
+      [id, tenantId]
+    );
+    const total = Number(row.total) || 0;
+    const paid = Number(row.paid) || 0;
+    const timezone = safeTimezone(row.timezone);
+    return {
+      kind: 'sale' as const,
+      token: row.token,
+      path: `/receipt/${row.token}`,
+      documentNumber: row.number,
+      date: row.date,
+      currency: row.currency,
+      timezone,
+      businessName: row.businessName,
+      party: row.partyName
+        ? {
+            type: 'customer' as const,
+            name: row.partyName,
+            phone: row.partyPhone || null,
+            whatsapp: toInternationalPhone(row.partyPhone, callingCodeFor(timezone, row.country)),
+          }
+        : null,
+      totals: {
+        total,
+        paid,
+        returned: Number(row.returned) || 0,
+        remaining: Math.max(0, Math.round((total - paid - Number(row.credited || 0)) * 100) / 100),
+      },
+      items: items.map((item: any) => ({ name: item.name, quantity: Number(item.quantity) })),
+    };
   }
 
   async getDefaultPaymentMethods(tenantId: string): Promise<PaymentMethod[]> {
@@ -811,7 +871,7 @@ export class SalesService {
           ? await this.resolveRefundMethod(manager, tenantId, sale.id, dto.refundMethodId)
           : undefined;
 
-      const year = new Date().getFullYear();
+      const year = await tenantYear(manager, tenantId);
       const [counter] = await manager.query(
         `INSERT INTO document_counters (tenant_id, document_type, document_year, next_value)
          VALUES ($1, 'return', $2, 2)
@@ -889,10 +949,10 @@ export class SalesService {
       itemCount: returnResult.saleReturn.items?.length || 0,
     };
     void this.notifications
-      .sendOperationalAlert({
+      .sendTenantAlert(tenantId, {
         event: 'sale.return.created',
         title: `مرتجع جديد ${returnResult.saleReturn.returnNumber} بانتظار الفحص`,
-        details: { tenantId, ...eventData },
+        details: eventData,
       })
       .catch(() => undefined);
     void this.webhooks.emit(tenantId, 'sale.return.created', eventData);
@@ -1001,12 +1061,16 @@ export class SalesService {
       const branchId = await resolveTenantBranch(manager, tenantId, saleReturn.branchId);
 
       if (originalProduct.trackInventory) {
+        // الكمية المرتجعة دخلت المخزن على الصنف الأصلي وهي «محجوزة» لحد الفحص.
         await this.inventoryService.adjustReservedQuantityInTransaction(manager, {
           tenantId,
           productId: originalProduct.id,
           warehouseId: saleReturn.warehouseId,
           quantity: -quantity,
         });
+      }
+      // «رجوع على نفس الصنف»: فك الحجز كفاية — الكمية بقت متاحة للبيع تاني بنفس التكلفة.
+      if (originalProduct.trackInventory && dto.disposition !== 'original') {
         await this.inventoryService.adjustInventoryInTransaction(manager, {
           tenantId,
           productId: originalProduct.id,
@@ -1056,6 +1120,19 @@ export class SalesService {
         );
         item.disposition = 'supplier';
         item.supplierId = dto.supplierId;
+      } else if (dto.disposition === 'original') {
+        item.disposition = 'original';
+        if (originalProduct.trackInventory && quantity > 0) {
+          // الكمية دخلت وقت المرتجع بمتوسط التكلفة الحالي؛ نصحح المتوسط عشان الكمية
+          // ترجع بتكلفتها الأصلية (نفس القيمة اللي اتعكست من تكلفة المبيعات).
+          await manager.query(
+            `UPDATE inventory
+             SET weighted_avg_cost = GREATEST(0,
+                   weighted_avg_cost + ($4::numeric * ($5::numeric - weighted_avg_cost)) / quantity)
+             WHERE tenant_id = $1 AND product_id = $2 AND warehouse_id = $3 AND quantity >= $4`,
+            [tenantId, originalProduct.id, saleReturn.warehouseId, quantity, originalUnitCost]
+          );
+        }
       } else {
         const newProduct = await this.createReturnedProduct(
           manager,
@@ -1320,7 +1397,7 @@ export class SalesService {
       'SELECT COUNT(*)::int AS count FROM maintenance_invoices WHERE tenant_id = $1',
       [tenantId]
     );
-    const invoiceNumber = `MNT-${new Date().getFullYear()}-${String(Number(count) + 1).padStart(5, '0')}`;
+    const invoiceNumber = `MNT-${await tenantYear(manager, tenantId)}-${String(Number(count) + 1).padStart(5, '0')}`;
     let customerName = 'صيانة داخلية — مرتجع';
     let customerPhone: string | null = null;
     if (saleReturn.customerId) {

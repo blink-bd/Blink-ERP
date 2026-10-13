@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { BellRing, Copy, DatabaseBackup, Download, ExternalLink, KeyRound, Plus, RefreshCw, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
+import { Copy, DatabaseBackup, Download, ExternalLink, KeyRound, Plus, RefreshCw, RotateCw, ShieldCheck, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { saveBlob } from '@/lib/download';
 import { usePermissions } from '@/lib/permissions';
@@ -9,11 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
+import { formatDateTime, formatDate } from '@/lib/datetime';
+import { AlertSettingsSection } from '@/components/AlertSettingsSection';
 
-interface ChannelStatus {
-  email: { configured: boolean; recipient: string };
-  whatsapp: { configured: boolean; recipient: string; mode: string };
-}
 interface Webhook {
   id: string;
   url: string;
@@ -46,13 +44,11 @@ export function SettingsPage() {
   const [downloading, setDownloading] = useState(false);
   const [pw, setPw] = useState({ currentPassword: '', newPassword: '', confirm: '' });
   const [changing, setChanging] = useState(false);
-  const [channels, setChannels] = useState<ChannelStatus | null>(null);
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
   const [url, setUrl] = useState('');
   const [events, setEvents] = useState<string[]>(['sale.created']);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [signingSecret, setSigningSecret] = useState('');
   const [deliveries, setDeliveries] = useState<{ endpointId: string; records: Delivery[] } | null>(
     null
@@ -61,11 +57,7 @@ export function SettingsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [channelResponse, webhookResponse] = await Promise.all([
-        api.get('/notifications/status'),
-        api.get('/webhooks'),
-      ]);
-      setChannels(channelResponse.data.data);
+      const webhookResponse = await api.get('/webhooks');
       setWebhooks(webhookResponse.data.data || []);
     } catch {
       // يعرض عميل API رسالة الخطأ.
@@ -128,24 +120,6 @@ export function SettingsPage() {
       // يعرض عميل API رسالة الخطأ.
     } finally {
       setChanging(false);
-    }
-  };
-
-  const sendTest = async () => {
-    setTesting(true);
-    try {
-      const response = await api.post('/notifications/test');
-      const result = response.data.data;
-      const sent = [result.email, result.whatsapp].filter(
-        (status: string) => status === 'sent'
-      ).length;
-      if (sent) toast.success(`تم إرسال اختبار إلى ${sent} قناة`);
-      else toast.error('لم تُرسل رسالة: أضف إعدادات SMTP أو WhatsApp Cloud API في Render.');
-      await load();
-    } catch {
-      // يعرض عميل API رسالة الخطأ.
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -318,45 +292,7 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <section className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="flex items-center gap-2 text-lg font-bold">
-              <BellRing className="h-5 w-5 text-primary" /> قنوات التنبيه
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              تصل إشعارات البيع والمخزون والتحويلات إلى العناوين المحددة في إعدادات الخادم.
-            </p>
-          </div>
-          <Button onClick={() => void sendTest()} disabled={testing || loading}>
-            {testing ? 'جاري الإرسال…' : 'إرسال رسالة اختبار'}
-          </Button>
-        </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <ChannelCard
-            title="البريد الإلكتروني"
-            recipient={channels?.email.recipient || 'blinkbusinessdevelopment@gmail.com'}
-            configured={channels?.email.configured || false}
-            hint="يحتاج SMTP ومفتاح تطبيق Gmail؛ لا تُدخل كلمة المرور في الواجهة."
-          />
-          <ChannelCard
-            title="WhatsApp"
-            recipient={channels?.whatsapp.recipient || '+201024898091'}
-            configured={channels?.whatsapp.configured || false}
-            hint={
-              channels?.whatsapp.mode === 'template'
-                ? 'إرسال عبر قالب معتمد من Meta.'
-                : 'الرسائل الحرة تتطلب نافذة محادثة WhatsApp مفتوحة؛ التنبيهات خارجها تحتاج قالباً معتمداً.'
-            }
-          />
-        </div>
-        {!channels?.email.configured && !channels?.whatsapp.configured && (
-          <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-            القنوات غير مفعّلة بعد. أضف أسرار SMTP أو WhatsApp Cloud API في متغيرات البيئة على
-            Render.
-          </p>
-        )}
-      </section>
+      {has('settings.view') && <AlertSettingsSection canEdit={has('settings.update')} />}
 
       <section className="rounded-xl bg-white p-5 shadow-sm">
         <div className="mb-4">
@@ -455,7 +391,7 @@ export function SettingsPage() {
                         .join('، ')}
                     </p>
                     <p className="mt-1 text-xs text-gray-400">
-                      أُضيف في {new Date(webhook.createdAt).toLocaleDateString('ar-EG')}
+                      أُضيف في {formatDate(webhook.createdAt)}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -512,7 +448,7 @@ export function SettingsPage() {
                                 : `فشل${delivery.httpStatus ? ` (${delivery.httpStatus})` : ''}`}
                             </span>
                             <span className="text-gray-400">
-                              {new Date(delivery.attemptedAt).toLocaleString('ar-EG')}
+                              {formatDateTime(delivery.attemptedAt)}
                             </span>
                           </div>
                         ))}
@@ -529,35 +465,6 @@ export function SettingsPage() {
           بعد إصلاح وجهة Webhook.
         </p>
       </section>
-    </div>
-  );
-}
-
-function ChannelCard({
-  title,
-  recipient,
-  configured,
-  hint,
-}: {
-  title: string;
-  recipient: string;
-  configured: boolean;
-  hint: string;
-}) {
-  return (
-    <div className="rounded-lg border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold">{title}</h3>
-        <span
-          className={`rounded-full px-2 py-0.5 text-xs ${configured ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-800'}`}
-        >
-          {configured ? 'مفعّل' : 'غير مفعّل'}
-        </span>
-      </div>
-      <p className="mt-2 text-sm" dir="ltr">
-        {recipient}
-      </p>
-      <p className="mt-2 text-xs leading-5 text-gray-500">{hint}</p>
     </div>
   );
 }

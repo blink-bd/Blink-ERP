@@ -4,11 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import toast from 'react-hot-toast';
-import { Plus, X, Trash2, Paperclip, Printer } from 'lucide-react';
+import { Plus, X, Trash2, Paperclip, Printer, MessageCircle } from 'lucide-react';
 import { InvoiceAttachments } from '@/components/InvoiceAttachments';
 import { escapeHtml } from '@/lib/escape';
 import { useIsDesktop } from '@/lib/useMediaQuery';
 import { keepIfValid, useWorkingWarehouses } from '@/contexts/WorkspaceContext';
+import { formatDateTime, formatDate } from '@/lib/datetime';
+import { ShareInvoiceDialog, type ShareSource } from '@/components/ShareInvoiceDialog';
+
+const PAYMENT_STATUS: Record<string, string> = { paid: 'مدفوعة', partial: 'مدفوعة جزئياً', pending: 'آجل' };
 
 interface Purchase {
   id: string;
@@ -28,6 +32,7 @@ export function PurchasesPage() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [attachmentsFor, setAttachmentsFor] = useState<string | null>(null);
+  const [shareSource, setShareSource] = useState<ShareSource | null>(null);
   const isDesktop = useIsDesktop();
 
   const [supplierId, setSupplierId] = useState('');
@@ -77,7 +82,7 @@ export function PurchasesPage() {
         const product = products.find((p) => p.id === item.productId);
         return `<tr><td>${escapeHtml(product?.name || item.productId)}</td><td>${Number(item.quantity)}</td><td>${Number(item.unitCost).toFixed(2)}</td><td>${Number(item.total).toFixed(2)}</td></tr>`;
       }).join('');
-      const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة شراء ${escapeHtml(purchase.purchaseNumber)}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #aaa;padding:8px;text-align:right}th{background:#eee}.totals{margin-top:16px;font-weight:bold}</style></head><body><h2>فاتورة مشتريات رقم ${escapeHtml(purchase.purchaseNumber)}</h2><p>التاريخ: ${new Date(purchase.purchaseDate).toLocaleString('ar')}</p><p>المورد: ${escapeHtml(supplier?.name || '-')}</p>${purchase.supplierInvoiceNumber ? `<p>رقم فاتورة المورد: ${escapeHtml(purchase.supplierInvoiceNumber)}</p>` : ''}<table><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><p>المجموع الفرعي: ${Number(purchase.subtotal).toFixed(2)}</p><p>الضريبة: ${Number(purchase.taxAmount).toFixed(2)}</p><p>الإجمالي: ${Number(purchase.total).toFixed(2)}</p><p>المدفوع: ${Number(purchase.paidAmount).toFixed(2)}</p></div><script>window.print()</script></body></html>`;
+      const html = `<html dir="rtl"><head><meta charset="utf-8"><title>فاتورة شراء ${escapeHtml(purchase.purchaseNumber)}</title><style>@page{size:A4;margin:12mm}body{font-family:Arial,sans-serif}table{width:100%;border-collapse:collapse;margin-top:16px}th,td{border:1px solid #aaa;padding:8px;text-align:right}th{background:#eee}.totals{margin-top:16px;font-weight:bold}</style></head><body><h2>فاتورة مشتريات رقم ${escapeHtml(purchase.purchaseNumber)}</h2><p>التاريخ: ${formatDateTime(purchase.purchaseDate)}</p><p>المورد: ${escapeHtml(supplier?.name || '-')}</p>${purchase.supplierInvoiceNumber ? `<p>رقم فاتورة المورد: ${escapeHtml(purchase.supplierInvoiceNumber)}</p>` : ''}<table><thead><tr><th>الصنف</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th></tr></thead><tbody>${rows}</tbody></table><div class="totals"><p>المجموع الفرعي: ${Number(purchase.subtotal).toFixed(2)}</p><p>الضريبة: ${Number(purchase.taxAmount).toFixed(2)}</p><p>الإجمالي: ${Number(purchase.total).toFixed(2)}</p><p>المدفوع: ${Number(purchase.paidAmount).toFixed(2)}</p></div><script>window.print()</script></body></html>`;
       const win = window.open('', '_blank');
       if (!win) { toast.error('يرجى السماح بالنوافذ المنبثقة للطباعة'); return; }
       win.document.write(html);
@@ -194,14 +199,17 @@ export function PurchasesPage() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-semibold">{p.purchaseNumber}</div>
-                  <div className="text-xs text-gray-500">{new Date(p.purchaseDate).toLocaleDateString('ar')}</div>
+                  <div className="text-xs text-gray-500">{formatDate(p.purchaseDate)}</div>
                 </div>
                 <div className="text-left">
                   <div className="font-bold">{Number(p.total).toFixed(2)}</div>
-                  <div className="text-xs text-gray-500">{p.paymentStatus}</div>
+                  <div className="text-xs text-gray-500">{PAYMENT_STATUS[p.paymentStatus] || p.paymentStatus}</div>
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap justify-end gap-2">
+                <Button type="button" size="sm" variant="outline" className="text-[#128C7E]" onClick={() => setShareSource({ kind: 'purchase', id: p.id })}>
+                  <MessageCircle className="ml-1 h-4 w-4" /> إرسال
+                </Button>
                 <Button type="button" size="sm" variant="outline" onClick={() => setAttachmentsFor(attachmentsFor === p.id ? null : p.id)}>
                   <Paperclip className="ml-1 h-4 w-4" /> مرفقات
                 </Button>
@@ -228,7 +236,7 @@ export function PurchasesPage() {
               <th className="text-right p-3">التاريخ</th>
               <th className="text-right p-3">الإجمالي</th>
               <th className="text-right p-3">حالة الدفع</th>
-              <th className="text-right p-3">مرفقات / طباعة</th>
+              <th className="text-right p-3">إجراءات</th>
             </tr>
           </thead>
           <tbody>
@@ -238,11 +246,21 @@ export function PurchasesPage() {
               <Fragment key={p.id}>
                 <tr className="border-t">
                   <td className="p-3">{p.purchaseNumber}</td>
-                  <td className="p-3 text-gray-500">{new Date(p.purchaseDate).toLocaleDateString('ar')}</td>
+                  <td className="p-3 text-gray-500">{formatDate(p.purchaseDate)}</td>
                   <td className="p-3 font-medium">{Number(p.total).toFixed(2)}</td>
-                  <td className="p-3">{p.paymentStatus}</td>
+                  <td className="p-3">{PAYMENT_STATUS[p.paymentStatus] || p.paymentStatus}</td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="text-[#128C7E]"
+                        title="إرسال الفاتورة للمورد على الواتساب"
+                        onClick={() => setShareSource({ kind: 'purchase', id: p.id })}
+                      >
+                        <MessageCircle className="ml-1 h-4 w-4" /> إرسال واتساب
+                      </Button>
                       <Button
                         type="button"
                         size="sm"
@@ -270,6 +288,7 @@ export function PurchasesPage() {
         </table>
       </div>
       )}
+      <ShareInvoiceDialog source={shareSource} onClose={() => setShareSource(null)} />
     </div>
   );
 }

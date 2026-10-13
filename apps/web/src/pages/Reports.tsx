@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FeatureLocked } from '@/components/ui/feature-locked';
+import { formatDate, daysAgoKey, todayKey } from '@/lib/datetime';
 
 type Tab =
   | 'sales'
@@ -105,9 +106,9 @@ export function ReportsPage() {
   const canAdvanced = has('advanced_reports.view');
   const [tab, setTab] = useState<Tab>('sales');
   const [startDate, setStartDate] = useState(
-    new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    daysAgoKey(30)
   );
-  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(todayKey());
   const [days, setDays] = useState(60);
   const [report, setReport] = useState<any>(null);
   const [reportTab, setReportTab] = useState<Tab | null>(null);
@@ -665,7 +666,7 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                 <Td className="text-green-600">{money(c.grossProfit)}</Td>
                 <Td className={c.balance > 0 ? 'text-orange-600' : ''}>{money(c.balance)}</Td>
                 <Td>
-                  {c.lastPurchaseAt ? new Date(c.lastPurchaseAt).toLocaleDateString('ar-EG') : '—'}
+                  {c.lastPurchaseAt ? formatDate(c.lastPurchaseAt) : '—'}
                 </Td>
               </tr>
             ))}

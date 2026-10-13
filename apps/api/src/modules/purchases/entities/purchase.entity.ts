@@ -13,6 +13,10 @@ export class Purchase extends BaseEntity {
   @Column({ name: 'supplier_invoice_number', length: 100, nullable: true })
   supplierInvoiceNumber?: string;
 
+  /** توكن الرابط العام لمشاركة الفاتورة مع المورد (بيتولد عند أول مشاركة). */
+  @Column({ name: 'share_token', type: 'varchar', length: 64, nullable: true, select: false })
+  shareToken?: string | null;
+
   @Column({ name: 'supplier_id', type: 'uuid' })
   supplierId: string;
 

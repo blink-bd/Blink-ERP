@@ -52,7 +52,8 @@ describe('BalanceRemindersService', () => {
           الحد_المحدد: 1000,
         }),
       }),
-      { email: 'owner@example.com', whatsapp: '+201000000000' }
+      { email: 'owner@example.com', whatsapp: '+201000000000' },
+      { timezone: undefined }
     );
     expect(manager.query).toHaveBeenCalledTimes(4);
   });

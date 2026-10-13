@@ -3,6 +3,7 @@ import { BellRing, Clock3, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import toast from 'react-hot-toast';
+import { formatDateTime } from '@/lib/datetime';
 
 interface ReminderEvent {
   id: string;
@@ -144,7 +145,7 @@ export function BalanceRemindersPage() {
                 <span className="font-semibold text-red-700">
                   تم تجاوز الحد — أُرسل تنبيه{' '}
                   {data.supplierLimit.lastNotifiedAt
-                    ? `في ${new Date(data.supplierLimit.lastNotifiedAt).toLocaleString('ar-EG')}`
+                    ? `في ${formatDateTime(data.supplierLimit.lastNotifiedAt)}`
                     : ''}
                 </span>
               ) : (
@@ -193,7 +194,7 @@ export function BalanceRemindersPage() {
                   <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500">
                     <span className="inline-flex items-center gap-1">
                       <Clock3 className="h-3.5 w-3.5" /> آخر تنبيه:{' '}
-                      {new Date(event.notifiedAt).toLocaleString('ar-EG')}
+                      {formatDateTime(event.notifiedAt)}
                     </span>
                     <span>البريد: {deliveryLabel[event.emailStatus]}</span>
                     <span>واتساب: {deliveryLabel[event.whatsappStatus]}</span>

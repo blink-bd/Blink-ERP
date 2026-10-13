@@ -63,6 +63,7 @@ function AppRoutes() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/receipt/:token" element={<ReceiptPage />} />
+        <Route path="/purchase-invoice/:token" element={<ReceiptPage kind="purchase" />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboardPage />} />

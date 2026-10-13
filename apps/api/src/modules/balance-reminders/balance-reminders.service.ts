@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, IsNull } from 'typeorm';
-import { NotificationsService } from '@/modules/notifications/notifications.service';
+import {
+  NotificationsService,
+  isTenantAlertEnabled,
+} from '@/modules/notifications/notifications.service';
 import { BalanceReminderEvent } from './balance-reminder-event.entity';
 import { Customer } from '@/modules/customers/entities/customer.entity';
 
@@ -34,7 +37,9 @@ export class BalanceRemindersService {
 
   async runDaily() {
     const tenants = await this.dataSource.query(
-      `SELECT t.id, t.email, t.phone, t.business_name AS "businessName", tf.config
+      `SELECT t.id, COALESCE(t.alert_email, t.email) AS email,
+              COALESCE(t.alert_whatsapp, t.phone) AS phone, t.alert_events AS "alertEvents",
+              t.timezone, t.business_name AS "businessName", tf.config
        FROM tenant_features tf
        JOIN features f ON f.id = tf.feature_id AND f.code = 'balance_reminders' AND f.is_active = true
        JOIN tenants t ON t.id = tf.tenant_id AND t.is_active = true AND t.deleted_at IS NULL
@@ -78,7 +83,8 @@ export class BalanceRemindersService {
               تاريخ_الاستحقاق: item.dueAt,
             },
           },
-          { email: tenant.email, whatsapp: tenant.phone }
+          this.recipientsFor(tenant, 'balance.customer_overdue'),
+          { timezone: tenant.timezone }
         );
         await this.saveDeliveryStatus(item.id, result);
       }
@@ -96,7 +102,8 @@ export class BalanceRemindersService {
               تاريخ_الاستحقاق: item.dueAt,
             },
           },
-          { email: tenant.email, whatsapp: tenant.phone }
+          this.recipientsFor(tenant, 'balance.supplier_due'),
+          { timezone: tenant.timezone }
         );
         await this.saveDeliveryStatus(item.id, result);
       }
@@ -203,7 +210,9 @@ export class BalanceRemindersService {
     }
 
     const [tenant] = await this.dataSource.query(
-      `SELECT email, phone, business_name AS "businessName" FROM tenants WHERE id = $1`,
+      `SELECT COALESCE(alert_email, email) AS email, COALESCE(alert_whatsapp, phone) AS phone,
+              alert_events AS "alertEvents", timezone, business_name AS "businessName"
+       FROM tenants WHERE id = $1`,
       [tenantId]
     );
     const result = await this.notifications.sendOperationalAlert(
@@ -217,7 +226,8 @@ export class BalanceRemindersService {
           التجاوز: outcome.totalPayables - config.limitAmount,
         },
       },
-      { email: tenant?.email, whatsapp: tenant?.phone }
+      this.recipientsFor(tenant, 'supplier.payables_limit_exceeded'),
+      { timezone: tenant?.timezone }
     );
     await this.dataSource.query(
       `UPDATE supplier_payables_limit_states
@@ -374,5 +384,18 @@ export class BalanceRemindersService {
       customerReminderDays: normalizeDays(config.customerReminderDays),
       supplierReminderDays: normalizeDays(config.supplierReminderDays),
     };
+  }
+
+  /**
+   * واتساب/إيميل التاجر للتنبيه (من الإعدادات، وإلا بيانات حساب التاجر) — لو نوع التنبيه
+   * مقفول من الإعدادات بيوصل لإدارة النظام بس.
+   */
+  private recipientsFor(
+    tenant:
+      { email?: string; phone?: string; alertEvents?: Record<string, boolean> | null } | undefined,
+    event: string
+  ): { email?: string; whatsapp?: string } | undefined {
+    if (!tenant || !isTenantAlertEnabled(tenant.alertEvents, event)) return undefined;
+    return { email: tenant.email, whatsapp: tenant.phone };
   }
 }

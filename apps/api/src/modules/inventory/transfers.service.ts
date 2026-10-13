@@ -19,6 +19,7 @@ import { InventoryTransferItem } from './entities/inventory-transfer-item.entity
 import { Product } from '@/modules/products/entities/product.entity';
 import { AuditService, AuditEntry } from '@/modules/audit/audit.service';
 import { CreateTransferDto } from './dto/create-transfer.dto';
+import { tenantYear } from '@/common/utils/tenant-time';
 
 /** بيانات الفاعل التي تُسجَّل في سجل التدقيق. */
 export type TransferActor = Pick<AuditEntry, 'userEmail' | 'ip' | 'userAgent'>;
@@ -159,7 +160,7 @@ export class TransfersService {
       const transfer = await manager.save(
         manager.create(InventoryTransfer, {
           tenantId,
-          transferNumber: `TRF-${new Date().getFullYear()}-${randomBytes(4).toString('hex').toUpperCase()}`,
+          transferNumber: `TRF-${await tenantYear(manager, tenantId)}-${randomBytes(4).toString('hex').toUpperCase()}`,
           sourceBranchId: sourceBranch.id,
           destinationBranchId: destinationBranch.id,
           sourceWarehouseId: sourceWarehouse.id,
@@ -191,11 +192,13 @@ export class TransfersService {
       );
     }
     const eventData = this.eventData(transfer);
-    void this.notifications.sendOperationalAlert({
-      event: 'inventory.transfer.requested',
-      title: `طلب تحويل مخزون ${transfer.transferNumber} بانتظار الموافقة`,
-      details: eventData,
-    });
+    void this.notifications
+      .sendTenantAlert(tenantId, {
+        event: 'inventory.transfer.requested',
+        title: `طلب تحويل مخزون ${transfer.transferNumber} بانتظار الموافقة`,
+        details: eventData,
+      })
+      .catch(() => undefined);
     void this.webhooks.emit(tenantId, 'inventory.transfer.requested', eventData);
     await this.audit.log({
       tenantId,
@@ -345,11 +348,13 @@ export class TransfersService {
       );
     }
     const eventData = this.eventData(transfer);
-    void this.notifications.sendOperationalAlert({
-      event: 'inventory.transfer.approved',
-      title: `تم اعتماد تحويل المخزون ${transfer.transferNumber}`,
-      details: eventData,
-    });
+    void this.notifications
+      .sendTenantAlert(tenantId, {
+        event: 'inventory.transfer.approved',
+        title: `تم اعتماد تحويل المخزون ${transfer.transferNumber}`,
+        details: eventData,
+      })
+      .catch(() => undefined);
     void this.webhooks.emit(tenantId, 'inventory.transfer.approved', eventData);
     await this.audit.log({
       tenantId,
@@ -425,11 +430,13 @@ export class TransfersService {
       );
     }
     const eventData = { ...this.eventData(transfer), سبب_الرفض: transfer.rejectionReason };
-    void this.notifications.sendOperationalAlert({
-      event: 'inventory.transfer.rejected',
-      title: `تم رفض تحويل المخزون ${transfer.transferNumber}`,
-      details: eventData,
-    });
+    void this.notifications
+      .sendTenantAlert(tenantId, {
+        event: 'inventory.transfer.rejected',
+        title: `تم رفض تحويل المخزون ${transfer.transferNumber}`,
+        details: eventData,
+      })
+      .catch(() => undefined);
     void this.webhooks.emit(tenantId, 'inventory.transfer.rejected', eventData);
     await this.audit.log({
       tenantId,

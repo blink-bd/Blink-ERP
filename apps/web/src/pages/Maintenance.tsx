@@ -11,6 +11,7 @@ import {
   useWorkspace,
   workingBranches,
 } from '@/contexts/WorkspaceContext';
+import { formatDateTime, daysAgoKey, todayKey } from '@/lib/datetime';
 
 interface Customer {
   id: string;
@@ -72,9 +73,9 @@ export function MaintenancePage() {
   const branches: Branch[] = workspace ? workingBranches(workspace) : fallbackBranches;
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
   const [startDate, setStartDate] = useState(
-    new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10)
+    daysAgoKey(30)
   );
-  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState(todayKey());
   const [data, setData] = useState<any>(null);
   const [form, setForm] = useState<MaintenanceForm>(emptyForm);
   const [showForm, setShowForm] = useState(false);
@@ -128,7 +129,7 @@ export function MaintenancePage() {
       const branchId = keepIfValid(branches, current.branchId, defaultBranchId);
       return branchId === current.branchId ? current : { ...current, branchId };
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [defaultBranchId, branches.map((branch) => branch.id).join(',')]);
 
   useEffect(() => {
@@ -448,7 +449,7 @@ export function MaintenancePage() {
                     <td className="p-3">
                       <div className="font-medium">{invoice.invoiceNumber}</div>
                       <div className="text-xs text-gray-500">
-                        {new Date(invoice.maintenanceDate).toLocaleString('ar-EG')}
+                        {formatDateTime(invoice.maintenanceDate)}
                       </div>
                       {invoice.source === 'sale_return' && (
                         <span className="mt-1 inline-block rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">

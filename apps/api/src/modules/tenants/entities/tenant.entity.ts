@@ -88,6 +88,18 @@ export class Tenant extends BaseEntity {
   @Column({ name: 'max_products', type: 'int', nullable: true })
   maxProducts?: number | null;
 
+  /** واتساب التاجر لاستقبال تنبيهات حسابه (من إعدادات التاجر). */
+  @Column({ name: 'alert_whatsapp', type: 'varchar', length: 30, nullable: true })
+  alertWhatsapp?: string | null;
+
+  /** إيميل التاجر لاستقبال تنبيهات حسابه (من إعدادات التاجر). */
+  @Column({ name: 'alert_email', type: 'varchar', length: 255, nullable: true })
+  alertEmail?: string | null;
+
+  /** أنواع التنبيهات المفعّلة (null = كلها مفعّلة). */
+  @Column({ name: 'alert_events', type: 'jsonb', nullable: true })
+  alertEvents?: Record<string, boolean> | null;
+
   @OneToMany(() => User, (user) => user.tenant)
   users: User[];
 }

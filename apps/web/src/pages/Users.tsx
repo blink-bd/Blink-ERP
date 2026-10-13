@@ -20,6 +20,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { FeatureLocked } from '@/components/ui/feature-locked';
+import { formatDateTime } from '@/lib/datetime';
 
 interface RoleRef {
   id: string;
@@ -82,7 +83,7 @@ const emptyUser = {
 const emptyRole = { id: '', name: '', nameAr: '', description: '', permissions: [] as string[] };
 
 function formatDate(v?: string | null) {
-  return v ? new Date(v).toLocaleString('ar-EG', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+  return v ? formatDateTime(v, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 }
 
 export function UsersPage() {
