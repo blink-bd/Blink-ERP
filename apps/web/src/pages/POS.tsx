@@ -98,8 +98,18 @@ export function POSPage() {
   const [cart, setCart] = useState<CartLine[]>(stored.cart || []);
   const [priceTier, setPriceTier] = useState<PriceTier>(stored.priceTier || 'retail');
   const halfWholesaleEnabled = useFeature('half_wholesale_pricing');
+  // زراير نقطة البيع اللي المدير العام بيتحكم فيها لكل تاجر.
+  const wholesaleEnabled = useFeature('pos.wholesale_price');
+  const discountEnabled = useFeature('pos.discount');
+  const creditEnabled = useFeature('pos.credit_sale');
+  const multiInvoicesEnabled = useFeature('pos.multi_invoices');
+  const printEnabled = useFeature('pos.print_receipt');
+  const shareEnabled = useFeature('pos.share_after_sale');
   const effectiveTier: PriceTier =
-    priceTier === 'half_wholesale' && !halfWholesaleEnabled ? 'retail' : priceTier;
+    (priceTier === 'half_wholesale' && !halfWholesaleEnabled) ||
+    (priceTier === 'wholesale' && !wholesaleEnabled)
+      ? 'retail'
+      : priceTier;
   const [discount, setDiscount] = useState(stored.discount || '0');
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [warehouseId, setWarehouseId] = useState(stored.warehouseId || '');
@@ -206,7 +216,7 @@ export function POSPage() {
     (sum, line) => sum + (priceFor(line) * line.quantity * line.taxRate) / 100,
     0
   );
-  const discountNum = Number(discount) || 0;
+  const discountNum = discountEnabled ? Number(discount) || 0 : 0;
   const total = Math.max(0, subtotal + taxTotal - discountNum);
 
   const addProductToCart = (product: any) => {
@@ -385,7 +395,7 @@ export function POSPage() {
         payments: methodId ? [{ methodId, amount: total }] : [],
       });
       toast.success(methodId ? 'تمت عملية البيع بنجاح' : 'تم تسجيل الفاتورة آجلة على العميل بنجاح');
-      printReceipt(response.data.data);
+      if (printEnabled) printReceipt(response.data.data);
       setLastSale({ id: response.data.data.id, number: response.data.data.saleNumber });
       clearCurrent();
     } catch (error: any) {
@@ -419,17 +429,26 @@ export function POSPage() {
       <div className="flex flex-col lg:col-span-2">
         {lastSale && (
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-2 text-sm">
-            <span>آخر فاتورة: <strong>{lastSale.number}</strong></span>
+            <span>
+              آخر فاتورة: <strong>{lastSale.number}</strong>
+            </span>
             <div className="flex gap-2">
+              {shareEnabled && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-[#128C7E]"
+                  onClick={() => setShareSource({ kind: 'sale', id: lastSale.id })}
+                >
+                  <MessageCircle className="ml-1 h-4 w-4" /> إرسال للعميل واتساب
+                </Button>
+              )}
               <Button
                 size="sm"
-                variant="outline"
-                className="text-[#128C7E]"
-                onClick={() => setShareSource({ kind: 'sale', id: lastSale.id })}
+                variant="ghost"
+                onClick={() => setLastSale(null)}
+                aria-label="إخفاء"
               >
-                <MessageCircle className="ml-1 h-4 w-4" /> إرسال للعميل واتساب
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setLastSale(null)} aria-label="إخفاء">
                 ✕
               </Button>
             </div>
@@ -483,13 +502,15 @@ export function POSPage() {
                 نص جملة
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setPriceTier('wholesale')}
-              className={`px-4 font-medium ${priceTier === 'wholesale' ? 'bg-primary text-white' : 'bg-white'}`}
-            >
-              جملة
-            </button>
+            {wholesaleEnabled && (
+              <button
+                type="button"
+                onClick={() => setPriceTier('wholesale')}
+                className={`px-4 font-medium ${effectiveTier === 'wholesale' ? 'bg-primary text-white' : 'bg-white'}`}
+              >
+                جملة
+              </button>
+            )}
           </div>
           {saleWarehouses.length > 1 ? (
             <label className="flex h-14 items-center gap-2 rounded-lg border bg-white px-3 text-sm">
@@ -520,41 +541,51 @@ export function POSPage() {
               مفيش مخزن نشط في فرع العمل الحالي
             </span>
           )}
-          <Button
-            variant="outline"
-            onClick={createNewInvoice}
-            title="حفظ الحالية وفتح فاتورة جديدة"
-          >
-            <FilePlus2 className="h-4 w-4 ml-2" />
-            فاتورة جديدة
-          </Button>
-          <div className="relative">
-            <Button variant="outline" onClick={() => setShowDrafts((value) => !value)}>
-              <FolderOpen className="h-4 w-4 ml-2" />
-              المحفوظة ({drafts.length})
-            </Button>
-            {showDrafts && (
-              <div className="absolute z-30 left-0 top-11 bg-white border rounded-md shadow-lg w-72 p-2">
-                {drafts.length === 0 ? (
-                  <p className="text-sm text-gray-400 p-3">لا توجد فواتير محفوظة</p>
-                ) : (
-                  drafts.map((draft) => (
-                    <div key={draft.id} className="flex items-center gap-1 border-b last:border-0">
-                      <button
-                        className="flex-1 text-right text-sm p-2 hover:bg-gray-100"
-                        onClick={() => openDraft(draft)}
-                      >
-                        فاتورة مؤجلة — {draft.cart.length} أصناف
-                      </button>
-                      <button className="p-2 text-red-500" onClick={() => deleteDraft(draft.id)}>
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))
+          {multiInvoicesEnabled && (
+            <>
+              <Button
+                variant="outline"
+                onClick={createNewInvoice}
+                title="حفظ الحالية وفتح فاتورة جديدة"
+              >
+                <FilePlus2 className="h-4 w-4 ml-2" />
+                فاتورة جديدة
+              </Button>
+              <div className="relative">
+                <Button variant="outline" onClick={() => setShowDrafts((value) => !value)}>
+                  <FolderOpen className="h-4 w-4 ml-2" />
+                  المحفوظة ({drafts.length})
+                </Button>
+                {showDrafts && (
+                  <div className="absolute z-30 left-0 top-11 bg-white border rounded-md shadow-lg w-72 p-2">
+                    {drafts.length === 0 ? (
+                      <p className="text-sm text-gray-400 p-3">لا توجد فواتير محفوظة</p>
+                    ) : (
+                      drafts.map((draft) => (
+                        <div
+                          key={draft.id}
+                          className="flex items-center gap-1 border-b last:border-0"
+                        >
+                          <button
+                            className="flex-1 text-right text-sm p-2 hover:bg-gray-100"
+                            onClick={() => openDraft(draft)}
+                          >
+                            فاتورة مؤجلة — {draft.cart.length} أصناف
+                          </button>
+                          <button
+                            className="p-2 text-red-500"
+                            onClick={() => deleteDraft(draft.id)}
+                          >
+                            <X className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 )}
               </div>
-            )}
-          </div>
+            </>
+          )}
         </div>
 
         <div className="relative mb-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -582,7 +613,7 @@ export function POSPage() {
                       setSelectedCustomer(customer);
                       // تسعيرة العميل المحفوظة (جملة / نص جملة) بتتطبق تلقائياً
                       if (
-                        customer.priceTier === 'wholesale' ||
+                        (customer.priceTier === 'wholesale' && wholesaleEnabled) ||
                         (customer.priceTier === 'half_wholesale' && halfWholesaleEnabled)
                       ) {
                         setPriceTier(customer.priceTier as PriceTier);
@@ -690,32 +721,36 @@ export function POSPage() {
             <span>الضريبة</span>
             <span>{taxTotal.toFixed(2)}</span>
           </div>
-          <div className="flex justify-between items-center">
-            <span>الخصم</span>
-            <Input
-              type="number"
-              className="w-24 h-8 text-left"
-              value={discount}
-              onChange={(e) => setDiscount(e.target.value)}
-            />
-          </div>
+          {discountEnabled && (
+            <div className="flex justify-between items-center">
+              <span>الخصم</span>
+              <Input
+                type="number"
+                className="w-24 h-8 text-left"
+                value={discount}
+                onChange={(e) => setDiscount(e.target.value)}
+              />
+            </div>
+          )}
           <div className="flex justify-between text-xl font-bold pt-3 border-t mt-3">
             <span>الإجمالي</span>
             <span className="text-primary">{total.toFixed(2)}</span>
           </div>
         </div>
         <div className="space-y-2 mt-6">
-          {paymentMethods.map((method) => (
-            <Button
-              key={method.id}
-              className="w-full"
-              variant={method.code === 'cash' ? 'default' : 'outline'}
-              disabled={loading || cart.length === 0}
-              onClick={() => handlePaymentClick(method)}
-            >
-              {method.code === 'credit' ? 'آجل على العميل' : `الدفع ${method.nameAr}`}
-            </Button>
-          ))}
+          {paymentMethods
+            .filter((method) => method.code !== 'credit' || creditEnabled)
+            .map((method) => (
+              <Button
+                key={method.id}
+                className="w-full"
+                variant={method.code === 'cash' ? 'default' : 'outline'}
+                disabled={loading || cart.length === 0}
+                onClick={() => handlePaymentClick(method)}
+              >
+                {method.code === 'credit' ? 'آجل على العميل' : `الدفع ${method.nameAr}`}
+              </Button>
+            ))}
         </div>
       </div>
 
@@ -738,7 +773,7 @@ export function POSPage() {
                 إلغاء
               </Button>
               <Button onClick={() => finalizeSale(confirmMethod.id)} disabled={loading}>
-                {loading ? 'جاري التأكيد...' : 'تأكيد وطباعة'}
+                {loading ? 'جاري التأكيد...' : printEnabled ? 'تأكيد وطباعة' : 'تأكيد'}
               </Button>
             </div>
           </div>

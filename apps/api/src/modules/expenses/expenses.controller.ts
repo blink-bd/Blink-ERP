@@ -80,6 +80,7 @@ export class ExpensesController {
   }
 
   @Post('categories')
+  @RequireFeature('expenses.categories')
   @RequirePermission('expenses.manage')
   async createCategory(@Request() req, @Body() dto: any) {
     const category = await this.expensesService.createCategory(req.tenantId, dto);

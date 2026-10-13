@@ -47,6 +47,7 @@ export function SalesPage() {
   const isDesktop = useIsDesktop();
   const returnsEnabled = useFeature('returns');
   const dispositionEnabled = useFeature('return_disposition');
+  const shareEnabled = useFeature('sales.share');
   const { has } = usePermissions();
   const canReturn = returnsEnabled && dispositionEnabled && has('sales.return');
   const canReturnSale = (sale: Sale) =>
@@ -108,9 +109,7 @@ export function SalesPage() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-semibold">{sale.saleNumber}</div>
-                  <div className="text-xs text-gray-500">
-                    {formatDateTime(sale.saleDate)}
-                  </div>
+                  <div className="text-xs text-gray-500">{formatDateTime(sale.saleDate)}</div>
                 </div>
                 <div className="text-left">
                   <div className="font-bold">{money(sale.total)}</div>
@@ -128,7 +127,7 @@ export function SalesPage() {
               <div className="mt-2 flex items-center justify-between gap-2">
                 <span className="text-xs text-gray-600">{statusLabel(sale)}</span>
                 <div className="flex flex-wrap justify-end gap-2">
-                  {sale.status === 'completed' && (
+                  {shareEnabled && sale.status === 'completed' && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -196,9 +195,7 @@ export function SalesPage() {
                 <Fragment key={sale.id}>
                   <tr className="border-t">
                     <td className="p-3 font-medium">{sale.saleNumber}</td>
-                    <td className="p-3 text-gray-500">
-                      {formatDateTime(sale.saleDate)}
-                    </td>
+                    <td className="p-3 text-gray-500">{formatDateTime(sale.saleDate)}</td>
                     <td className="p-3">{money(sale.total)}</td>
                     <td className="p-3">{money(sale.paidAmount)}</td>
                     <td className="p-3 text-red-600">
@@ -210,7 +207,7 @@ export function SalesPage() {
                     <td className="p-3">{statusLabel(sale)}</td>
                     <td className="p-3">
                       <div className="flex flex-wrap gap-2">
-                        {sale.status === 'completed' && (
+                        {shareEnabled && sale.status === 'completed' && (
                           <Button
                             size="sm"
                             variant="outline"

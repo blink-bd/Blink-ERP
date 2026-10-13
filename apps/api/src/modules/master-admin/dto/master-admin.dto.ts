@@ -62,7 +62,8 @@ export class TenantStatusDto {
 export class TenantSubscriptionDto {
   @IsOptional() @IsUUID() planId?: string;
   @IsOptional() @IsDateString() subscriptionStartDate?: string;
-  @IsOptional() @IsDateString() subscriptionEndDate?: string;
+  /** null = بدون تاريخ انتهاء. */
+  @IsOptional() @ValidateIf((_, v) => v !== null) @IsDateString() subscriptionEndDate?: string | null;
   @IsOptional() @IsNumber() @Min(0) subscriptionAmount?: number;
   @IsOptional() @IsIn(['monthly', 'yearly']) subscriptionCycle?: string;
   @IsOptional() @IsString() @Length(0, 2000) subscriptionNote?: string;

@@ -1658,6 +1658,187 @@ describe('Blink ERP — integration flows (e2e)', () => {
   });
 
   // -------------------------------------------------------------- auth security
+  describe('master admin control of buttons, passwords and channels', () => {
+    const setFeature = async (code: string, isEnabled: boolean) => {
+      const features: any[] = (await master.get(api(`/admin/tenants/${state.tenantAId}/features`)))
+        .body.data;
+      const feature = features.find((f) => f.code === code);
+      expect(feature).toBeDefined();
+      const response = await master.put(api(`/admin/tenants/${state.tenantAId}/features`), {
+        features: [{ featureId: feature.id, isEnabled }],
+      });
+      expect(response.status).toBe(200);
+      return response.body.data as any[];
+    };
+
+    it('lists every button under its page and keeps buttons on by default', async () => {
+      const features: any[] = (await master.get(api(`/admin/tenants/${state.tenantAId}/features`)))
+        .body.data;
+      const remove = features.find((f) => f.code === 'products.delete');
+      expect(remove).toMatchObject({ parent: 'products', kind: 'action', isEnabled: true });
+      expect(remove.isEffective).toBe(true);
+      expect(features.find((f) => f.code === 'products')).toMatchObject({ kind: 'page' });
+      expect(features.filter((f) => f.kind === 'action').length).toBeGreaterThan(25);
+
+      const mine = await tenantA.get(api('/tenants/features'));
+      const codes = mine.body.data.map((f: any) => f.code);
+      expect(codes).toEqual(expect.arrayContaining(['products.delete', 'pos.discount']));
+    });
+
+    it('blocks a disabled button on the API and restores it when re-enabled', async () => {
+      const product = await tenantA.post(api('/products'), {
+        name: 'صنف للحذف',
+        sku: 'DEL-ME-1',
+        costPrice: 5,
+        sellingPrice: 10,
+        unit: 'قطعة',
+      });
+      expect(product.status).toBe(201);
+
+      const after = await setFeature('products.delete', false);
+      expect(after.find((f) => f.code === 'products.delete').isEffective).toBe(false);
+      // قفل زرار ما بيقفلش الصفحة.
+      expect(after.find((f) => f.code === 'products').isEffective).toBe(true);
+
+      const blocked = await tenantA.del(api(`/products/${product.body.data.id}`));
+      expect(blocked.status).toBe(403);
+      expect(blocked.body.error?.code).toBe('FEATURE_DISABLED');
+      const mine = await tenantA.get(api('/tenants/features'));
+      expect(mine.body.data.map((f: any) => f.code)).not.toContain('products.delete');
+
+      await setFeature('products.delete', true);
+      const removed = await tenantA.del(api(`/products/${product.body.data.id}`));
+      expect([200, 204]).toContain(removed.status);
+    });
+
+    it('enforces the POS discount and credit-sale buttons on the server', async () => {
+      await setFeature('pos.discount', false);
+      const discounted = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+        discountAmount: 5,
+      });
+      expect(discounted.status).toBe(403);
+      expect(discounted.body.error?.code).toBe('FEATURE_DISABLED');
+      await setFeature('pos.discount', true);
+
+      await setFeature('pos.credit_sale', false);
+      const onCredit = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+      });
+      expect(onCredit.status).toBe(403);
+      expect(onCredit.body.error?.code).toBe('FEATURE_DISABLED');
+      await setFeature('pos.credit_sale', true);
+    });
+
+    it('hides the balance cards on the dashboard when that button is off', async () => {
+      const before = await tenantA.get(api('/dashboard/summary'));
+      expect(before.status).toBe(200);
+      expect(before.body.data).toHaveProperty('customerInvoices');
+      await setFeature('dashboard.balances', false);
+      const after = await tenantA.get(api('/dashboard/summary'));
+      expect(after.status).toBe(200);
+      expect(after.body.data).not.toHaveProperty('customerInvoices');
+      expect(after.body.data).not.toHaveProperty('supplierInvoices');
+      await setFeature('dashboard.balances', true);
+    });
+
+    it('does not let merchants change their own password — only the master admin', async () => {
+      const own = await tenantA.post(api('/auth/change-password'), {
+        currentPassword: 'whatever-123',
+        newPassword: 'Another-Strong-Pass-99',
+      });
+      expect(own.status).toBe(403);
+      expect(JSON.stringify(own.body)).toContain('PASSWORD_MANAGED_BY_ADMIN');
+
+      const users = await master.get(api(`/admin/tenants/${state.tenantAId}/users`));
+      expect(users.status).toBe(200);
+      expect(users.body.data[0]).toHaveProperty('roles');
+      expect(users.body.data[0]).not.toHaveProperty('passwordHash');
+    });
+
+    it('gives the master admin a full tenant profile without sales amounts', async () => {
+      const profile = await master.get(api(`/admin/tenants/${state.tenantAId}/profile`));
+      expect(profile.status).toBe(200);
+      const data = profile.body.data;
+      expect(data.tenant.id).toBe(state.tenantAId);
+      expect(data.usage.branches).toBeGreaterThanOrEqual(2);
+      expect(data.usage.products).toBeGreaterThanOrEqual(1);
+      expect(data.activity.documents.sales).toBeGreaterThanOrEqual(1);
+      expect(data.activity.daily).toHaveLength(14);
+      expect(Array.isArray(data.health)).toBe(true);
+      expect(JSON.stringify(data)).not.toMatch(/salesTotal|revenue/i);
+
+      const branches = await master.get(api(`/admin/tenants/${state.tenantAId}/branches`));
+      expect(branches.status).toBe(200);
+      expect(branches.body.data.length).toBeGreaterThanOrEqual(2);
+      expect(branches.body.data[0]).toHaveProperty('warehouses');
+
+      const dashboard = await master.get(api('/admin/dashboard'));
+      expect(dashboard.status).toBe(200);
+      expect(dashboard.body.data.tenants.total).toBeGreaterThanOrEqual(2);
+      expect(dashboard.body.data).toHaveProperty('revenue.monthlyRecurring');
+      expect(dashboard.body.data).not.toHaveProperty('last30Days');
+
+      const list = await master.get(api('/admin/tenants'));
+      const row = list.body.data.find((t: any) => t.id === state.tenantAId);
+      expect(row).toHaveProperty('lastActivityAt');
+      expect(row.users).toBeGreaterThanOrEqual(1);
+
+      const forbidden = await tenantA.get(api(`/admin/tenants/${state.tenantAId}/profile`));
+      expect(forbidden.status).toBe(401);
+    });
+
+    it('stores notification channel secrets encrypted and never returns them', async () => {
+      const blocked = await tenantA.get(api('/admin/notification-channels'));
+      expect(blocked.status).toBe(401);
+
+      const saved = await master.put(api('/admin/notification-channels'), {
+        email: { provider: 'brevo', fromEmail: 'alerts@blink.test', apiKey: 'xkeysib-secret-value' },
+        whatsapp: { phoneNumberId: '123456789', accessToken: 'EAAG-secret-token' },
+        operator: { email: 'ops@blink.test', whatsapp: '+201000000001' },
+      });
+      expect(saved.status).toBe(200);
+      expect(saved.body.data.email).toMatchObject({ provider: 'brevo', hasApiKey: true, configured: true });
+      expect(saved.body.data.whatsapp).toMatchObject({ hasAccessToken: true, configured: true });
+      expect(saved.body.data.source).toBe('admin');
+      expect(JSON.stringify(saved.body)).not.toContain('secret');
+
+      const [row] = await dataSource.query(
+        `SELECT secrets FROM platform_settings WHERE key = 'notification_channels'`
+      );
+      expect(row.secrets).toBeTruthy();
+      expect(row.secrets).not.toContain('xkeysib-secret-value');
+
+      // حفظ من غير مفتاح جديد = المفتاح القديم يفضل محفوظ.
+      const kept = await master.put(api('/admin/notification-channels'), {
+        email: { provider: 'brevo', fromEmail: 'alerts@blink.test', apiKey: '' },
+      });
+      expect(kept.body.data.email.hasApiKey).toBe(true);
+
+      const off = await master.put(api('/admin/notification-channels'), {
+        email: { provider: 'none' },
+        clearSecrets: ['emailApiKey', 'whatsappToken'],
+      });
+      expect(off.status).toBe(200);
+      expect(off.body.data.email).toMatchObject({ configured: false, hasApiKey: false });
+      expect(off.body.data.whatsapp.hasAccessToken).toBe(false);
+
+      const test = await master.post(api('/admin/notification-channels/test'), {});
+      expect(test.status).toBe(201);
+      expect(test.body.data.email.result).toBe('skipped');
+      expect(test.body.data.whatsapp.result).toBe('skipped');
+      expect(test.body.data.email.to).toBe('ops@blink.test');
+
+      const status = await tenantA.get(api('/notifications/status'));
+      expect(status.body.data.email.configured).toBe(false);
+      expect(JSON.stringify(status.body)).not.toContain('ops@blink.test');
+    });
+  });
+
   describe('master admin 2FA and lockout safety', () => {
     it('sets up and enables TOTP without locking the account out', async () => {
       const setup = await master.post(api('/admin/auth/2fa/setup'), {

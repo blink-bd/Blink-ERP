@@ -1,3 +1,5 @@
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import {
   Body,
   Controller,
@@ -18,7 +20,8 @@ import { WebhooksService } from './webhooks.service';
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @Controller({ path: 'webhooks', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@RequireFeature('settings.webhooks')
 export class WebhooksController {
   constructor(private readonly webhooks: WebhooksService) {}
 

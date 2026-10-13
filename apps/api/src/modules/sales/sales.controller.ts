@@ -89,6 +89,7 @@ export class SalesController {
 
   /** بيانات إرسال الفاتورة للعميل (لينك + ملخص + رقم الموبايل). */
   @Get(':id/share')
+  @RequireFeature('sales.share')
   async share(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));
     return { success: true, data: await this.salesService.getShareInfo(req.tenantId, id) };
@@ -103,7 +104,19 @@ export class SalesController {
   @Post()
   @RequirePermission('sales.create')
   async create(@Request() req, @Body() dto: CreateSaleDto) {
-    if (req.user?.authType !== 'api_key') await this.assertFeature(req.tenantId, 'pos');
+    let allowCredit: boolean | undefined;
+    if (req.user?.authType !== 'api_key') {
+      await this.assertFeature(req.tenantId, 'pos');
+      // زراير نقطة البيع اللي المدير العام يقدر يقفلها لكل تاجر.
+      const discounted =
+        Number(dto.discountAmount || 0) > 0 ||
+        (dto.items || []).some((item) => Number(item.discountAmount || 0) > 0);
+      if (discounted) await this.assertFeature(req.tenantId, 'pos.discount');
+      if ((dto.items || []).some((item) => item.priceTier === 'wholesale')) {
+        await this.assertFeature(req.tenantId, 'pos.wholesale_price');
+      }
+      allowCredit = await this.featuresService.tenantHasFeature(req.tenantId, 'pos.credit_sale');
+    }
     const scope = scopeOf(req);
     // البيع لازم يكون من مخزن مسموح للمستخدم (فرع الفاتورة = فرع المخزن).
     assertWarehouseAllowed(scope, dto.warehouseId);
@@ -111,12 +124,14 @@ export class SalesController {
       req.tenantId,
       dto,
       req.user.id,
-      resolveBranchForWrite(scope, null, req.user.branchId) || undefined
+      resolveBranchForWrite(scope, null, req.user.branchId) || undefined,
+      { allowCredit }
     );
     return { success: true, data: sale, message: 'تم إنشاء الفاتورة بنجاح' };
   }
 
   @Post(':id/payments')
+  @RequireFeature('sales.collect_payment')
   @RequirePermission('sales.payment')
   async addPayment(
     @Request() req,
@@ -136,6 +151,7 @@ export class SalesController {
   }
 
   @Post(':id/void')
+  @RequireFeature('sales.void')
   @RequirePermission('sales.void')
   async void(@Request() req, @Param('id', ParseUUIDPipe) id: string, @Body() dto: VoidSaleDto) {
     await this.salesService.assertInScope('sales', req.tenantId, id, scopeOf(req));

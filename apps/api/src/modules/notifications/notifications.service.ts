@@ -4,6 +4,14 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import nodemailer, { Transporter } from 'nodemailer';
 import { DataSource } from 'typeorm';
 import { DEFAULT_TENANT_TIMEZONE, safeTimezone } from '@/common/utils/tenant-time';
+import {
+  CHANNELS_SETTINGS_KEY,
+  DeliveryOutcome,
+  ResolvedChannels,
+  decryptChannelSecrets,
+  providerError,
+  resolveChannels,
+} from './notification-channels';
 
 export interface OperationalAlert {
   event: string;
@@ -107,7 +115,8 @@ interface TenantAlertSettings {
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
-  private mailTransport?: Transporter;
+  private mailTransport?: { signature: string; transport: Transporter };
+  private channelsCache?: { value: ResolvedChannels; expiresAt: number };
   private readonly tenantCache = new Map<
     string,
     { value: TenantAlertSettings; expiresAt: number }
@@ -138,6 +147,37 @@ export class NotificationsService {
 
   invalidateTenant(tenantId: string) {
     this.tenantCache.delete(tenantId);
+  }
+
+  /** إعدادات قنوات الإرسال الفعلية (لوحة المدير العام ← متغيرات البيئة). كاش 30 ثانية. */
+  async getChannels(): Promise<ResolvedChannels> {
+    if (this.channelsCache && this.channelsCache.expiresAt > Date.now()) {
+      return this.channelsCache.value;
+    }
+    const get = (key: string) => this.config.get<string>(key);
+    let stored: any = null;
+    let secrets = {};
+    if (this.dataSource) {
+      try {
+        const [row] = await this.dataSource.query(
+          `SELECT value, secrets FROM platform_settings WHERE key = $1`,
+          [CHANNELS_SETTINGS_KEY]
+        );
+        stored = row?.value || null;
+        secrets = decryptChannelSecrets(row?.secrets, get);
+      } catch (error) {
+        // الجدول لسه ما اتعملش (قبل الـ migration) — نكمل بمتغيرات البيئة.
+        this.logger.warn(`Could not load notification channels: ${this.safeError(error)}`);
+      }
+    }
+    const value = resolveChannels(stored, secrets, get);
+    this.channelsCache = { value, expiresAt: Date.now() + 30_000 };
+    return value;
+  }
+
+  invalidateChannels() {
+    this.channelsCache = undefined;
+    this.mailTransport = undefined;
   }
 
   /**
@@ -252,20 +292,20 @@ export class NotificationsService {
     return out;
   }
 
-  getStatus() {
-    const email = this.isEmailConfigured();
-    const whatsapp = this.isWhatsAppConfigured();
+  async getStatus() {
+    const channels = await this.getChannels();
     return {
       email: {
-        configured: email,
-        recipient:
-          this.config.get<string>('NOTIFICATION_EMAIL_TO') || 'blinkbusinessdevelopment@gmail.com',
+        configured: channels.email.configured,
+        provider: channels.email.provider,
+        recipient: channels.operator.email,
       },
       whatsapp: {
-        configured: whatsapp,
-        recipient: this.config.get<string>('WHATSAPP_TO') || '+201024898091',
-        mode: this.config.get<string>('WHATSAPP_TEMPLATE_NAME') ? 'template' : 'text',
+        configured: channels.whatsapp.configured,
+        recipient: channels.operator.whatsapp,
+        mode: channels.whatsapp.templateName ? 'template' : 'text',
       },
+      source: channels.source,
     };
   }
 
@@ -275,10 +315,9 @@ export class NotificationsService {
     options: { timezone?: string } = {}
   ): Promise<{ email: ChannelResult; whatsapp: ChannelResult }> {
     const message = this.formatMessage(alert, options.timezone);
-    const operatorEmail = (
-      this.config.get<string>('NOTIFICATION_EMAIL_TO') || 'blinkbusinessdevelopment@gmail.com'
-    ).trim();
-    const operatorWhatsapp = (this.config.get<string>('WHATSAPP_TO') || '+201024898091').trim();
+    const channels = await this.getChannels();
+    const operatorEmail = channels.operator.email.trim();
+    const operatorWhatsapp = channels.operator.whatsapp.trim();
     const extraEmail = recipients?.email?.trim();
     const extraWhatsapp = recipients?.whatsapp?.trim();
     // كل مستلم بياخد رسالته لوحده — التاجر ما يشوفش عناوين إدارة النظام والعكس.
@@ -312,21 +351,6 @@ export class NotificationsService {
     });
   }
 
-  private isEmailConfigured(): boolean {
-    return Boolean(
-      this.config.get<string>('MAIL_HOST') &&
-      this.config.get<string>('MAIL_USER') &&
-      this.config.get<string>('MAIL_PASSWORD')
-    );
-  }
-
-  private isWhatsAppConfigured(): boolean {
-    return Boolean(
-      this.config.get<string>('WHATSAPP_ACCESS_TOKEN') &&
-      this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID')
-    );
-  }
-
   private formatMessage(alert: OperationalAlert, timezone?: string, businessName?: string): string {
     const details = Object.entries(alert.details)
       .map(([key, value]) => {
@@ -344,24 +368,20 @@ export class NotificationsService {
     return message.length > 3500 ? `${message.slice(0, 3480)}\n… تم اختصار التفاصيل` : message;
   }
 
-  private getMailTransport(): Transporter {
-    if (this.mailTransport) return this.mailTransport;
-    const port = Number(this.config.get<string>('MAIL_PORT') || 587);
-    const secure =
-      String(this.config.get<string>('MAIL_SECURE') || 'false').toLowerCase() === 'true';
-    this.mailTransport = nodemailer.createTransport({
-      host: this.config.get<string>('MAIL_HOST'),
-      port,
-      secure,
-      auth: {
-        user: this.config.get<string>('MAIL_USER'),
-        pass: this.config.get<string>('MAIL_PASSWORD'),
-      },
+  private getMailTransport(smtp: NonNullable<ResolvedChannels['email']['smtp']>): Transporter {
+    const signature = `${smtp.host}:${smtp.port}:${smtp.secure}:${smtp.user}:${smtp.pass.length}`;
+    if (this.mailTransport?.signature === signature) return this.mailTransport.transport;
+    const transport = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      auth: { user: smtp.user, pass: smtp.pass },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
       socketTimeout: 15000,
     });
-    return this.mailTransport;
+    this.mailTransport = { signature, transport };
+    return transport;
   }
 
   private async sendEmail(
@@ -369,49 +389,123 @@ export class NotificationsService {
     text: string,
     recipients: string[]
   ): Promise<ChannelResult> {
-    if (!this.isEmailConfigured() || recipients.length === 0) return 'skipped';
+    return (await this.deliverEmail(subject, text, recipients)).result;
+  }
+
+  /** إرسال إيميل عن طريق المزود المختار (SMTP أو Brevo أو Resend عبر HTTPS). */
+  async deliverEmail(
+    subject: string,
+    text: string,
+    recipients: string[],
+    channelsOverride?: ResolvedChannels
+  ): Promise<DeliveryOutcome> {
+    const channels = channelsOverride || (await this.getChannels());
+    const email = channels.email;
+    const to = recipients.map((item) => item.trim()).filter(Boolean);
+    if (!email.configured) return { result: 'skipped', error: 'الإيميل مش متظبط' };
+    if (to.length === 0) return { result: 'skipped', error: 'مفيش مستلم' };
+    const fullSubject = `[Blink ERP] ${subject}`;
     try {
-      const from = this.config.get<string>('MAIL_FROM') || this.config.get<string>('MAIL_USER');
-      await this.getMailTransport().sendMail({
-        from,
-        to: recipients.join(', '),
-        subject: `[Blink ERP] ${subject}`,
-        text,
+      if (email.provider === 'smtp' && email.smtp) {
+        await this.getMailTransport(email.smtp).sendMail({
+          from: email.fromEmail ? `"${email.fromName}" <${email.fromEmail}>` : email.smtp.user,
+          to: to.join(', '),
+          subject: fullSubject,
+          text,
+        });
+        return { result: 'sent' };
+      }
+      const request: { url: string; headers: Record<string, string>; body: unknown } =
+        email.provider === 'brevo'
+          ? {
+              url: 'https://api.brevo.com/v3/smtp/email',
+              headers: { 'api-key': email.apiKey as string },
+              body: {
+                sender: { email: email.fromEmail, name: email.fromName },
+                to: to.map((address) => ({ email: address })),
+                subject: fullSubject,
+                textContent: text,
+              },
+            }
+          : {
+              url: 'https://api.resend.com/emails',
+              headers: { Authorization: `Bearer ${email.apiKey}` },
+              body: {
+                from: `${email.fromName} <${email.fromEmail}>`,
+                to,
+                subject: fullSubject,
+                text,
+              },
+            };
+      const response = await this.timedFetch(request.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...request.headers,
+        },
+        body: JSON.stringify(request.body),
       });
-      return 'sent';
+      if (!response.ok) {
+        this.logger.warn(`Email delivery (${email.provider}) failed with HTTP ${response.status}`);
+        return {
+          result: 'failed',
+          error: await providerError(response, email.provider === 'brevo' ? 'Brevo' : 'Resend'),
+        };
+      }
+      return { result: 'sent' };
     } catch (error) {
       this.logger.warn(`Email delivery failed: ${this.safeError(error)}`);
-      return 'failed';
+      const reason =
+        error instanceof Error && error.name === 'AbortError'
+          ? 'انتهت مهلة الاتصال'
+          : error instanceof Error && /ETIMEDOUT|ECONNREFUSED|timeout|Greeting/i.test(error.message)
+            ? 'تعذر الاتصال بسيرفر SMTP (خطة Render المجانية بتقفل منافذ SMTP — استخدم Brevo أو Resend)'
+            : error instanceof Error
+              ? error.message.slice(0, 200)
+              : 'خطأ غير معروف';
+      return { result: 'failed', error: reason };
     }
   }
 
   private async sendWhatsApp(message: string, recipients: string[]): Promise<ChannelResult> {
-    if (!this.isWhatsAppConfigured()) return 'skipped';
+    return (await this.deliverWhatsApp(message, recipients)).result;
+  }
 
-    const apiVersion = this.config.get<string>('WHATSAPP_API_VERSION') || 'v26.0';
-    const phoneNumberId = this.config.get<string>('WHATSAPP_PHONE_NUMBER_ID');
-    const token = this.config.get<string>('WHATSAPP_ACCESS_TOKEN');
-    const templateName = this.config.get<string>('WHATSAPP_TEMPLATE_NAME');
-    const language = this.config.get<string>('WHATSAPP_TEMPLATE_LANGUAGE') || 'ar';
+  /** إرسال واتساب عن طريق WhatsApp Cloud API (Meta). */
+  async deliverWhatsApp(
+    message: string,
+    recipients: string[],
+    channelsOverride?: ResolvedChannels
+  ): Promise<DeliveryOutcome> {
+    const channels = channelsOverride || (await this.getChannels());
+    const wa = channels.whatsapp;
+    if (!wa.configured) return { result: 'skipped', error: 'الواتساب مش متظبط' };
     const normalizedRecipients = Array.from(
       new Set(recipients.map((recipient) => recipient.replace(/[^\d]/g, '')).filter(Boolean))
     );
-    if (normalizedRecipients.length === 0) return 'skipped';
+    if (normalizedRecipients.length === 0) return { result: 'skipped', error: 'مفيش مستلم' };
 
     const results = await Promise.all(
-      normalizedRecipients.map(async (recipient): Promise<ChannelResult> => {
-        const payload = templateName
+      normalizedRecipients.map(async (recipient): Promise<DeliveryOutcome> => {
+        const payload = wa.templateName
           ? {
               messaging_product: 'whatsapp',
               to: recipient,
               type: 'template',
               template: {
-                name: templateName,
-                language: { code: language },
+                name: wa.templateName,
+                language: { code: wa.templateLanguage },
                 components: [
                   {
                     type: 'body',
-                    parameters: [{ type: 'text', text: message.slice(0, 1024) }],
+                    // متغيرات القوالب مابتقبلش سطور جديدة أو مسافات كتير.
+                    parameters: [
+                      {
+                        type: 'text',
+                        text: message.replace(/\s*\n+\s*/g, ' • ').replace(/ {4,}/g, ' ').slice(0, 1024),
+                      },
+                    ],
                   },
                 ],
               },
@@ -422,37 +516,51 @@ export class NotificationsService {
               type: 'text',
               text: { body: message, preview_url: false },
             };
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 10000);
         try {
-          const response = await fetch(
-            `https://graph.facebook.com/${encodeURIComponent(apiVersion)}/${encodeURIComponent(phoneNumberId as string)}/messages`,
+          const response = await this.timedFetch(
+            `https://graph.facebook.com/${encodeURIComponent(wa.apiVersion)}/${encodeURIComponent(wa.phoneNumberId as string)}/messages`,
             {
               method: 'POST',
               headers: {
-                Authorization: `Bearer ${token}`,
+                Authorization: `Bearer ${wa.token}`,
                 'Content-Type': 'application/json',
               },
               body: JSON.stringify(payload),
-              signal: controller.signal,
             }
           );
           if (!response.ok) {
             // لا نسجل نص الاستجابة كي لا تتسرب بيانات اعتماد أو بيانات عميل إلى السجلات.
             this.logger.warn(`WhatsApp delivery failed with HTTP ${response.status}`);
-            return 'failed';
+            return { result: 'failed', error: await providerError(response, 'WhatsApp') };
           }
-          return 'sent';
+          return { result: 'sent' };
         } catch (error) {
           this.logger.warn(`WhatsApp delivery failed: ${this.safeError(error)}`);
-          return 'failed';
-        } finally {
-          clearTimeout(timeout);
+          return {
+            result: 'failed',
+            error:
+              error instanceof Error && error.name === 'AbortError'
+                ? 'انتهت مهلة الاتصال بـ WhatsApp'
+                : 'تعذر الاتصال بـ WhatsApp',
+          };
         }
       })
     );
-    if (results.includes('failed')) return 'failed';
-    return results.includes('sent') ? 'sent' : 'skipped';
+    const failed = results.find((item) => item.result === 'failed');
+    if (failed) return failed;
+    return results.some((item) => item.result === 'sent')
+      ? { result: 'sent' }
+      : { result: 'skipped' };
+  }
+
+  private async timedFetch(url: string, init: RequestInit): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   private safeError(error: unknown): string {

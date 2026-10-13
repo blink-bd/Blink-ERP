@@ -1,3 +1,5 @@
+import { FeaturesGuard } from '@/modules/features/features.guard';
+import { RequireFeature } from '@/common/decorators/require-feature.decorator';
 import { Controller, Get, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
@@ -10,11 +12,12 @@ import { BackupService } from './backup.service';
 @ApiBearerAuth()
 @RequirePermission('backup.export')
 @Controller({ path: 'backup', version: '1' })
-@UseGuards(JwtAuthGuard, TenantContextGuard, PermissionGuard)
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class BackupController {
   constructor(private readonly backupService: BackupService) {}
 
   @Get('export')
+  @RequireFeature('settings.backup')
   @ApiOperation({ summary: 'تصدير نسخة احتياطية JSON كاملة لبيانات المستأجر الحالي' })
   async export(@Request() req) {
     const data = await this.backupService.exportTenantData(req.tenantId);

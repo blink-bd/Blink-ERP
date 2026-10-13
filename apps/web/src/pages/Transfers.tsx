@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowRightLeft, Check, RefreshCw, X } from 'lucide-react';
 import { defaultWorkingWarehouseId, useWorkspace } from '@/contexts/WorkspaceContext';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -55,6 +56,7 @@ const statusLabel: Record<Transfer['status'], string> = {
 
 export function TransfersPage() {
   const { user } = useAuth();
+  const transfersEnabled = useFeature('inventory.transfers');
   const { workspace, loading: workspaceLoading, reload: reloadWorkspace } = useWorkspace();
   const [branches, setBranches] = useState<Branch[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -96,7 +98,9 @@ export function TransfersPage() {
         branchRequest,
         api.get('/warehouses'),
         api.get('/products', { params: { limit: 200 } }),
-        api.get('/inventory/transfers'),
+        transfersEnabled
+          ? api.get('/inventory/transfers')
+          : Promise.resolve({ data: { data: [] } }),
       ]);
       const activeWarehouses = (warehouseResponse.data.data || []).filter(
         (item: Warehouse) => item.isActive
@@ -148,7 +152,7 @@ export function TransfersPage() {
     } finally {
       setLoading(false);
     }
-  }, [workspaceLoading, workspaceBranches, preferredSourceId]);
+  }, [workspaceLoading, workspaceBranches, preferredSourceId, transfersEnabled]);
 
   // الوجهة لازم تبقى مخزن غير المصدر.
   useEffect(() => {
@@ -450,201 +454,216 @@ export function TransfersPage() {
         </div>
       </section>
 
-      <form onSubmit={createTransfer} className="rounded-xl bg-white p-5 shadow-sm">
-        <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
-          <ArrowRightLeft className="h-5 w-5 text-primary" /> طلب تحويل جديد
-        </h2>
-        {availableWarehouses.length < 2 ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            يلزم إنشاء فرعين على الأقل وربط مخزن نشط بكل فرع قبل طلب التحويل.
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <Label>من الفرع / المخزن</Label>
-                <select
-                  className="mt-1 h-10 w-full rounded-md border px-3"
-                  value={sourceWarehouseId}
-                  onChange={(event) => setSourceWarehouseId(event.target.value)}
-                >
-                  {availableWarehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouseLabel(warehouse, branchById.get(warehouse.branchId || ''))}
-                    </option>
-                  ))}
-                </select>
+      {!transfersEnabled && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          التحويلات بين الفروع مش مفعّلة لحسابك. تقدر تدير الفروع والمخازن من فوق، ولتفعيل التحويلات
+          تواصل مع إدارة النظام.
+        </div>
+      )}
+      {transfersEnabled && (
+        <>
+          <form onSubmit={createTransfer} className="rounded-xl bg-white p-5 shadow-sm">
+            <h2 className="mb-4 flex items-center gap-2 text-lg font-bold">
+              <ArrowRightLeft className="h-5 w-5 text-primary" /> طلب تحويل جديد
+            </h2>
+            {availableWarehouses.length < 2 ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                يلزم إنشاء فرعين على الأقل وربط مخزن نشط بكل فرع قبل طلب التحويل.
               </div>
-              <div>
-                <Label>إلى الفرع / المخزن</Label>
-                <select
-                  className="mt-1 h-10 w-full rounded-md border px-3"
-                  value={destinationWarehouseId}
-                  onChange={(event) => setDestinationWarehouseId(event.target.value)}
-                >
-                  {availableWarehouses.map((warehouse) => (
-                    <option key={warehouse.id} value={warehouse.id}>
-                      {warehouseLabel(warehouse, branchById.get(warehouse.branchId || ''))}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {sourceWarehouseId &&
-              destinationWarehouseId &&
-              branchById.get(
-                warehouses.find((warehouse) => warehouse.id === sourceWarehouseId)?.branchId || ''
-              )?.id ===
-                branchById.get(
-                  warehouses.find((warehouse) => warehouse.id === destinationWarehouseId)
-                    ?.branchId || ''
-                )?.id && <p className="mt-2 text-sm text-red-600">اختر فرعين مختلفين.</p>}
+            ) : (
+              <>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <Label>من الفرع / المخزن</Label>
+                    <select
+                      className="mt-1 h-10 w-full rounded-md border px-3"
+                      value={sourceWarehouseId}
+                      onChange={(event) => setSourceWarehouseId(event.target.value)}
+                    >
+                      {availableWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouseLabel(warehouse, branchById.get(warehouse.branchId || ''))}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <Label>إلى الفرع / المخزن</Label>
+                    <select
+                      className="mt-1 h-10 w-full rounded-md border px-3"
+                      value={destinationWarehouseId}
+                      onChange={(event) => setDestinationWarehouseId(event.target.value)}
+                    >
+                      {availableWarehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouseLabel(warehouse, branchById.get(warehouse.branchId || ''))}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {sourceWarehouseId &&
+                  destinationWarehouseId &&
+                  branchById.get(
+                    warehouses.find((warehouse) => warehouse.id === sourceWarehouseId)?.branchId ||
+                      ''
+                  )?.id ===
+                    branchById.get(
+                      warehouses.find((warehouse) => warehouse.id === destinationWarehouseId)
+                        ?.branchId || ''
+                    )?.id && <p className="mt-2 text-sm text-red-600">اختر فرعين مختلفين.</p>}
 
-            <div className="mt-5 space-y-3">
-              {items.map((item, index) => (
-                <div key={index} className="grid gap-2 sm:grid-cols-[1fr_150px_40px]">
-                  <select
-                    className="h-10 rounded-md border px-3"
-                    value={item.productId}
-                    onChange={(event) => updateItem(index, { productId: event.target.value })}
-                  >
-                    <option value="">اختر الصنف</option>
-                    {products.map((product) => (
-                      <option key={product.id} value={product.id}>
-                        {product.name}
-                        {product.sku ? ` — ${product.sku}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <Input
-                    type="number"
-                    min="0.0001"
-                    step="0.0001"
-                    value={item.quantity}
-                    onChange={(event) => updateItem(index, { quantity: event.target.value })}
-                    aria-label="الكمية"
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    disabled={items.length === 1}
-                    onClick={() => removeItem(index)}
-                    aria-label="حذف الصنف"
-                  >
-                    <X className="h-4 w-4 text-red-500" />
+                <div className="mt-5 space-y-3">
+                  {items.map((item, index) => (
+                    <div key={index} className="grid gap-2 sm:grid-cols-[1fr_150px_40px]">
+                      <select
+                        className="h-10 rounded-md border px-3"
+                        value={item.productId}
+                        onChange={(event) => updateItem(index, { productId: event.target.value })}
+                      >
+                        <option value="">اختر الصنف</option>
+                        {products.map((product) => (
+                          <option key={product.id} value={product.id}>
+                            {product.name}
+                            {product.sku ? ` — ${product.sku}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <Input
+                        type="number"
+                        min="0.0001"
+                        step="0.0001"
+                        value={item.quantity}
+                        onChange={(event) => updateItem(index, { quantity: event.target.value })}
+                        aria-label="الكمية"
+                      />
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        disabled={items.length === 1}
+                        onClick={() => removeItem(index)}
+                        aria-label="حذف الصنف"
+                      >
+                        <X className="h-4 w-4 text-red-500" />
+                      </Button>
+                    </div>
+                  ))}
+                  <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                    إضافة صنف
                   </Button>
                 </div>
-              ))}
-              <Button type="button" variant="outline" size="sm" onClick={addItem}>
-                إضافة صنف
-              </Button>
-            </div>
-            <div className="mt-4">
-              <Label>ملاحظات (اختياري)</Label>
-              <Input
-                value={notes}
-                onChange={(event) => setNotes(event.target.value)}
-                maxLength={1000}
-                placeholder="سبب التحويل أو تعليمات الاستلام"
-              />
-            </div>
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-gray-500">لا يمكن لمُنشئ الطلب اعتماده بنفسه.</p>
-              <Button type="submit" disabled={saving}>
-                {saving ? 'جاري إنشاء الطلب…' : 'إرسال للموافقة'}
-              </Button>
-            </div>
-          </>
-        )}
-      </form>
+                <div className="mt-4">
+                  <Label>ملاحظات (اختياري)</Label>
+                  <Input
+                    value={notes}
+                    onChange={(event) => setNotes(event.target.value)}
+                    maxLength={1000}
+                    placeholder="سبب التحويل أو تعليمات الاستلام"
+                  />
+                </div>
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-xs text-gray-500">لا يمكن لمُنشئ الطلب اعتماده بنفسه.</p>
+                  <Button type="submit" disabled={saving}>
+                    {saving ? 'جاري إنشاء الطلب…' : 'إرسال للموافقة'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </form>
 
-      <section className="rounded-xl bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-bold">سجل التحويلات</h2>
-          <div className="flex flex-wrap gap-2">
-            {(['all', 'pending', 'approved', 'rejected'] as const).map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setFilter(status)}
-                className={`rounded-full px-3 py-1 text-sm ${filter === status ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'}`}
-              >
-                {status === 'all' ? 'الكل' : statusLabel[status]}
-              </button>
-            ))}
-          </div>
-        </div>
-        {loading ? (
-          <p className="py-8 text-center text-gray-500">جاري تحميل التحويلات…</p>
-        ) : visibleTransfers.length === 0 ? (
-          <p className="py-8 text-center text-gray-500">لا توجد تحويلات في هذا القسم.</p>
-        ) : (
-          <div className="space-y-3">
-            {visibleTransfers.map((transfer) => {
-              const canApprove = transfer.status === 'pending' && transfer.createdBy !== user?.id;
-              return (
-                <article key={transfer.id} className="rounded-lg border p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="font-bold">{transfer.transferNumber}</h3>
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs ${transfer.status === 'pending' ? 'bg-amber-100 text-amber-800' : transfer.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}
-                        >
-                          {statusLabel[transfer.status]}
-                        </span>
+          <section className="rounded-xl bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-bold">سجل التحويلات</h2>
+              <div className="flex flex-wrap gap-2">
+                {(['all', 'pending', 'approved', 'rejected'] as const).map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    onClick={() => setFilter(status)}
+                    className={`rounded-full px-3 py-1 text-sm ${filter === status ? 'bg-primary text-white' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                    {status === 'all' ? 'الكل' : statusLabel[status]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {loading ? (
+              <p className="py-8 text-center text-gray-500">جاري تحميل التحويلات…</p>
+            ) : visibleTransfers.length === 0 ? (
+              <p className="py-8 text-center text-gray-500">لا توجد تحويلات في هذا القسم.</p>
+            ) : (
+              <div className="space-y-3">
+                {visibleTransfers.map((transfer) => {
+                  const canApprove =
+                    transfer.status === 'pending' && transfer.createdBy !== user?.id;
+                  return (
+                    <article key={transfer.id} className="rounded-lg border p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="font-bold">{transfer.transferNumber}</h3>
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-xs ${transfer.status === 'pending' ? 'bg-amber-100 text-amber-800' : transfer.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}
+                            >
+                              {statusLabel[transfer.status]}
+                            </span>
+                          </div>
+                          <p className="mt-1 text-sm text-gray-600">
+                            من: {warehouseLabel(transfer.sourceWarehouse, transfer.sourceBranch)}
+                          </p>
+                          <p className="text-sm text-gray-600">
+                            إلى:{' '}
+                            {warehouseLabel(
+                              transfer.destinationWarehouse,
+                              transfer.destinationBranch
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-400">
+                            {formatDateTime(transfer.createdAt)}
+                          </p>
+                        </div>
+                        {canApprove && (
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => void approve(transfer)}>
+                              <Check className="ml-1 h-4 w-4" /> موافقة
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => {
+                                setRejecting(transfer);
+                                setRejectReason('');
+                              }}
+                            >
+                              <X className="ml-1 h-4 w-4" /> رفض
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                      <p className="mt-1 text-sm text-gray-600">
-                        من: {warehouseLabel(transfer.sourceWarehouse, transfer.sourceBranch)}
-                      </p>
-                      <p className="text-sm text-gray-600">
-                        إلى:{' '}
-                        {warehouseLabel(transfer.destinationWarehouse, transfer.destinationBranch)}
-                      </p>
-                      <p className="mt-1 text-xs text-gray-400">
-                        {formatDateTime(transfer.createdAt)}
-                      </p>
-                    </div>
-                    {canApprove && (
-                      <div className="flex gap-2">
-                        <Button size="sm" onClick={() => void approve(transfer)}>
-                          <Check className="ml-1 h-4 w-4" /> موافقة
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            setRejecting(transfer);
-                            setRejectReason('');
-                          }}
-                        >
-                          <X className="ml-1 h-4 w-4" /> رفض
-                        </Button>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {transfer.items?.map((item) => (
+                          <span key={item.id} className="rounded bg-gray-50 px-2 py-1 text-xs">
+                            {item.product?.name || item.productId} × {Number(item.quantity)}
+                          </span>
+                        ))}
                       </div>
-                    )}
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {transfer.items?.map((item) => (
-                      <span key={item.id} className="rounded bg-gray-50 px-2 py-1 text-xs">
-                        {item.product?.name || item.productId} × {Number(item.quantity)}
-                      </span>
-                    ))}
-                  </div>
-                  {transfer.notes && (
-                    <p className="mt-2 text-sm text-gray-500">ملاحظة: {transfer.notes}</p>
-                  )}
-                  {transfer.rejectionReason && (
-                    <p className="mt-2 text-sm text-red-600">
-                      سبب الرفض: {transfer.rejectionReason}
-                    </p>
-                  )}
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                      {transfer.notes && (
+                        <p className="mt-2 text-sm text-gray-500">ملاحظة: {transfer.notes}</p>
+                      )}
+                      {transfer.rejectionReason && (
+                        <p className="mt-2 text-sm text-red-600">
+                          سبب الرفض: {transfer.rejectionReason}
+                        </p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </>
+      )}
 
       {rejecting && (
         <div

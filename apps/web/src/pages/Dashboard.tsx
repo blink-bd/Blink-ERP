@@ -9,8 +9,9 @@ interface Summary {
   returnsToday?: { count: number; total: number; refunded: number };
   expensesToday: { count: number; total: number };
   lowStockAlerts: { id: string; name: string; sku?: string; availableQuantity: number; status: string }[];
-  customerInvoices: { count: number; totalOwed: number };
-  supplierInvoices: { count: number; totalOwed: number };
+  // بتختفي لو المدير العام قافل «مديونيات العملاء والموردين في لوحة التحكم».
+  customerInvoices?: { count: number; totalOwed: number };
+  supplierInvoices?: { count: number; totalOwed: number };
 }
 
 const Card = ({ label, value, tone = '', sub }: { label: string; value: any; tone?: string; sub?: string }) => (
@@ -50,12 +51,16 @@ export function DashboardPage() {
             />
             <Card label="مصروفات اليوم" value={data.expensesToday.total.toFixed(2)} tone="text-red-600" sub={`${data.expensesToday.count} عملية`} />
             <Card label="صافي اليوم" value={((data.salesToday.netSales ?? data.salesToday.totalSales) - data.expensesToday.total).toFixed(2)} tone="text-green-600" />
-            <Link to="/customers">
-              <Card label="مستحق من العملاء" value={data.customerInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.customerInvoices.count} فاتورة آجلة`} />
-            </Link>
-            <Link to="/suppliers">
-              <Card label="مستحق للموردين" value={data.supplierInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.supplierInvoices.count} فاتورة آجلة`} />
-            </Link>
+            {data.customerInvoices && (
+              <Link to="/customers">
+                <Card label="مستحق من العملاء" value={data.customerInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.customerInvoices.count} فاتورة آجلة`} />
+              </Link>
+            )}
+            {data.supplierInvoices && (
+              <Link to="/suppliers">
+                <Card label="مستحق للموردين" value={data.supplierInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.supplierInvoices.count} فاتورة آجلة`} />
+              </Link>
+            )}
             <Card label="منتجات بحاجة لانتباه" value={data.lowStockAlerts.length} tone="text-red-600" />
           </div>
 

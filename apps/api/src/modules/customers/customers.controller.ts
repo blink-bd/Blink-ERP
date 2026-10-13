@@ -77,6 +77,7 @@ export class CustomersController {
   }
 
   @Get(':id/statement')
+  @RequireFeature('customers.statement')
   async statement(
     @Request() req,
     @Param('id', ParseUUIDPipe) id: string,
@@ -122,6 +123,7 @@ export class CustomersController {
   }
 
   @Post(':id/payments')
+  @RequireFeature('customers.payments')
   @RequirePermission('customers.payment')
   async collectPayment(
     @Request() req,
@@ -141,6 +143,7 @@ export class CustomersController {
   }
 
   @Delete(':id')
+  @RequireFeature('customers.delete')
   @RequirePermission('customers.delete')
   async remove(@Request() req, @Param('id', ParseUUIDPipe) id: string) {
     await this.customersService.delete(req.tenantId, id);

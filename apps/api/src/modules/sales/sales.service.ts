@@ -1,5 +1,10 @@
 import { assertWarehouseUsable } from '@/modules/inventory/location-limits';
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { Repository, DataSource, IsNull, EntityManager } from 'typeorm';
 import { randomBytes } from 'node:crypto';
@@ -211,7 +216,9 @@ export class SalesService {
     tenantId: string,
     dto: CreateSaleDto,
     userId: string,
-    assignedBranchId?: string
+    assignedBranchId?: string,
+    /** قيود لوحة المدير العام على نقطة البيع (false = الإجراء مقفول للتاجر). */
+    restrictions: { allowCredit?: boolean } = {}
   ): Promise<Sale> {
     if (!dto.items?.length)
       throw new BadRequestException('الفاتورة يجب أن تحتوي على صنف واحد على الأقل');
@@ -389,6 +396,13 @@ export class SalesService {
       }
       if (paidAmount > total) {
         throw new BadRequestException('إجمالي الدفعات لا يمكن أن يتجاوز إجمالي الفاتورة');
+      }
+      if (paidAmount + 0.0001 < total && restrictions.allowCredit === false) {
+        throw new ForbiddenException({
+          code: 'FEATURE_DISABLED',
+          feature: 'pos.credit_sale',
+          message: 'البيع الآجل والدفع الجزئي مش مفعّل لحسابك. تواصل مع الإدارة لتفعيله',
+        });
       }
       if (paidAmount < total && !dto.customerId) {
         throw new BadRequestException('يجب اختيار عميل عند تسجيل فاتورة آجلة أو جزئية');

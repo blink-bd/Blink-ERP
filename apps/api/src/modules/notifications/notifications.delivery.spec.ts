@@ -1,5 +1,6 @@
 import { createServer, Server, Socket } from 'node:net';
 import { NotificationsService } from './notifications.service';
+import { encryptChannelSecrets } from './notification-channels';
 
 /**
  * اختبار مسار الإرسال الحقيقي بدون مزود خارجي:
@@ -185,7 +186,7 @@ describe('NotificationsService delivery paths', () => {
         }) as any
       );
 
-      const status = service.getStatus();
+      const status = await service.getStatus();
       expect(status.whatsapp.mode).toBe('template');
       expect(status.whatsapp.recipient).toBe('+201024898091');
 
@@ -221,12 +222,101 @@ describe('NotificationsService delivery paths', () => {
   });
 
   describe('channel status', () => {
-    it('defaults to the requested recipients when nothing is configured', () => {
+    it('defaults to the requested recipients when nothing is configured', async () => {
       const service = new NotificationsService(buildConfig({}) as any);
-      expect(service.getStatus()).toEqual({
-        email: { configured: false, recipient: 'blinkbusinessdevelopment@gmail.com' },
+      expect(await service.getStatus()).toEqual({
+        email: { configured: false, provider: 'smtp', recipient: 'blinkbusinessdevelopment@gmail.com' },
         whatsapp: { configured: false, recipient: '+201024898091', mode: 'text' },
+        source: 'env',
       });
+    });
+  });
+
+  describe('channels configured from the master admin panel', () => {
+    const originalFetch = global.fetch;
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    const env = { JWT_MASTER_SECRET: 'unit-test-master-secret-unit-test-master-secret' };
+    const get = (key: string) => (env as Record<string, string>)[key];
+    const stored = {
+      email: { provider: 'brevo', fromEmail: 'alerts@blink.test', fromName: 'Blink ERP' },
+      whatsapp: {
+        enabled: true,
+        phoneNumberId: '998877',
+        apiVersion: 'v23.0',
+        templateName: 'blink_alert',
+        templateLanguage: 'ar',
+      },
+      operator: { email: 'ops@blink.test', whatsapp: '+201000000001' },
+    };
+    const dataSource = {
+      query: jest.fn(async (sql: string) =>
+        sql.includes('platform_settings')
+          ? [
+              {
+                value: stored,
+                secrets: encryptChannelSecrets(
+                  { emailApiKey: 'brevo-key', whatsappToken: 'wa-token' },
+                  get
+                ),
+              },
+            ]
+          : []
+      ),
+    };
+
+    it('sends email through the Brevo HTTPS API and WhatsApp with the admin template', async () => {
+      const calls: Array<{ url: string; init: RequestInit }> = [];
+      global.fetch = jest.fn(async (url: any, init: any) => {
+        calls.push({ url: String(url), init });
+        return { ok: true, status: 201, json: async () => ({ messageId: 'x' }) } as any;
+      }) as any;
+
+      const service = new NotificationsService(buildConfig(env) as any, dataSource as any);
+      const status = await service.getStatus();
+      expect(status).toMatchObject({
+        source: 'admin',
+        email: { configured: true, provider: 'brevo', recipient: 'ops@blink.test' },
+        whatsapp: { configured: true, mode: 'template', recipient: '+201000000001' },
+      });
+
+      const result = await service.sendOperationalAlert({
+        event: 'supplier.payables_limit_exceeded',
+        title: 'تجاوز حد مستحقات الموردين',
+        details: { الإجمالي: 900 },
+      });
+      expect(result).toMatchObject({ email: 'sent', whatsapp: 'sent' });
+
+      const brevo = calls.find((call) => call.url === 'https://api.brevo.com/v3/smtp/email');
+      expect(brevo).toBeDefined();
+      expect((brevo!.init.headers as Record<string, string>)['api-key']).toBe('brevo-key');
+      const mail = JSON.parse(String(brevo!.init.body));
+      expect(mail.sender.email).toBe('alerts@blink.test');
+      expect(mail.to).toEqual([{ email: 'ops@blink.test' }]);
+      expect(mail.textContent).toContain('تجاوز حد مستحقات الموردين');
+
+      const wa = calls.find((call) => call.url.includes('graph.facebook.com'));
+      expect(wa!.url).toBe('https://graph.facebook.com/v23.0/998877/messages');
+      expect((wa!.init.headers as Record<string, string>).Authorization).toBe('Bearer wa-token');
+      const payload = JSON.parse(String(wa!.init.body));
+      expect(payload.template.name).toBe('blink_alert');
+      // Meta بترفض سطور جديدة جوه بارامتر القالب.
+      expect(payload.template.components[0].parameters[0].text).not.toMatch(/\n/);
+    });
+
+    it('returns the provider error message so the admin can fix the setup', async () => {
+      global.fetch = jest.fn(async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ code: 'unauthorized', message: 'Key not found' }),
+        text: async () => JSON.stringify({ code: 'unauthorized', message: 'Key not found' }),
+      })) as any;
+      const service = new NotificationsService(buildConfig(env) as any, dataSource as any);
+      const outcome = await service.deliverEmail('اختبار', 'نص', ['ops@blink.test']);
+      expect(outcome.result).toBe('failed');
+      expect(outcome.error).toContain('Key not found');
     });
   });
 });

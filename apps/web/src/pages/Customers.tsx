@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -30,6 +31,9 @@ export function CustomersPage() {
   const [form, setForm] = useState<CustomerForm>(emptyForm);
   const [saving, setSaving] = useState(false);
 
+  const statementEnabled = useFeature('customers.statement');
+  const paymentsEnabled = useFeature('customers.payments');
+  const deleteEnabled = useFeature('customers.delete');
   const [statementFor, setStatementFor] = useState<Customer | null>(null);
   const [statement, setStatement] = useState<any>(null);
   const [payAmount, setPayAmount] = useState('');
@@ -189,9 +193,9 @@ export function CustomersPage() {
                 <td className="p-3">{c.name}</td><td className="p-3 text-gray-500">{c.phone || '-'}</td><td className="p-3 text-gray-500">{c.email || '-'}</td>
                 <td className={`p-3 font-medium ${Number(c.balance) > 0 ? 'text-red-600' : ''}`}>{Number(c.balance).toFixed(2)}</td>
                 <td className="p-3 flex gap-1">
-                  <Button size="sm" variant="outline" onClick={() => openStatement(c)}>كشف الحساب</Button>
+                  {statementEnabled && <Button size="sm" variant="outline" onClick={() => openStatement(c)}>كشف الحساب</Button>}
                   <Button size="icon" variant="ghost" title="تعديل" onClick={() => openEdit(c)}><Pencil className="h-4 w-4" /></Button>
-                  <Button size="icon" variant="ghost" title="حذف" onClick={() => removeCustomer(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                  {deleteEnabled && <Button size="icon" variant="ghost" title="حذف" onClick={() => removeCustomer(c)}><Trash2 className="h-4 w-4 text-red-500" /></Button>}
                 </td>
               </tr>
             ))}
@@ -212,7 +216,7 @@ export function CustomersPage() {
               </tr>)}</tbody>
             </table>
             <div className="flex items-center justify-between bg-gray-50 rounded p-3 mb-4"><span className="font-bold">الرصيد الحالي المستحق</span><span className="text-xl font-bold text-red-600">{Number(statement.currentBalance).toFixed(2)}</span></div>
-            <div className="flex gap-2 items-end border-t pt-4"><div className="flex-1"><Label>سداد مبلغ</Label><Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" /></div><Button onClick={collectPayment} disabled={paying || !payAmount}>{paying ? 'جاري الحفظ...' : 'تسجيل السداد'}</Button></div>
+            {paymentsEnabled && <div className="flex gap-2 items-end border-t pt-4"><div className="flex-1"><Label>سداد مبلغ</Label><Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" /></div><Button onClick={collectPayment} disabled={paying || !payAmount}>{paying ? 'جاري الحفظ...' : 'تسجيل السداد'}</Button></div>}
           </div>
         </div>
       )}

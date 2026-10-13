@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Post,
   Get,
   UseGuards,
@@ -95,6 +96,13 @@ export class AuthController {
     @Headers('user-agent') userAgent: string | undefined,
     @Response({ passthrough: true }) res: ExpressResponse
   ) {
+    // كلمات مرور مستخدمي التجار بتتغير من لوحة المدير العام بس (طلب الإدارة).
+    if (req.user?.tenantId) {
+      throw new ForbiddenException({
+        code: 'PASSWORD_MANAGED_BY_ADMIN',
+        message: 'كلمة المرور بتتغير من خلال إدارة النظام بس — تواصل مع الإدارة',
+      });
+    }
     const result = await this.authService.changeOwnPassword(
       req.user.id,
       dto.currentPassword,

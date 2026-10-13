@@ -44,10 +44,13 @@ export const FeaturesProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const res = await api.get('/tenants/features', { params: { _: Date.now() } });
       const codes: string[] = res.data.data.map((f: any) => f.code);
       setFeatures(new Set(codes));
-    } catch {
-      // Fail closed: an unavailable feature response must never make the UI
-      // claim that disabled capabilities are available.
-      setFeatures(new Set());
+    } catch (err: any) {
+      // Fail closed on auth errors or when nothing was loaded yet. A transient
+      // network blip during the periodic poll keeps the last confirmed list so
+      // an open page (e.g. the POS mid-sale) doesn't suddenly lock — the server
+      // still enforces every feature on each request anyway.
+      const status = err?.response?.status;
+      setFeatures((prev) => (prev.size > 0 && (!status || status >= 500) ? prev : new Set()));
     } finally {
       setLoading(false);
     }
