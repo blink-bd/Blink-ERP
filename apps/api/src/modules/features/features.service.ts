@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Feature } from './entities/feature.entity';
 import { TenantFeature } from './entities/tenant-feature.entity';
-import { getFeatureDefinition, isActionFeature } from './features.catalog';
+import { actionDefaultEnabled, getFeatureDefinition, isActionFeature } from './features.catalog';
 
 /**
  * كاش في الذاكرة لمجموعة الميزات الفعّالة لكل تاجر (استعلام واحد بدل استعلامات
@@ -47,7 +47,7 @@ export class FeaturesService {
       if (f.isCore) return true;
       const row = assignedById.get(f.id);
       // الزراير/الإجراءات مفعّلة افتراضياً لحد ما المدير العام يقفلها صراحةً.
-      if (!row) return isActionFeature(f.code);
+      if (!row) return actionDefaultEnabled(f.code);
       return row.isEnabled && (!row.expiresAt || row.expiresAt > now);
     };
     const byId = new Map(features.map((f) => [f.id, f]));
@@ -176,7 +176,7 @@ export class FeaturesService {
     const changes: FeatureChange[] = [];
     for (const id of toChange) {
       const isTarget = id === featureId;
-      const fallback = isActionFeature(byId.get(id)!.code);
+      const fallback = actionDefaultEnabled(byId.get(id)!.code);
       if (!isTarget && (currentMap.get(id) ?? fallback) === isEnabled) continue;
       await this.setFeatureStatus(tenantId, id, isEnabled, {
         expiresAt: isTarget ? options?.expiresAt : undefined,
@@ -224,7 +224,7 @@ export class FeaturesService {
         dependsOn: (f.dependsOn || []).map((d) => codeById.get(d)).filter(Boolean),
         parent,
         kind: parent ? 'action' : 'page',
-        isEnabled: f.isCore || (tf ? !!tf.isEnabled : !!parent),
+        isEnabled: f.isCore || (tf ? !!tf.isEnabled : actionDefaultEnabled(f.code)),
         config: tf?.config || {},
         isEffective: effective.has(f.code),
         expiresAt: tf?.expiresAt ?? null,

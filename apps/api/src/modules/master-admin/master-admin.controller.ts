@@ -33,6 +33,7 @@ import { PlatformChannelsService } from './platform-channels.service';
 import { TestChannelsDto, UpdateChannelsDto } from './dto/channels.dto';
 import { MasterAdminGuard } from './master-admin.guard';
 import {
+  AdminUpdateTenantUserDto,
   DeleteTenantDto,
   MasterChangePasswordDto,
   MasterDisable2faDto,
@@ -44,6 +45,7 @@ import {
   TenantStatusDto,
   TenantSubscriptionDto,
 } from './dto/master-admin.dto';
+import { CreateTenantUserDto } from '@/modules/users/dto/user-management.dto';
 import { AuditService } from '@/modules/audit/audit.service';
 
 @ApiTags('master-auth')
@@ -359,6 +361,45 @@ export class MasterAdminController {
   @Get('tenants/:id/users')
   async users(@Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.service.listTenantUsers(id) };
+  }
+
+  @Get('tenants/:id/roles')
+  async roles(@Param('id', ParseUUIDPipe) id: string) {
+    return { success: true, data: await this.service.listTenantRoles(id) };
+  }
+
+  @Post('tenants/:id/users')
+  async createUser(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateTenantUserDto
+  ) {
+    const data = await this.service.createTenantUser(id, dto, req.masterAdmin.email, ip);
+    return { success: true, data, message: 'تم إضافة المستخدم' };
+  }
+
+  @Put('tenants/:id/users/:userId')
+  async updateUser(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() dto: AdminUpdateTenantUserDto
+  ) {
+    const data = await this.service.updateTenantUser(id, userId, dto, req.masterAdmin.email, ip);
+    return { success: true, data, message: 'تم حفظ بيانات المستخدم' };
+  }
+
+  @Delete('tenants/:id/users/:userId')
+  async deleteUser(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string
+  ) {
+    await this.service.deleteTenantUser(id, userId, req.masterAdmin.email, ip);
+    return { success: true, message: 'تم حذف المستخدم' };
   }
 
   @Post('tenants/:id/reset-user-password')

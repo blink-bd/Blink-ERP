@@ -29,6 +29,8 @@ export interface Actor {
   roles: string[];
   permissions: string[];
   scope?: AccessScope;
+  /** المدير العام بيدير مستخدمي التاجر: صلاحيات مالك + مابيتقيدش بحد عدد المستخدمين. */
+  platformAdmin?: boolean;
 }
 
 interface BranchAccessInput {
@@ -222,7 +224,8 @@ export class UserManagementService {
     return row?.c || 0;
   }
 
-  private async assertSeatAvailable(tenantId: string) {
+  private async assertSeatAvailable(tenantId: string, actor?: Actor) {
+    if (actor?.platformAdmin) return;
     const tenant = await this.tenants.findOne({ where: { id: tenantId } });
     if (!tenant?.maxUsers) return;
     const active = await this.users.count({
@@ -297,7 +300,7 @@ export class UserManagementService {
 
   async createUser(actor: Actor, dto: CreateTenantUserDto, req: any) {
     assertStrongPassword(dto.password);
-    await this.assertSeatAvailable(actor.tenantId);
+    await this.assertSeatAvailable(actor.tenantId, actor);
     const roles = await this.loadRolesForAssignment(actor, dto.roleIds);
     await this.assertBranchWarehouse(actor.tenantId, dto.branchId, dto.warehouseId);
     const access = await this.resolveBranchAccess(
@@ -364,7 +367,8 @@ export class UserManagementService {
       }
       revoke = true;
     }
-    if (dto.isActive === true && !target.isActive) await this.assertSeatAvailable(actor.tenantId);
+    if (dto.isActive === true && !target.isActive)
+      await this.assertSeatAvailable(actor.tenantId, actor);
 
     if (dto.roleIds) {
       const roles = await this.loadRolesForAssignment(actor, dto.roleIds);
@@ -434,6 +438,32 @@ export class UserManagementService {
           : 'info',
     });
     return after;
+  }
+
+  /** تغيير بريد الدخول (للمدير العام بس) — بيطلّع المستخدم من كل أجهزته. */
+  async changeEmail(actor: Actor, id: string, rawEmail: string, req: any) {
+    if (!actor.platformAdmin) throw new ForbiddenException('تغيير البريد من الإدارة بس');
+    const target = await this.getTarget(actor.tenantId, id);
+    const email = rawEmail.toLowerCase().trim();
+    if (email === target.email) return;
+    const exists = await this.users.findOne({
+      where: { tenantId: actor.tenantId, email },
+      withDeleted: true,
+    });
+    if (exists && exists.id !== target.id) {
+      throw new ConflictException('يوجد مستخدم بنفس البريد الإلكتروني في هذا الحساب');
+    }
+    await this.users.update(target.id, { email });
+    await this.usersService.revokeSessions(target.id);
+    await this.audit.log({
+      ...actorFromRequest(req),
+      action: 'USER_UPDATED',
+      entityType: 'user',
+      entityId: id,
+      oldValues: { email: target.email },
+      newValues: { email },
+      severity: 'warning',
+    });
   }
 
   async resetPassword(actor: Actor, id: string, newPassword: string, req: any) {

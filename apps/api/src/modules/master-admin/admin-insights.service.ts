@@ -41,7 +41,21 @@ export class AdminInsightsService {
       );
       this.softDeleteTables = new Set(rows.map((row: { name: string }) => row.name));
     }
-    return this.softDeleteTables.has(table) ? ` AND ${alias ? `${alias}.` : ''}deleted_at IS NULL` : '';
+    return this.softDeleteTables.has(table)
+      ? ` AND ${alias ? `${alias}.` : ''}deleted_at IS NULL`
+      : '';
+  }
+
+  private tables?: Set<string>;
+  /** الجداول الموجودة فعلاً — عشان جدول ناقص في قاعدة قديمة مايوقعش الصفحة كلها. */
+  private async existingTables(): Promise<Set<string>> {
+    if (!this.tables) {
+      const rows = await this.dataSource.query(
+        `SELECT table_name AS name FROM information_schema.tables WHERE table_schema = current_schema()`
+      );
+      this.tables = new Set(rows.map((row: { name: string }) => row.name));
+    }
+    return this.tables;
   }
 
   // ------------------------------------------------------------------ dashboard
@@ -253,13 +267,18 @@ export class AdminInsightsService {
   }): HealthFlag[] {
     const flags: HealthFlag[] = [];
     const now = Date.now();
-    if (!input.isActive) flags.push({ level: 'danger', code: 'suspended', message: 'الحساب موقوف' });
+    if (!input.isActive)
+      flags.push({ level: 'danger', code: 'suspended', message: 'الحساب موقوف' });
     if (input.subscriptionEndDate) {
       const days = Math.ceil((new Date(input.subscriptionEndDate).getTime() - now) / DAY_MS);
       if (days < 0) {
         flags.push({ level: 'danger', code: 'expired', message: `الاشتراك منتهي من ${-days} يوم` });
       } else if (days <= 7) {
-        flags.push({ level: 'warning', code: 'expiring', message: `الاشتراك ينتهي خلال ${days} يوم` });
+        flags.push({
+          level: 'warning',
+          code: 'expiring',
+          message: `الاشتراك ينتهي خلال ${days} يوم`,
+        });
       }
     } else if (input.subscriptionStatus === 'expired') {
       flags.push({ level: 'danger', code: 'expired', message: 'الاشتراك منتهي' });
@@ -268,7 +287,11 @@ export class AdminInsightsService {
       if (!input.lastActivityAt) {
         const age = input.createdAt ? (now - new Date(input.createdAt).getTime()) / DAY_MS : 99;
         if (age > 2) {
-          flags.push({ level: 'warning', code: 'never_logged_in', message: 'محدش دخل الحساب لحد دلوقتي' });
+          flags.push({
+            level: 'warning',
+            code: 'never_logged_in',
+            message: 'محدش دخل الحساب لحد دلوقتي',
+          });
         }
       } else {
         const idle = Math.floor((now - new Date(input.lastActivityAt).getTime()) / DAY_MS);
@@ -285,10 +308,18 @@ export class AdminInsightsService {
       });
     }
     if (n(input.lockedUsers) > 0) {
-      flags.push({ level: 'warning', code: 'locked_users', message: `${input.lockedUsers} مستخدم مقفول مؤقتاً` });
+      flags.push({
+        level: 'warning',
+        code: 'locked_users',
+        message: `${input.lockedUsers} مستخدم مقفول مؤقتاً`,
+      });
     }
     if (input.alertsConfigured === false) {
-      flags.push({ level: 'info', code: 'no_alert_contacts', message: 'التاجر ما حطش واتساب/إيميل للتنبيهات' });
+      flags.push({
+        level: 'info',
+        code: 'no_alert_contacts',
+        message: 'التاجر ما حطش واتساب/إيميل للتنبيهات',
+      });
     }
     return flags;
   }
@@ -303,66 +334,73 @@ export class AdminInsightsService {
     );
     if (!tenant) throw new NotFoundException('التاجر غير موجود');
 
-    const count = async (table: string, where = '') => {
-      const [row] = await this.dataSource.query(
-        `SELECT COUNT(*)::int AS c FROM ${table} WHERE tenant_id = $1${await this.alive(table)}${where}`,
-        [id]
+    // كل العدّادات في استعلام واحد (اتصال واحد بقاعدة البيانات) — تشغيلها بالتوازي كان
+    // بيفتح ~18 اتصال مرة واحدة ويتخطى حد الاتصالات في Supabase فيرجع خطأ 500.
+    const specs: Array<[string, string, string]> = [
+      ['users', 'users', ''],
+      ['activeUsers', 'users', ' AND is_active'],
+      ['lockedUsers', 'users', ' AND locked_until > NOW()'],
+      ['branches', 'branches', ''],
+      ['warehouses', 'warehouses', ''],
+      ['products', 'products', ''],
+      ['customers', 'customers', ''],
+      ['suppliers', 'suppliers', ''],
+      ['sales', 'sales', " AND status = 'completed'"],
+      [
+        'sales30d',
+        'sales',
+        " AND status = 'completed' AND created_at > NOW() - INTERVAL '30 days'",
+      ],
+      ['purchases', 'purchases', ''],
+      ['purchases30d', 'purchases', " AND created_at > NOW() - INTERVAL '30 days'"],
+      ['returns', 'sale_returns', ''],
+      ['expenses', 'expenses', ''],
+      ['maintenance', 'maintenance_invoices', ''],
+      ['transfers', 'inventory_transfers', ''],
+      [
+        'apiKeys',
+        'api_keys',
+        ' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())',
+      ],
+      ['webhooks', 'webhook_endpoints', ''],
+    ];
+    const existing = await this.existingTables();
+    const parts: string[] = [];
+    for (const [key, table, where] of specs) {
+      parts.push(
+        existing.has(table)
+          ? `(SELECT COUNT(*)::int FROM ${table} WHERE tenant_id = $1${await this.alive(table)}${where}) AS "${key}"`
+          : `0 AS "${key}"`
       );
-      return n(row?.c);
-    };
-    const maxDate = async (table: string, column: string, where = '') => {
-      const [row] = await this.dataSource.query(
-        `SELECT MAX(${column}) AS d FROM ${table} WHERE tenant_id = $1${await this.alive(table)}${where}`,
-        [id]
-      );
-      return row?.d || null;
-    };
+    }
+    const [counts] = await this.dataSource.query(`SELECT ${parts.join(',\n')}`, [id]);
+    const c = (key: string) => n(counts?.[key]);
+    const users = c('users');
+    const activeUsers = c('activeUsers');
+    const lockedUsers = c('lockedUsers');
+    const branches = c('branches');
+    const warehouses = c('warehouses');
+    const products = c('products');
+    const customers = c('customers');
+    const suppliers = c('suppliers');
+    const sales = c('sales');
+    const sales30d = c('sales30d');
+    const purchases = c('purchases');
+    const purchases30d = c('purchases30d');
+    const returns = c('returns');
+    const expenses = c('expenses');
+    const maintenance = c('maintenance');
+    const transfers = c('transfers');
+    const apiKeys = c('apiKeys');
+    const webhooks = c('webhooks');
 
-    const [
-      users,
-      activeUsers,
-      lockedUsers,
-      branches,
-      warehouses,
-      products,
-      customers,
-      suppliers,
-      sales,
-      sales30d,
-      purchases,
-      purchases30d,
-      returns,
-      expenses,
-      maintenance,
-      transfers,
-      apiKeys,
-      webhooks,
-    ] = await Promise.all([
-      count('users'),
-      count('users', ' AND is_active'),
-      count('users', ' AND locked_until > NOW()'),
-      count('branches'),
-      count('warehouses'),
-      count('products'),
-      count('customers'),
-      count('suppliers'),
-      count('sales', " AND status = 'completed'"),
-      count('sales', " AND status = 'completed' AND created_at > NOW() - INTERVAL '30 days'"),
-      count('purchases'),
-      count('purchases', " AND created_at > NOW() - INTERVAL '30 days'"),
-      count('sale_returns'),
-      count('expenses'),
-      count('maintenance_invoices'),
-      count('inventory_transfers'),
-      count('api_keys', ' AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())'),
-      count('webhook_endpoints'),
-    ]);
-
-    const [attachments] = await this.dataSource.query(
-      `SELECT COUNT(*)::int AS count, COALESCE(SUM(size_bytes), 0)::bigint AS bytes
-       FROM invoice_attachments WHERE tenant_id = $1${await this.alive('invoice_attachments')}`,
-      [id]
-    );
+    const [attachments] = existing.has('invoice_attachments')
+      ? await this.dataSource.query(
+          `SELECT COUNT(*)::int AS count, COALESCE(SUM(size_bytes), 0)::bigint AS bytes
+           FROM invoice_attachments WHERE tenant_id = $1${await this.alive('invoice_attachments')}`,
+          [id]
+        )
+      : [{ count: 0, bytes: 0 }];
     const [logins] = await this.dataSource.query(
       `SELECT
          COUNT(*) FILTER (WHERE action = 'TENANT_LOGIN' AND created_at > NOW() - INTERVAL '30 days')::int AS "logins30d",
@@ -399,12 +437,18 @@ export class AdminInsightsService {
       [id]
     );
 
-    const lastLoginAt = await maxDate('users', 'last_login_at');
-    const lastSaleAt = await maxDate('sales', 'created_at');
-    const lastPurchaseAt = await maxDate('purchases', 'created_at');
-    const firstSaleAt = await this.dataSource
-      .query(`SELECT MIN(created_at) AS d FROM sales WHERE tenant_id = $1`, [id])
-      .then((rows) => rows[0]?.d || null);
+    const [dates] = await this.dataSource.query(
+      `SELECT
+         (SELECT MAX(last_login_at) FROM users WHERE tenant_id = $1${await this.alive('users')}) AS "lastLoginAt",
+         (SELECT MAX(created_at) FROM sales WHERE tenant_id = $1${await this.alive('sales')}) AS "lastSaleAt",
+         (SELECT MAX(created_at) FROM purchases WHERE tenant_id = $1${await this.alive('purchases')}) AS "lastPurchaseAt",
+         (SELECT MIN(created_at) FROM sales WHERE tenant_id = $1) AS "firstSaleAt"`,
+      [id]
+    );
+    const lastLoginAt = dates?.lastLoginAt || null;
+    const lastSaleAt = dates?.lastSaleAt || null;
+    const lastPurchaseAt = dates?.lastPurchaseAt || null;
+    const firstSaleAt = dates?.firstSaleAt || null;
 
     const featureRows = await this.features.getAllWithStatus(id);
     const pages = featureRows.filter((f) => f.kind === 'page' && !f.isCore);
@@ -474,7 +518,16 @@ export class AdminInsightsService {
         firstSaleAt,
         logins30d: n(logins?.logins30d),
         activeDays30d: n(logins?.activeDays30d),
-        documents: { sales, sales30d, purchases, purchases30d, returns, expenses, maintenance, transfers },
+        documents: {
+          sales,
+          sales30d,
+          purchases,
+          purchases30d,
+          returns,
+          expenses,
+          maintenance,
+          transfers,
+        },
         daily,
       },
       security: {

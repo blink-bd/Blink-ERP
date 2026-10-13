@@ -1760,6 +1760,69 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(users.body.data[0]).not.toHaveProperty('passwordHash');
     });
 
+    it('lets only the master admin manage tenant users and passwords', async () => {
+      const features: any[] = (await master.get(api(`/admin/tenants/${state.tenantAId}/features`)))
+        .body.data;
+      expect(features.find((f) => f.code === 'users.reset_password')).toMatchObject({
+        kind: 'action',
+        isEnabled: false,
+        isEffective: false,
+      });
+
+      const roles = await master.get(api(`/admin/tenants/${state.tenantAId}/roles`));
+      expect(roles.status).toBe(200);
+      const staffRole = roles.body.data.find((r: any) => r.name !== 'owner');
+      expect(staffRole).toBeTruthy();
+
+      const created = await master.post(api(`/admin/tenants/${state.tenantAId}/users`), {
+        fullName: 'موظف من الإدارة',
+        email: 'admin-made@tenant-a.test',
+        password: 'Admin-Made-Pass-2026',
+        roleIds: [staffRole.id],
+        accessAllBranches: true,
+      });
+      expect(created.status).toBe(201);
+      const userId = created.body.data.id;
+
+      // التاجر نفسه مايقدرش يغيّر كلمة مرور موظفيه (الزرار مقفول افتراضياً).
+      const merchantReset = await tenantA.post(api(`/users/${userId}/reset-password`), {
+        newPassword: 'Merchant-Tries-2026!',
+      });
+      expect(merchantReset.status).toBe(403);
+
+      const updated = await master.put(api(`/admin/tenants/${state.tenantAId}/users/${userId}`), {
+        fullName: 'موظف بعد التعديل',
+        email: 'renamed@tenant-a.test',
+        phone: '01012345678',
+        isActive: false,
+      });
+      expect(updated.status).toBe(200);
+      expect(updated.body.data).toMatchObject({
+        fullName: 'موظف بعد التعديل',
+        email: 'renamed@tenant-a.test',
+        isActive: false,
+      });
+
+      const reset = await master.post(
+        api(`/admin/tenants/${state.tenantAId}/reset-user-password`),
+        {
+          userId,
+          newPassword: 'Fresh-Admin-Pass-2026',
+        }
+      );
+      expect(reset.status).toBe(201);
+
+      const list = await master.get(api(`/admin/tenants/${state.tenantAId}/users`));
+      const row = list.body.data.find((u: any) => u.id === userId);
+      expect(row).toMatchObject({ email: 'renamed@tenant-a.test', isActive: false });
+      expect(row.roles[0]).toHaveProperty('id');
+
+      const removed = await master.del(api(`/admin/tenants/${state.tenantAId}/users/${userId}`));
+      expect(removed.status).toBe(200);
+      const after = await master.get(api(`/admin/tenants/${state.tenantAId}/users`));
+      expect(after.body.data.find((u: any) => u.id === userId)).toBeUndefined();
+    });
+
     it('gives the master admin a full tenant profile without sales amounts', async () => {
       const profile = await master.get(api(`/admin/tenants/${state.tenantAId}/profile`));
       expect(profile.status).toBe(200);
@@ -1797,12 +1860,20 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(blocked.status).toBe(401);
 
       const saved = await master.put(api('/admin/notification-channels'), {
-        email: { provider: 'brevo', fromEmail: 'alerts@blink.test', apiKey: 'xkeysib-secret-value' },
+        email: {
+          provider: 'brevo',
+          fromEmail: 'alerts@blink.test',
+          apiKey: 'xkeysib-secret-value',
+        },
         whatsapp: { phoneNumberId: '123456789', accessToken: 'EAAG-secret-token' },
         operator: { email: 'ops@blink.test', whatsapp: '+201000000001' },
       });
       expect(saved.status).toBe(200);
-      expect(saved.body.data.email).toMatchObject({ provider: 'brevo', hasApiKey: true, configured: true });
+      expect(saved.body.data.email).toMatchObject({
+        provider: 'brevo',
+        hasApiKey: true,
+        configured: true,
+      });
       expect(saved.body.data.whatsapp).toMatchObject({ hasAccessToken: true, configured: true });
       expect(saved.body.data.source).toBe('admin');
       expect(JSON.stringify(saved.body)).not.toContain('secret');
