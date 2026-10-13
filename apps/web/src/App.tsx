@@ -9,6 +9,7 @@ import { WorkspaceProvider } from './contexts/WorkspaceContext';
 import { AppLayout } from './components/layout/AppLayout';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { FeatureRoute } from './components/FeatureRoute';
+import { HomeRoute } from '@/components/HomeRoute';
 import { useDevToolsShortcutGuard } from './hooks/useDevToolsShortcutGuard';
 
 const LoginPage = lazy(() => import('./pages/Login').then((m) => ({ default: m.LoginPage })));
@@ -81,7 +82,7 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         >
-          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/dashboard" element={<HomeRoute><DashboardPage /></HomeRoute>} />
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/pos" element={<FeatureRoute feature="pos" title="نقطة البيع"><POSPage /></FeatureRoute>} />
           <Route path="/sales" element={<FeatureRoute feature="sales" title="المبيعات"><SalesPage /></FeatureRoute>} />
@@ -98,10 +99,10 @@ function AppRoutes() {
           <Route path="/branch-reports" element={<FeatureRoute feature="branch_analytics" title="تقارير الفروع"><BranchReportsPage /></FeatureRoute>} />
           <Route path="/balance-reminders" element={<FeatureRoute feature="balance_reminders" title="تذكير المديونيات"><BalanceRemindersPage /></FeatureRoute>} />
           <Route path="/transfers" element={<FeatureRoute feature="inventory" title="الفروع والتحويلات"><TransfersPage /></FeatureRoute>} />
-          <Route path="/users" element={<UsersPage />} />
+          <Route path="/users" element={<FeatureRoute feature="users" title="المستخدمين والصلاحيات"><UsersPage /></FeatureRoute>} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/data" element={<DataTransferPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<FeatureRoute feature="settings" title="الإعدادات"><SettingsPage /></FeatureRoute>} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>

@@ -1746,6 +1746,43 @@ describe('Blink ERP — integration flows (e2e)', () => {
       await setFeature('dashboard.balances', true);
     });
 
+    it('lets the master admin close the dashboard, users and settings pages too', async () => {
+      const features = await setFeature('settings', false);
+      expect(features.find((f) => f.code === 'settings')).toMatchObject({
+        isCore: true,
+        isEnabled: false,
+        isEffective: false,
+      });
+      // زراير الصفحة بتتقفل معاها (من غير ما تتسجل مقفولة).
+      expect(features.find((f) => f.code === 'settings.alerts')).toMatchObject({
+        isEnabled: true,
+        isEffective: false,
+      });
+      expect((await tenantA.get(api('/notifications/settings'))).status).toBe(403);
+
+      await setFeature('dashboard', false);
+      expect((await tenantA.get(api('/dashboard/summary'))).status).toBe(403);
+
+      await setFeature('users', false);
+      expect((await tenantA.get(api('/users'))).status).toBe(403);
+      expect((await tenantA.get(api('/roles'))).status).toBe(403);
+      // بيانات المستخدم الحالي لازم تفضل شغالة عشان التطبيق نفسه يفتح.
+      expect((await tenantA.get(api('/users/me'))).status).toBe(200);
+
+      const mine = (await tenantA.get(api('/tenants/features'))).body.data.map((f: any) => f.code);
+      expect(mine).not.toEqual(expect.arrayContaining(['settings']));
+      expect(mine).not.toContain('dashboard');
+      expect(mine).not.toContain('users');
+      expect(mine).not.toContain('settings.alerts');
+
+      await setFeature('settings', true);
+      await setFeature('dashboard', true);
+      await setFeature('users', true);
+      expect((await tenantA.get(api('/notifications/settings'))).status).toBe(200);
+      expect((await tenantA.get(api('/dashboard/summary'))).status).toBe(200);
+      expect((await tenantA.get(api('/users'))).status).toBe(200);
+    });
+
     it('does not let merchants change their own password — only the master admin', async () => {
       const own = await tenantA.post(api('/auth/change-password'), {
         currentPassword: 'whatever-123',

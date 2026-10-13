@@ -76,6 +76,7 @@ export class UsersController {
 
   @Get()
   @RequirePermission('users.view')
+  @RequireFeature('users')
   async list(@Request() req) {
     return { success: true, data: await this.management.listUsers(req.tenantId) };
   }
@@ -134,6 +135,7 @@ export class UsersController {
 @ApiBearerAuth()
 @NoApiKey()
 @Controller({ path: 'roles', version: '1' })
+@RequireFeature('users')
 @UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class RolesController {
   constructor(private readonly management: UserManagementService) {}

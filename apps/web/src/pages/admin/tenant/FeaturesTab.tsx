@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { ChevronDown, Lock, Search } from 'lucide-react';
+import { ChevronDown, Search } from 'lucide-react';
 import { adminApi } from '@/lib/adminApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -138,8 +138,18 @@ export function FeaturesTab({ id, onSaved }: { id: string; onSaved: () => void }
     }
   };
 
-  const toggle = (feature: FeatureRow, isEnabled: boolean) =>
-    apply([{ featureId: feature.id, isEnabled }]);
+  const toggle = (feature: FeatureRow, isEnabled: boolean) => {
+    if (
+      !isEnabled &&
+      feature.isCore &&
+      !window.confirm(
+        `«${feature.nameAr}» صفحة أساسية. قفلها هيخفيها عن التاجر وكل موظفينه، والسيرفر هيرفض طلباتها. متأكد؟`
+      )
+    ) {
+      return;
+    }
+    return apply([{ featureId: feature.id, isEnabled }]);
+  };
 
   const setConfig = (featureId: string, key: string, value: number) =>
     setFeatures((current) =>
@@ -211,6 +221,37 @@ export function FeaturesTab({ id, onSaved }: { id: string; onSaved: () => void }
           <Button size="sm" variant="ghost" onClick={() => setExpanded(new Set())}>
             طي الكل
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy || pages.every((p) => p.isEnabled)}
+            onClick={() =>
+              apply(
+                pages.filter((p) => !p.isEnabled).map((p) => ({ featureId: p.id, isEnabled: true }))
+              )
+            }
+          >
+            فتح كل الصفحات
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="text-rose-600"
+            disabled={busy || pages.every((p) => !p.isEnabled)}
+            onClick={() => {
+              if (
+                !window.confirm(
+                  'هيتقفل على التاجر كل الصفحات (حتى لوحة التحكم والإعدادات والمستخدمين). متأكد؟'
+                )
+              )
+                return;
+              apply(
+                pages.filter((p) => p.isEnabled).map((p) => ({ featureId: p.id, isEnabled: false }))
+              );
+            }}
+          >
+            قفل كل الصفحات
+          </Button>
         </div>
       </div>
 
@@ -246,7 +287,7 @@ export function FeaturesTab({ id, onSaved }: { id: string; onSaved: () => void }
                   >
                     <Switch
                       checked={page.isEnabled}
-                      disabled={page.isCore || busy}
+                      disabled={busy}
                       onChange={(v) => toggle(page, v)}
                     />
                     <div className="min-w-0 flex-1">
@@ -256,12 +297,7 @@ export function FeaturesTab({ id, onSaved }: { id: string; onSaved: () => void }
                         >
                           {page.nameAr}
                         </span>
-                        {page.isCore && (
-                          <Badge tone="slate">
-                            <Lock className="h-3 w-3" />
-                            أساسية
-                          </Badge>
-                        )}
+                        {page.isCore && <Badge tone="blue">أساسية</Badge>}
                         {page.requiresPlan && <Badge tone="violet">مدفوعة</Badge>}
                         {page.isEnabled && !page.isEffective && (
                           <Badge tone="amber">مفعّلة بس متطلب مقفول</Badge>

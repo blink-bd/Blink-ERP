@@ -451,7 +451,7 @@ export class AdminInsightsService {
     const firstSaleAt = dates?.firstSaleAt || null;
 
     const featureRows = await this.features.getAllWithStatus(id);
-    const pages = featureRows.filter((f) => f.kind === 'page' && !f.isCore);
+    const pages = featureRows.filter((f) => f.kind === 'page');
     const actions = featureRows.filter((f) => f.kind === 'action');
 
     const alertsConfigured = Boolean(tenant.alert_email || tenant.alert_whatsapp);

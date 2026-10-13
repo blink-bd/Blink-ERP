@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Feature } from './entities/feature.entity';
@@ -18,6 +18,10 @@ export interface FeatureChange {
   isEnabled: boolean;
 }
 
+/** حالة الميزة لو المدير العام عمره ما لمسها لتاجر معين. */
+const defaultEnabled = (f: Pick<Feature, 'code' | 'isCore'>): boolean =>
+  f.isCore || actionDefaultEnabled(f.code);
+
 @Injectable()
 export class FeaturesService {
   constructor(
@@ -29,7 +33,8 @@ export class FeaturesService {
 
   /**
    * يحسب الميزات الفعّالة للتاجر:
-   * - الأساسية (isCore) دائماً مفعّلة.
+   * - الأساسية (isCore: لوحة التحكم/المستخدمين/الإعدادات) مفتوحة افتراضياً، بس المدير
+   *   العام يقدر يقفلها زي أي صفحة.
    * - غيرها لازم تكون مفعّلة في tenant_features وغير منتهية.
    * - أي ميزة اعتمادياتها غير مفعّلة تعتبر غير مفعّلة (تكرار حتى الثبات).
    */
@@ -44,10 +49,9 @@ export class FeaturesService {
     const now = new Date();
     const assignedById = new Map(assigned.map((t) => [t.featureId, t]));
     const isOn = (f: Feature) => {
-      if (f.isCore) return true;
       const row = assignedById.get(f.id);
-      // الزراير/الإجراءات مفعّلة افتراضياً لحد ما المدير العام يقفلها صراحةً.
-      if (!row) return actionDefaultEnabled(f.code);
+      // الصفحات الأساسية والزراير مفتوحة افتراضياً لحد ما المدير العام يقفلها صراحةً.
+      if (!row) return defaultEnabled(f);
       return row.isEnabled && (!row.expiresAt || row.expiresAt > now);
     };
     const byId = new Map(features.map((f) => [f.id, f]));
@@ -58,7 +62,6 @@ export class FeaturesService {
       changed = false;
       for (const id of Array.from(enabled)) {
         const f = byId.get(id)!;
-        if (f.isCore) continue;
         if ((f.dependsOn || []).some((dep) => byId.has(dep) && !enabled.has(dep))) {
           enabled.delete(id);
           changed = true;
@@ -140,11 +143,6 @@ export class FeaturesService {
     const byId = new Map(features.map((f) => [f.id, f]));
     const target = byId.get(featureId);
     if (!target) throw new NotFoundException('الميزة غير موجودة');
-    if (target.isCore) {
-      throw new BadRequestException(
-        `"${target.nameAr}" ميزة أساسية مفعّلة دائماً ولا يمكن تعديلها`
-      );
-    }
 
     const toChange = new Set<string>([featureId]);
     if (isEnabled) {
@@ -152,7 +150,7 @@ export class FeaturesService {
       while (stack.length) {
         const id = stack.pop()!;
         const f = byId.get(id);
-        if (!f || f.isCore || toChange.has(id)) continue;
+        if (!f || toChange.has(id)) continue;
         toChange.add(id);
         stack.push(...(f.dependsOn || []));
       }
@@ -162,7 +160,7 @@ export class FeaturesService {
         grew = false;
         for (const f of features) {
           // الزراير جوه الصفحة مابتتكتبش «مقفولة»: بتقف تلقائياً مع الصفحة وترجع معاها.
-          if (toChange.has(f.id) || f.isCore || isActionFeature(f.code)) continue;
+          if (toChange.has(f.id) || isActionFeature(f.code)) continue;
           if ((f.dependsOn || []).some((d) => toChange.has(d))) {
             toChange.add(f.id);
             grew = true;
@@ -176,7 +174,7 @@ export class FeaturesService {
     const changes: FeatureChange[] = [];
     for (const id of toChange) {
       const isTarget = id === featureId;
-      const fallback = actionDefaultEnabled(byId.get(id)!.code);
+      const fallback = defaultEnabled(byId.get(id)!);
       if (!isTarget && (currentMap.get(id) ?? fallback) === isEnabled) continue;
       await this.setFeatureStatus(tenantId, id, isEnabled, {
         expiresAt: isTarget ? options?.expiresAt : undefined,
@@ -224,7 +222,7 @@ export class FeaturesService {
         dependsOn: (f.dependsOn || []).map((d) => codeById.get(d)).filter(Boolean),
         parent,
         kind: parent ? 'action' : 'page',
-        isEnabled: f.isCore || (tf ? !!tf.isEnabled : actionDefaultEnabled(f.code)),
+        isEnabled: tf ? !!tf.isEnabled : defaultEnabled(f),
         config: tf?.config || {},
         isEffective: effective.has(f.code),
         expiresAt: tf?.expiresAt ?? null,
