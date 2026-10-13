@@ -6,6 +6,10 @@ export class Warehouse extends TenantBaseEntity {
   @Column({ name: 'branch_id', type: 'uuid', nullable: true })
   branchId?: string;
 
+  /** فروع تانية بتستخدم المخزن ده كمان (مخزن مشترك). الفرع الأساسي هو branchId. */
+  @Column({ name: 'shared_branch_ids', type: 'uuid', array: true, default: () => "'{}'" })
+  sharedBranchIds: string[];
+
   @Column({ length: 255 })
   name: string;
 

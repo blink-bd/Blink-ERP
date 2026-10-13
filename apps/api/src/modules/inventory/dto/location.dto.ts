@@ -43,3 +43,7 @@ export class UpdateWarehouseDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() branchId?: string | null;
   @IsOptional() @IsBoolean() isActive?: boolean;
 }
+
+export class LinkWarehouseBranchDto {
+  @IsUUID() branchId: string;
+}

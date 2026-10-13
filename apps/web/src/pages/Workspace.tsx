@@ -3,7 +3,11 @@ import { Link, useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { Building2, Check, Layers, MapPin, Warehouse as WarehouseIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useWorkspace, warehousesForBranch } from '@/contexts/WorkspaceContext';
+import {
+  useWorkspace,
+  warehouseServesBranch,
+  warehousesForBranch,
+} from '@/contexts/WorkspaceContext';
 import { usePermissions } from '@/lib/permissions';
 
 function OptionCard({
@@ -162,7 +166,9 @@ export function WorkspacePage() {
             />
           )}
           {workspace.branches.map((b) => {
-            const count = workspace.warehouses.filter((w) => w.branchId === b.id).length;
+            const count = workspace.warehouses.filter(
+              (w) => w.branchId && warehouseServesBranch(w, b.id)
+            ).length;
             return (
               <OptionCard
                 key={b.id}
@@ -186,8 +192,8 @@ export function WorkspacePage() {
           <WarehouseIcon className="h-5 w-5 text-gray-500" /> 2) المخزن
         </h2>
         <p className="text-xs text-gray-500 mb-3">
-          كل مخزن تابع لفرع — لما تختار فرع بتظهر مخازنه بس، ولما تختار «كل الفروع» بتظهر كل
-          المخازن.
+          كل مخزن تابع لفرع (وممكن يكون مشترك مع فروع تانية) — لما تختار فرع بتظهر مخازنه والمخازن
+          المشتركة معاه، ولما تختار «كل الفروع» بتظهر كل المخازن.
         </p>
         {visibleWarehouses.length === 0 ? (
           <div className="rounded-md border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-800">
@@ -223,7 +229,13 @@ export function WorkspacePage() {
                 icon={WarehouseIcon}
                 title={w.name}
                 badge={w.isMain ? 'رئيسي' : !w.isActive ? 'موقوف' : undefined}
-                subtitle={w.branchId ? `تابع لـ ${branchName.get(w.branchId) || 'فرع'}` : undefined}
+                subtitle={
+                  w.branchId
+                    ? `تابع لـ ${branchName.get(w.branchId) || 'فرع'}${
+                        (w.branchIds || []).length > 1 ? ' • مخزن مشترك' : ''
+                      }`
+                    : undefined
+                }
               />
             ))}
           </div>

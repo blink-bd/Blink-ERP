@@ -21,7 +21,7 @@ import {
   UpdateTenantUserDto,
 } from './dto/user-management.dto';
 import { PERMISSION_CATEGORY_LABELS, PERMISSION_LABELS } from './permission-labels';
-import { AccessScope } from '@/common/utils/access-scope';
+import { AccessScope, warehouseBranchIds } from '@/common/utils/access-scope';
 
 export interface Actor {
   id: string;
@@ -141,17 +141,21 @@ export class UserManagementService {
     if (branches.length !== branchIds.length) {
       throw new BadRequestException('فرع من الفروع المختارة غير موجود');
     }
-    const warehouses: { id: string; branchId: string | null }[] = warehouseIds.length
-      ? await this.users.manager.query(
-          `SELECT id, branch_id AS "branchId" FROM warehouses
+    const warehouses: { id: string; branchId: string | null; sharedBranchIds: string[] }[] =
+      warehouseIds.length
+        ? await this.users.manager.query(
+            `SELECT id, branch_id AS "branchId", shared_branch_ids AS "sharedBranchIds" FROM warehouses
            WHERE tenant_id = $1 AND deleted_at IS NULL AND id = ANY($2::uuid[])`,
-          [actor.tenantId, warehouseIds]
-        )
-      : [];
+            [actor.tenantId, warehouseIds]
+          )
+        : [];
     if (warehouses.length !== warehouseIds.length) {
       throw new BadRequestException('مخزن من المخازن المختارة غير موجود');
     }
-    const foreign = warehouses.find((w) => w.branchId && !branchIds.includes(w.branchId));
+    // المخزن المشترك مسموح لو أي فرع من الفروع اللي بتستخدمه من فروع المستخدم.
+    const foreign = warehouses.find(
+      (w) => w.branchId && !warehouseBranchIds(w).some((b) => branchIds.includes(b))
+    );
     if (foreign) {
       throw new BadRequestException('فيه مخزن مختار تابع لفرع مش من فروع المستخدم');
     }

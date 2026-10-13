@@ -15,7 +15,12 @@ import { Product } from '@/modules/products/entities/product.entity';
 import { Warehouse } from '@/modules/inventory/entities/warehouse.entity';
 import { CreatePurchaseDto } from './dto/create-purchase.dto';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
-import { AccessScope, UNRESTRICTED_SCOPE, assertRowAllowed } from '@/common/utils/access-scope';
+import {
+  AccessScope,
+  UNRESTRICTED_SCOPE,
+  assertRowAllowed,
+  branchForWarehouseWrite,
+} from '@/common/utils/access-scope';
 import { safeTimezone, tenantYear } from '@/common/utils/tenant-time';
 import { callingCodeFor, toInternationalPhone } from '@/common/utils/phone';
 
@@ -176,7 +181,7 @@ export class PurchasesService {
       const branchId = await resolveTenantBranch(
         manager,
         tenantId,
-        warehouse.branchId || assignedBranchId
+        branchForWarehouseWrite(warehouse, assignedBranchId)
       );
 
       let subtotal = 0;

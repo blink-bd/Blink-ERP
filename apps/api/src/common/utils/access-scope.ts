@@ -10,8 +10,8 @@ import { ForbiddenException } from '@nestjs/common';
  *  - branchIds / warehouseIds: الفلتر الفعلي اللي بيتطبق على البيانات بعد دمج الاتنين
  *    (null = من غير فلتر).
  *
- * كل مخزن تابع لفرع. المخزن اللي لسه مش مربوط بفرع (بيانات قديمة) بيُعتبر مشترك
- * وبيظهر مع أي فرع لحد ما يتربط.
+ * كل مخزن تابع لفرع أساسي، وممكن يتشارك مع فروع تانية (sharedBranchIds). المخزن اللي
+ * لسه مش مربوط بفرع (بيانات قديمة) بيُعتبر مشترك وبيظهر مع أي فرع لحد ما يتربط.
  */
 export interface AccessScope {
   isOwner: boolean;
@@ -24,6 +24,36 @@ export interface AccessScope {
   warehouseIds: string[] | null;
   /** الفرع الرئيسي للتاجر — افتراضي لتسجيل العمليات لما مفيش فرع محدد. */
   mainBranchId: string | null;
+}
+
+export interface WarehouseBranchLink {
+  branchId?: string | null;
+  sharedBranchIds?: string[] | null;
+}
+
+/** الفروع اللي بتستخدم المخزن: الأساسي الأول وبعده المشتركة. */
+export function warehouseBranchIds(w: WarehouseBranchLink): string[] {
+  const ids = w.branchId ? [w.branchId] : [];
+  for (const id of w.sharedBranchIds || []) if (!ids.includes(id)) ids.push(id);
+  return ids;
+}
+
+/** هل المخزن متاح للفرع ده؟ (فرعه الأساسي، أو مشترك معاه، أو مش مربوط بأي فرع) */
+export function warehouseServesBranch(w: WarehouseBranchLink, branchId: string): boolean {
+  return !w.branchId || warehouseBranchIds(w).includes(branchId);
+}
+
+/**
+ * فرع الفاتورة لما المخزن معروف: لو الفرع المطلوب (فرع العمل/الافتراضي) بيستخدم المخزن
+ * (أساسي أو مشترك) الفاتورة تتسجل عليه — كده بيع الفرع التاني من المخزن المشترك يتحسب
+ * للفرع التاني. غير كده تتسجل على الفرع الأساسي للمخزن.
+ */
+export function branchForWarehouseWrite(
+  w: WarehouseBranchLink,
+  requestedBranchId?: string | null
+): string | null {
+  if (requestedBranchId && warehouseServesBranch(w, requestedBranchId)) return requestedBranchId;
+  return w.branchId || requestedBranchId || null;
 }
 
 /** نطاق مفتوح (مفاتيح API، المهام الداخلية، الاختبارات). */

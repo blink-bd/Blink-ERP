@@ -16,6 +16,7 @@ import { NoApiKey } from '@/common/decorators/no-api-key.decorator';
 import { AccessScopeService } from '@/modules/users/access-scope.service';
 import { UsersService } from '@/modules/users/users.service';
 import { FeaturesService } from '@/modules/features/features.service';
+import { warehouseBranchIds, warehouseServesBranch } from '@/common/utils/access-scope';
 
 export class SetWorkspaceDto {
   @IsOptional() @ValidateIf((_, v) => v !== null) @IsUUID() branchId?: string | null;
@@ -97,6 +98,8 @@ export class WorkspaceController {
         name: w.name,
         code: w.code,
         branchId: w.branchId || null,
+        // كل الفروع اللي بتستخدم المخزن (الأساسي + المشتركة)
+        branchIds: warehouseBranchIds(w),
         isMain: w.isMain,
         isActive: w.isActive,
       })),
@@ -141,7 +144,7 @@ export class WorkspaceController {
       if (base.allowedWarehouseIds && !base.allowedWarehouseIds.includes(warehouseId)) {
         throw new ForbiddenException('مش مسموح لك تشتغل على المخزن ده');
       }
-      if (branchId && w.branchId && w.branchId !== branchId) {
+      if (branchId && !warehouseServesBranch(w, branchId)) {
         throw new BadRequestException('المخزن ده تابع لفرع تاني');
       }
     }

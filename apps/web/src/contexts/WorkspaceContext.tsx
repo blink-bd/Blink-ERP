@@ -24,8 +24,23 @@ export interface WorkspaceWarehouse {
   name: string;
   code?: string;
   branchId: string | null;
+  /** كل الفروع اللي بتستخدم المخزن: الأساسي + المشتركة. */
+  branchIds?: string[];
   isMain: boolean;
   isActive: boolean;
+}
+
+/** هل المخزن متاح للفرع ده؟ (فرعه الأساسي، أو مشترك معاه، أو مش مربوط بأي فرع) */
+export function warehouseServesBranch(
+  w: { branchId?: string | null; branchIds?: string[]; sharedBranchIds?: string[] },
+  branchId: string
+): boolean {
+  if (!w.branchId) return true;
+  return (
+    w.branchId === branchId ||
+    (w.branchIds || []).includes(branchId) ||
+    (w.sharedBranchIds || []).includes(branchId)
+  );
 }
 
 export interface WorkspaceData {
@@ -65,13 +80,16 @@ const WorkspaceContext = createContext<WorkspaceContextValue>({
 
 export const useWorkspace = () => useContext(WorkspaceContext);
 
-/** المخازن اللي بتظهر مع فرع معيّن (كل مخزن تابع لفرع؛ اللي من غير فرع بيظهر مع الكل احتياطياً). */
+/**
+ * المخازن اللي بتظهر مع فرع معيّن: مخازنه + المخازن المشتركة معاه
+ * (واللي من غير فرع بيظهر مع الكل احتياطياً).
+ */
 export function warehousesForBranch(
   warehouses: WorkspaceWarehouse[],
   branchId: string | null
 ): WorkspaceWarehouse[] {
   if (!branchId) return warehouses;
-  return warehouses.filter((w) => !w.branchId || w.branchId === branchId);
+  return warehouses.filter((w) => warehouseServesBranch(w, branchId));
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Put,
+  Delete,
   Param,
   Body,
   UseGuards,
@@ -11,7 +12,7 @@ import {
   Query,
   ForbiddenException,
 } from '@nestjs/common';
-import { WarehouseDto, UpdateWarehouseDto } from './dto/location.dto';
+import { WarehouseDto, UpdateWarehouseDto, LinkWarehouseBranchDto } from './dto/location.dto';
 import { isBranchAllowed, isWarehouseAllowed, scopeOf } from '@/common/utils/access-scope';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
@@ -64,5 +65,49 @@ export class WarehousesController {
     }
     const warehouse = await this.warehousesService.update(req.tenantId, id, dto, req.user?.id);
     return { success: true, data: warehouse, message: 'تم تحديث المخزن بنجاح' };
+  }
+
+  private assertCanManageLinks(req: any) {
+    // ربط المخزن بفروع تانية بيأثر على أكتر من فرع، فمحتاج صلاحية على كل الفروع.
+    if (!scopeOf(req).accessAll) {
+      throw new ForbiddenException(
+        'ربط المخازن بالفروع متاح بس للمستخدمين اللي ليهم صلاحية على كل الفروع'
+      );
+    }
+  }
+
+  /** فرع يستخدم مخزن موجود (مخزن مشترك بين أكتر من فرع). */
+  @Post(':id/branches')
+  @RequirePermission('warehouses.manage')
+  async linkBranch(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: LinkWarehouseBranchDto
+  ) {
+    this.assertCanManageLinks(req);
+    const warehouse = await this.warehousesService.linkBranch(
+      req.tenantId,
+      id,
+      dto.branchId,
+      req.user?.id
+    );
+    return { success: true, data: warehouse, message: 'تم ربط الفرع بالمخزن' };
+  }
+
+  @Delete(':id/branches/:branchId')
+  @RequirePermission('warehouses.manage')
+  async unlinkBranch(
+    @Request() req,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('branchId', ParseUUIDPipe) branchId: string
+  ) {
+    this.assertCanManageLinks(req);
+    const warehouse = await this.warehousesService.unlinkBranch(
+      req.tenantId,
+      id,
+      branchId,
+      req.user?.id
+    );
+    return { success: true, data: warehouse, message: 'تم فك ربط الفرع من المخزن' };
   }
 }

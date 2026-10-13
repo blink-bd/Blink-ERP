@@ -572,6 +572,7 @@ export class AdminInsightsService {
     );
     const warehouses = await this.dataSource.query(
       `SELECT w.id, w.name, w.code, w.branch_id AS "branchId", w.is_active AS "isActive",
+              w.shared_branch_ids AS "sharedBranchIds",
               (SELECT COUNT(*)::int FROM inventory i WHERE i.tenant_id = w.tenant_id
                  AND i.warehouse_id = w.id AND i.quantity > 0) AS "productsInStock"
        FROM warehouses w
@@ -581,7 +582,16 @@ export class AdminInsightsService {
     );
     return branches.map((branch: any) => ({
       ...branch,
-      warehouses: warehouses.filter((w: any) => w.branchId === branch.id),
+      // المخزن المشترك بيظهر مع كل فرع بيستخدمه، ومعلّم إنه مشترك عند الفروع التانية.
+      warehouses: warehouses
+        .filter(
+          (w: any) => w.branchId === branch.id || (w.sharedBranchIds || []).includes(branch.id)
+        )
+        .map(({ sharedBranchIds, ...w }: any) => ({
+          ...w,
+          shared: w.branchId !== branch.id,
+          sharedBranchCount: (sharedBranchIds || []).length,
+        })),
     }));
   }
 }
