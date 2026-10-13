@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import { AccessScope } from '@/common/utils/access-scope';
+import {
+  AccessScope,
+  warehouseBranchIds,
+  warehouseServesBranch,
+} from '@/common/utils/access-scope';
 import { Branch } from '@/modules/inventory/entities/branch.entity';
 import { Warehouse } from '@/modules/inventory/entities/warehouse.entity';
 import { User } from './entities/user.entity';
@@ -57,7 +61,7 @@ export class AccessScopeService {
   compute(
     user: ScopeUser,
     branches: Pick<Branch, 'id' | 'isMain'>[],
-    warehouses: Pick<Warehouse, 'id' | 'branchId'>[]
+    warehouses: (Pick<Warehouse, 'id' | 'branchId'> & { sharedBranchIds?: string[] | null })[]
   ): AccessScope {
     const isOwner = userIsOwner(user);
     const accessAll = isOwner || user.accessAllBranches !== false;
@@ -68,12 +72,15 @@ export class AccessScopeService {
     const allowedBranchIds = accessAll
       ? null
       : (user.allowedBranchIds || []).filter((id) => branchIdSet.has(id));
-    // المخزن المسموح لازم يكون تابع لفرع مسموح (أو مش مربوط بفرع).
+    // المخزن المسموح لازم يكون تابع لفرع مسموح — أساسي أو مشترك (أو مش مربوط بفرع).
     const allowedWarehouseIds = accessAll
       ? null
       : (user.allowedWarehouseIds || []).filter((id) => {
           const w = warehouseById.get(id);
-          return !!w && (!w.branchId || (allowedBranchIds || []).includes(w.branchId));
+          return (
+            !!w &&
+            (!w.branchId || warehouseBranchIds(w).some((b) => (allowedBranchIds || []).includes(b)))
+          );
         });
 
     const branchAllowed = (id: string) => !allowedBranchIds || allowedBranchIds.includes(id);
@@ -85,8 +92,8 @@ export class AccessScopeService {
       if (branchAllowed(user.activeBranchId)) activeBranchId = user.activeBranchId;
     }
 
-    const belongsToBranch = (w: Pick<Warehouse, 'branchId'>, branchId: string) =>
-      !w.branchId || w.branchId === branchId;
+    // المخزن المشترك بيظهر مع كل فرع بيستخدمه.
+    const belongsToBranch = warehouseServesBranch;
 
     let activeWarehouseId: string | null = null;
     if (user.activeWarehouseId) {

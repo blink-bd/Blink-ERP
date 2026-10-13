@@ -33,6 +33,7 @@ import {
   UNRESTRICTED_SCOPE,
   assertRowAllowed,
   qbIn,
+  branchForWarehouseWrite,
 } from '@/common/utils/access-scope';
 import { safeTimezone, tenantYear } from '@/common/utils/tenant-time';
 import { callingCodeFor, toInternationalPhone } from '@/common/utils/phone';
@@ -259,7 +260,7 @@ export class SalesService {
       const branchId = await resolveTenantBranch(
         manager,
         tenantId,
-        warehouse.branchId || assignedBranchId
+        branchForWarehouseWrite(warehouse, assignedBranchId)
       );
       let subtotal = 0;
       let taxAmount = 0;

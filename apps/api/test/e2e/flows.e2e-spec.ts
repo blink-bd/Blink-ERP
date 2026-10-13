@@ -1244,6 +1244,130 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(otherBranch.status).toBe(403);
       expect(JSON.stringify(otherBranch.body)).not.toContain('LIMIT_REACHED');
     });
+
+    it('shares one warehouse between two branches (each sale counted for its own branch)', async () => {
+      // فرع جديد من غير مخزن
+      const branch = await tenantA.post(api('/branches'), { name: 'فرع الهرم', code: 'BR3' });
+      expect(branch.status).toBe(201);
+      const branch3Id = branch.body.data.id;
+
+      const before = await tenantA.put(api('/workspace'), {
+        branchId: branch3Id,
+        warehouseId: null,
+      });
+      expect(before.status).toBe(200);
+      expect(before.body.data.effectiveWarehouseIds).toEqual([]);
+
+      // الفرع التالت يستخدم نفس مخزن الفرع الأول
+      const link = await tenantA.post(api(`/warehouses/${state.warehouse1Id}/branches`), {
+        branchId: branch3Id,
+      });
+      expect(link.status).toBe(201);
+      expect(link.body.data.branchId).toBe(state.branch1Id);
+      expect(link.body.data.sharedBranchIds).toEqual([branch3Id]);
+
+      const again = await tenantA.post(api(`/warehouses/${state.warehouse1Id}/branches`), {
+        branchId: branch3Id,
+      });
+      expect(again.status).toBe(400);
+      const ownBranch = await tenantA.post(api(`/warehouses/${state.warehouse1Id}/branches`), {
+        branchId: state.branch1Id,
+      });
+      expect(ownBranch.status).toBe(400);
+
+      const ws = await tenantA.get(api('/workspace'));
+      expect(ws.body.data.effectiveWarehouseIds).toEqual([state.warehouse1Id]);
+      const shared = ws.body.data.warehouses.find((w: any) => w.id === state.warehouse1Id);
+      expect(shared.branchIds).toEqual([state.branch1Id, branch3Id]);
+      const pick = await tenantA.put(api('/workspace'), {
+        branchId: branch3Id,
+        warehouseId: state.warehouse1Id,
+      });
+      expect(pick.status).toBe(200);
+      expect(pick.body.data.activeWarehouseId).toBe(state.warehouse1Id);
+
+      const stock = await tenantA.get(api('/inventory'));
+      expect(stock.body.data.length).toBeGreaterThan(0);
+      expect(stock.body.data.every((r: any) => r.warehouseId === state.warehouse1Id)).toBe(true);
+
+      // رصيد إضافي للبيعتين اللي جايين عشان مانأثرش على باقي الاختبارات
+      const topUp = await tenantA.post(api('/inventory/adjust'), {
+        productId: state.productId,
+        warehouseId: state.warehouse1Id,
+        quantity: 2,
+        reason: 'رصيد لاختبار المخزن المشترك',
+      });
+      expect(topUp.status).toBe(201);
+
+      // البيع من الفرع التالت بيتسجل على الفرع التالت مش على صاحب المخزن
+      const sale3 = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+      });
+      expect(sale3.status).toBe(201);
+      expect(sale3.body.data.branchId).toBe(branch3Id);
+
+      const reset = await tenantA.put(api('/workspace'), { branchId: null, warehouseId: null });
+      expect(reset.status).toBe(200);
+      const sale1 = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+      });
+      expect(sale1.status).toBe(201);
+      expect(sale1.body.data.branchId).toBe(state.branch1Id);
+
+      // مستخدم مقيد بالفرع التالت يقدر يشتغل على المخزن المشترك
+      const user = await tenantA.post(api('/users'), {
+        fullName: 'كاشير فرع الهرم',
+        email: 'branch3@example.test',
+        password: 'Branch!Pass2026y',
+        roleIds: [state.branchRoleId],
+        accessAllBranches: false,
+        allowedBranchIds: [branch3Id],
+        allowedWarehouseIds: [state.warehouse1Id],
+      });
+      expect(user.status).toBe(201);
+      const cashier = new TestClient(baseUrl);
+      const login = await cashier.post(api(`/auth/login?tenantId=${state.tenantAId}`), {
+        email: 'branch3@example.test',
+        password: 'Branch!Pass2026y',
+      });
+      expect([200, 201]).toContain(login.status);
+      const cashierWs = await cashier.get(api('/workspace'));
+      expect(cashierWs.body.data.warehouses.map((w: any) => w.id)).toEqual([state.warehouse1Id]);
+
+      // المدير العام بيشوف المخزن تحت الفرعين ومعلّم إنه مشترك عند الفرع التالت
+      const adminBranches = await master.get(api(`/admin/tenants/${state.tenantAId}/branches`));
+      expect(adminBranches.status).toBe(200);
+      const adminB3 = adminBranches.body.data.find((b: any) => b.id === branch3Id);
+      expect(adminB3.warehouses.map((w: any) => [w.id, w.shared])).toEqual([
+        [state.warehouse1Id, true],
+      ]);
+
+      // فك الربط: الفرع الأساسي مايتفكش، والمشترك يتفك ويرجع الفرع من غير مخزن
+      const unlinkOwner = await tenantA.del(
+        api(`/warehouses/${state.warehouse1Id}/branches/${state.branch1Id}`)
+      );
+      expect(unlinkOwner.status).toBe(400);
+      const unlink = await tenantA.del(
+        api(`/warehouses/${state.warehouse1Id}/branches/${branch3Id}`)
+      );
+      expect(unlink.status).toBe(200);
+      expect(unlink.body.data.sharedBranchIds).toEqual([]);
+      const after = await tenantA.put(api('/workspace'), {
+        branchId: branch3Id,
+        warehouseId: null,
+      });
+      expect(after.body.data.effectiveWarehouseIds).toEqual([]);
+      const mismatch = await tenantA.put(api('/workspace'), {
+        branchId: branch3Id,
+        warehouseId: state.warehouse1Id,
+      });
+      expect(mismatch.status).toBe(400);
+      await tenantA.put(api('/workspace'), { branchId: null, warehouseId: null });
+    });
   });
 
   // ------------------------------------------------------------- balance alerts

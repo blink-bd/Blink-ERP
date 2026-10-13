@@ -139,8 +139,18 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
       ...form,
       allowedBranchIds: toggleIn(form.allowedBranchIds, branchId),
       // شيل الفرع = شيل مخازنه؛ إضافة الفرع = كل مخازنه (تقدر تشيل منها بعد كده).
+      // المخزن المشترك يفضل مختار لو فرع تاني من فروع المستخدم بيستخدمه.
       allowedWarehouseIds: removing
-        ? form.allowedWarehouseIds.filter((w) => !branchWarehouses.includes(w))
+        ? form.allowedWarehouseIds.filter(
+            (w) =>
+              !branchWarehouses.includes(w) ||
+              branches.some(
+                (b) =>
+                  b.id !== branchId &&
+                  form.allowedBranchIds.includes(b.id) &&
+                  (b.warehouses || []).some((x: any) => x.id === w)
+              )
+          )
         : Array.from(new Set([...form.allowedWarehouseIds, ...branchWarehouses])),
     });
   };
@@ -605,6 +615,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                                       }
                                     />
                                     {w.name}
+                                    {w.shared && <span className="text-indigo-600">(مشترك)</span>}
                                   </label>
                                 ))}
                               </div>

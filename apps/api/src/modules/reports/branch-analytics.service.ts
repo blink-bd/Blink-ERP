@@ -110,15 +110,19 @@ export class BranchAnalyticsService {
           [tenantId, branchIds]
         ),
         this.dataSource.query(
-          `SELECT w.branch_id AS "branchId", COUNT(DISTINCT p.id)::int AS "productCount",
+          // المخزن المشترك بيظهر رصيده مع كل فرع بيستخدمه (الأساسي + المشتركة).
+          `SELECT wb.branch_id AS "branchId", COUNT(DISTINCT p.id)::int AS "productCount",
                 COALESCE(SUM(i.quantity), 0) AS "stockQuantity",
                 COALESCE(SUM(i.quantity * i.weighted_avg_cost), 0) AS "stockValue"
          FROM warehouses w
+         CROSS JOIN LATERAL (
+           SELECT DISTINCT unnest(array_prepend(w.branch_id, w.shared_branch_ids)) AS branch_id
+         ) wb
          JOIN inventory i ON i.warehouse_id = w.id AND i.tenant_id = w.tenant_id
          JOIN products p ON p.id = i.product_id AND p.tenant_id = i.tenant_id
-         WHERE w.tenant_id = $1 AND w.branch_id = ANY($2::uuid[]) AND w.deleted_at IS NULL
+         WHERE w.tenant_id = $1 AND wb.branch_id = ANY($2::uuid[]) AND w.deleted_at IS NULL
            AND p.deleted_at IS NULL AND p.track_inventory = true
-         GROUP BY w.branch_id`,
+         GROUP BY wb.branch_id`,
           [tenantId, branchIds]
         ),
       ]);

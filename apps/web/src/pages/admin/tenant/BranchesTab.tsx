@@ -10,7 +10,11 @@ export function BranchesTab({ id }: { id: string }) {
   }, [id]);
 
   if (!branches) return <Skeleton className="h-64" />;
-  const warehouses = branches.reduce((sum, b) => sum + b.warehouses.length, 0);
+  // المخزن المشترك بيظهر تحت كل فرع بيستخدمه، فبنعدّه مرة واحدة بس.
+  const warehouses = branches.reduce(
+    (sum, b) => sum + b.warehouses.filter((w: any) => !w.shared).length,
+    0
+  );
 
   return (
     <Section
@@ -75,6 +79,10 @@ export function BranchesTab({ id }: { id: string }) {
                     <span className="inline-flex items-center gap-2 text-slate-700">
                       <Warehouse className="h-4 w-4 text-slate-400" />
                       {w.name}
+                      {w.shared && <Badge tone="violet">مشترك من فرع تاني</Badge>}
+                      {!w.shared && w.sharedBranchCount > 0 && (
+                        <Badge tone="violet">مشترك مع {w.sharedBranchCount} فرع</Badge>
+                      )}
                       {!w.isActive && <Badge tone="slate">متوقف</Badge>}
                     </span>
                     <span className="text-xs text-slate-500">

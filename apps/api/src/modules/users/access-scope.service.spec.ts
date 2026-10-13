@@ -1,5 +1,5 @@
 import { AccessScopeService } from './access-scope.service';
-import { resolveBranchForWrite } from '@/common/utils/access-scope';
+import { branchForWarehouseWrite, resolveBranchForWrite } from '@/common/utils/access-scope';
 
 describe('AccessScopeService.compute', () => {
   const service = new AccessScopeService({} as any, {} as any);
@@ -135,6 +135,55 @@ describe('AccessScopeService.compute', () => {
       const scope = service.compute(cashier, branches, warehouses);
       expect(resolveBranchForWrite(scope, undefined)).toBe('b-2');
       expect(resolveBranchForWrite(scope, 'b-3', 'b-3')).toBe('b-2');
+    });
+  });
+
+  describe('shared warehouses (one warehouse used by more than one branch)', () => {
+    const withShared = [
+      { id: 'w-main', branchId: 'b-main', sharedBranchIds: ['b-3'] },
+      { id: 'w-2', branchId: 'b-2', sharedBranchIds: [] },
+    ];
+
+    it('shows the shared warehouse with every branch that uses it', () => {
+      const b3 = service.compute({ ...owner, activeBranchId: 'b-3' }, branches, withShared);
+      expect(b3.warehouseIds).toEqual(['w-main']);
+      const main = service.compute({ ...owner, activeBranchId: 'b-main' }, branches, withShared);
+      expect(main.warehouseIds).toEqual(['w-main']);
+      const b2 = service.compute({ ...owner, activeBranchId: 'b-2' }, branches, withShared);
+      expect(b2.warehouseIds).toEqual(['w-2']);
+    });
+
+    it('accepts the shared warehouse as the active warehouse of the other branch', () => {
+      const scope = service.compute(
+        { ...owner, activeBranchId: 'b-3', activeWarehouseId: 'w-main' },
+        branches,
+        withShared
+      );
+      expect(scope.activeWarehouseId).toBe('w-main');
+    });
+
+    it('lets a user restricted to the sharing branch keep the shared warehouse', () => {
+      const scope = service.compute(
+        {
+          ...owner,
+          roles: [{ name: 'cashier' }],
+          accessAllBranches: false,
+          allowedBranchIds: ['b-3'],
+          allowedWarehouseIds: ['w-main', 'w-2'],
+        },
+        branches,
+        withShared
+      );
+      expect(scope.allowedWarehouseIds).toEqual(['w-main']);
+    });
+
+    it('records a sale on the working branch when it uses the warehouse, else on its owner', () => {
+      const w = withShared[0];
+      expect(branchForWarehouseWrite(w, 'b-3')).toBe('b-3');
+      expect(branchForWarehouseWrite(w, 'b-main')).toBe('b-main');
+      expect(branchForWarehouseWrite(w, 'b-2')).toBe('b-main');
+      expect(branchForWarehouseWrite(w, null)).toBe('b-main');
+      expect(branchForWarehouseWrite({ branchId: null }, 'b-2')).toBe('b-2');
     });
   });
 });

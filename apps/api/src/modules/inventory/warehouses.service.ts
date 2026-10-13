@@ -113,6 +113,49 @@ export class WarehousesService {
         : clean.branchId || (await this.findOrCreateMainBranch(tenantId, userId)).id;
     if (branchId) await this.assertActiveTenantBranch(tenantId, branchId);
     Object.assign(warehouse, clean, { branchId, updatedBy: userId });
+    // الفرع الأساسي مايتكررش في قايمة الفروع المشتركة.
+    warehouse.sharedBranchIds = (warehouse.sharedBranchIds || []).filter((id) => id !== branchId);
+    return this.repo.save(warehouse);
+  }
+
+  /**
+   * يخلّي فرع يستخدم مخزن موجود (حتى لو المخزن تابع لفرع تاني) — مخزن مشترك.
+   * مش بيضيف مخزن جديد، فمش محتاج ميزة «المخازن المتعددة».
+   */
+  async linkBranch(tenantId: string, id: string, branchId: string, userId?: string) {
+    const warehouse = await this.findById(tenantId, id);
+    await this.assertActiveTenantBranch(tenantId, branchId);
+    if (!warehouse.isActive) throw new BadRequestException('المخزن ده موقوف');
+    if (!warehouse.isMain && !(await this.features.tenantHasFeature(tenantId, 'warehouses'))) {
+      throw new BadRequestException(
+        'من غير ميزة «المخازن المتعددة» تقدر تربط الفروع بالمخزن الرئيسي بس'
+      );
+    }
+    if (!warehouse.branchId) {
+      // مخزن قديم مش مربوط بأي فرع: الفرع ده يبقى فرعه الأساسي.
+      warehouse.branchId = branchId;
+    } else if (warehouse.branchId === branchId) {
+      throw new BadRequestException('المخزن ده أصلاً تابع للفرع ده');
+    } else if ((warehouse.sharedBranchIds || []).includes(branchId)) {
+      throw new BadRequestException('الفرع ده مربوط بالمخزن ده بالفعل');
+    } else {
+      warehouse.sharedBranchIds = [...(warehouse.sharedBranchIds || []), branchId];
+    }
+    warehouse.updatedBy = userId;
+    return this.repo.save(warehouse);
+  }
+
+  /** يفك ربط فرع مشترك من المخزن (الفرع الأساسي مايتفكش — غيّره بربط المخزن بفرع تاني). */
+  async unlinkBranch(tenantId: string, id: string, branchId: string, userId?: string) {
+    const warehouse = await this.findById(tenantId, id);
+    if (warehouse.branchId === branchId) {
+      throw new BadRequestException('ده الفرع الأساسي للمخزن ومينفعش يتفك');
+    }
+    if (!(warehouse.sharedBranchIds || []).includes(branchId)) {
+      throw new BadRequestException('الفرع ده مش مربوط بالمخزن ده');
+    }
+    warehouse.sharedBranchIds = warehouse.sharedBranchIds.filter((b) => b !== branchId);
+    warehouse.updatedBy = userId;
     return this.repo.save(warehouse);
   }
 

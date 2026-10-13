@@ -65,7 +65,15 @@ interface Location {
   isMain?: boolean;
   isActive?: boolean;
   branchId?: string | null;
+  /** فروع تانية بتستخدم المخزن (مخزن مشترك) */
+  sharedBranchIds?: string[];
 }
+
+/** المخازن اللي الفرع بيستخدمها: مخازنه + المشتركة معاه. */
+const branchWarehouses = (warehouses: Location[], branchId: string) =>
+  warehouses.filter(
+    (w) => w.branchId === branchId || (!!w.branchId && (w.sharedBranchIds || []).includes(branchId))
+  );
 
 const emptyUser = {
   id: '',
@@ -212,22 +220,29 @@ function UsersTab() {
 
   // اختيار فرع بيختار مخازنه تلقائياً، وإلغاؤه بيشيل مخازنه
   const toggleBranch = (branchId: string, checked: boolean) => {
-    const own = warehouses.filter((w) => w.branchId === branchId).map((w) => w.id);
-    setForm((f) =>
-      checked
-        ? {
-            ...f,
-            allowedBranchIds: Array.from(new Set([...f.allowedBranchIds, branchId])),
-            allowedWarehouseIds: Array.from(new Set([...f.allowedWarehouseIds, ...own])),
-          }
-        : {
-            ...f,
-            allowedBranchIds: f.allowedBranchIds.filter((id) => id !== branchId),
-            allowedWarehouseIds: f.allowedWarehouseIds.filter((id) => !own.includes(id)),
-            branchId: f.branchId === branchId ? '' : f.branchId,
-            warehouseId: own.includes(f.warehouseId) ? '' : f.warehouseId,
-          }
-    );
+    const own = branchWarehouses(warehouses, branchId).map((w) => w.id);
+    setForm((f) => {
+      if (checked) {
+        return {
+          ...f,
+          allowedBranchIds: Array.from(new Set([...f.allowedBranchIds, branchId])),
+          allowedWarehouseIds: Array.from(new Set([...f.allowedWarehouseIds, ...own])),
+        };
+      }
+      const remainingBranches = f.allowedBranchIds.filter((id) => id !== branchId);
+      // المخزن المشترك يفضل مختار لو فرع تاني من فروع المستخدم بيستخدمه.
+      const stillUsed = new Set(
+        remainingBranches.flatMap((id) => branchWarehouses(warehouses, id).map((w) => w.id))
+      );
+      const removed = own.filter((id) => !stillUsed.has(id));
+      return {
+        ...f,
+        allowedBranchIds: remainingBranches,
+        allowedWarehouseIds: f.allowedWarehouseIds.filter((id) => !removed.includes(id)),
+        branchId: f.branchId === branchId ? '' : f.branchId,
+        warehouseId: removed.includes(f.warehouseId) ? '' : f.warehouseId,
+      };
+    });
   };
   const toggleWarehouse = (warehouseId: string, checked: boolean) => {
     setForm((f) => ({
@@ -663,7 +678,7 @@ function UsersTab() {
                 {!form.accessAllBranches && (
                   <div className="space-y-2 ps-6">
                     {branches.map((b) => {
-                      const own = warehouses.filter((w) => w.branchId === b.id);
+                      const own = branchWarehouses(warehouses, b.id);
                       const checked = form.allowedBranchIds.includes(b.id);
                       return (
                         <div key={b.id} className="rounded border p-2">
@@ -692,6 +707,9 @@ function UsersTab() {
                                     onChange={(e) => toggleWarehouse(w.id, e.target.checked)}
                                   />
                                   {w.name}
+                                  {w.branchId !== b.id && (
+                                    <span className="text-[11px] text-indigo-600">(مشترك)</span>
+                                  )}
                                 </label>
                               ))}
                             </div>
