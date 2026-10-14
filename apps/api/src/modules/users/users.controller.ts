@@ -50,6 +50,7 @@ export class UsersController {
         id: user.id,
         tenantId: user.tenantId,
         email: user.email,
+        username: user.username ?? null,
         fullName: user.fullName,
         phone: user.phone,
         isActive: user.isActive,

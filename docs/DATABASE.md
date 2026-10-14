@@ -105,6 +105,7 @@ CREATE TABLE users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   email VARCHAR(255) NOT NULL,
+  username VARCHAR(50),
   password_hash VARCHAR(255) NOT NULL,
   full_name VARCHAR(255) NOT NULL,
   phone VARCHAR(50),
@@ -128,6 +129,8 @@ CREATE TABLE users (
 
 CREATE INDEX idx_users_tenant ON users(tenant_id);
 CREATE INDEX idx_users_email ON users(tenant_id, email);
+CREATE UNIQUE INDEX idx_users_username_global_unique ON users(LOWER(username))
+  WHERE username IS NOT NULL AND deleted_at IS NULL;
 CREATE INDEX idx_users_active ON users(tenant_id, is_active) WHERE deleted_at IS NULL;
 ```
 

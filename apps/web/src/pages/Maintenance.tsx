@@ -81,9 +81,7 @@ export function MaintenancePage() {
   // فروع نطاق العمل الحالي (للفاتورة الجديدة وللفلتر).
   const branches: Branch[] = workspace ? workingBranches(workspace) : fallbackBranches;
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(
-    daysAgoKey(30)
-  );
+  const [startDate, setStartDate] = useState(daysAgoKey(30));
   const [endDate, setEndDate] = useState(todayKey());
   const [data, setData] = useState<any>(null);
   const [form, setForm] = useState<MaintenanceForm>(emptyForm);
@@ -139,7 +137,6 @@ export function MaintenancePage() {
       const branchId = keepIfValid(branches, current.branchId, defaultBranchId);
       return branchId === current.branchId ? current : { ...current, branchId };
     });
-     
   }, [defaultBranchId, branches.map((branch) => branch.id).join(',')]);
 
   useEffect(() => {
@@ -162,6 +159,7 @@ export function MaintenancePage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!canCreate) return;
     setSaving(true);
     try {
       await api.post('/maintenance', {
@@ -213,13 +211,15 @@ export function MaintenancePage() {
             فواتير صيانة محفوظة ببيانات العميل والمنتج، مع فصل تكلفة القطع عن إيراد الخدمة وربحها.
           </p>
         </div>
-        <Button onClick={() => setShowForm((visible) => !visible)}>
-          {showForm ? <X className="ml-2 h-4 w-4" /> : <Plus className="ml-2 h-4 w-4" />}
-          {showForm ? 'إغلاق النموذج' : 'فاتورة صيانة جديدة'}
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowForm((visible) => !visible)}>
+            {showForm ? <X className="ml-2 h-4 w-4" /> : <Plus className="ml-2 h-4 w-4" />}
+            {showForm ? 'إغلاق النموذج' : 'فاتورة صيانة جديدة'}
+          </Button>
+        )}
       </div>
 
-      {showForm && (
+      {canCreate && showForm && (
         <form onSubmit={submit} className="space-y-5 rounded-lg border bg-white p-5 shadow-sm">
           <h2 className="font-bold">بيانات فاتورة الصيانة</h2>
           <div className="grid gap-4 md:grid-cols-3">
@@ -416,16 +416,17 @@ export function MaintenancePage() {
           value={money(summary.partsCost)}
           signedValue={summary.partsCost}
         />
-        <Metric
-          title="ربح الصيانة"
-          value={money(summary.profit)}
-          signedValue={summary.profit}
-        />
+        <Metric title="ربح الصيانة" value={money(summary.profit)} signedValue={summary.profit} />
       </div>
       {Number(summary.returnRepairs) > 0 && (
         <p className="text-xs text-gray-500">
-          منها <Signed value={Number(summary.returnRepairs)}>{Number(summary.returnRepairs).toLocaleString('ar-EG')}</Signed> صيانة لأصناف مرتجعة بتكلفة{' '}
-          <Signed value={summary.returnRepairsCost}>{money(summary.returnRepairsCost)}</Signed> (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
+          منها{' '}
+          <Signed value={Number(summary.returnRepairs)}>
+            {Number(summary.returnRepairs).toLocaleString('ar-EG')}
+          </Signed>{' '}
+          صيانة لأصناف مرتجعة بتكلفة{' '}
+          <Signed value={summary.returnRepairsCost}>{money(summary.returnRepairsCost)}</Signed>{' '}
+          (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
         </p>
       )}
 
@@ -490,8 +491,12 @@ export function MaintenancePage() {
                         {invoice.productModel || invoice.productSerial || '—'}
                       </div>
                     </td>
-                    <td className="p-3"><Signed value={invoice.servicePrice}>{money(invoice.servicePrice)}</Signed></td>
-                    <td className="p-3"><Signed value={invoice.partsCost}>{money(invoice.partsCost)}</Signed></td>
+                    <td className="p-3">
+                      <Signed value={invoice.servicePrice}>{money(invoice.servicePrice)}</Signed>
+                    </td>
+                    <td className="p-3">
+                      <Signed value={invoice.partsCost}>{money(invoice.partsCost)}</Signed>
+                    </td>
                     <td
                       className={`p-3 font-bold ${Number(invoice.profit) < 0 ? 'text-red-700' : 'text-green-700'}`}
                     >
@@ -549,10 +554,7 @@ export function MaintenancePage() {
         </div>
       </section>
 
-      <ShareMaintenanceDialog
-        invoiceId={shareInvoiceId}
-        onClose={() => setShareInvoiceId(null)}
-      />
+      <ShareMaintenanceDialog invoiceId={shareInvoiceId} onClose={() => setShareInvoiceId(null)} />
     </div>
   );
 }

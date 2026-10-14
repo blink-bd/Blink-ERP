@@ -68,6 +68,7 @@ const emptyForm = {
   phone: '',
   adminFullName: '',
   adminEmail: '',
+  adminUsername: '',
   adminPassword: '',
 };
 
@@ -113,6 +114,7 @@ export function AdminTenantsPage() {
         adminUser: {
           fullName: form.adminFullName,
           email: form.adminEmail,
+          username: form.adminUsername,
           password: form.adminPassword,
         },
       });
@@ -236,13 +238,33 @@ export function AdminTenantsPage() {
             />
           </div>
           <div>
-            <Label>البريد (للدخول)</Label>
+            <Label>اسم المستخدم (لتسجيل الدخول)</Label>
+            <Input
+              type="text"
+              required
+              minLength={3}
+              maxLength={50}
+              pattern="[A-Za-z0-9_.-]+"
+              autoComplete="username"
+              dir="ltr"
+              className="text-left"
+              placeholder="مثال: ahmed_store"
+              value={form.adminUsername}
+              onChange={(e) => setForm({ ...form, adminUsername: e.target.value })}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              من 3 إلى 50 حرفاً إنجليزياً أو رقماً أو . _ -. يجب أن يكون فريداً.
+            </p>
+          </div>
+          <div>
+            <Label>البريد الإلكتروني (للتواصل فقط)</Label>
             <Input
               type="email"
               required
               value={form.adminEmail}
               onChange={(e) => setForm({ ...form, adminEmail: e.target.value })}
             />
+            <p className="mt-1 text-xs text-slate-400">البريد لا يُستخدم لتسجيل الدخول.</p>
           </div>
           <div>
             <Label>كلمة المرور</Label>
@@ -356,7 +378,9 @@ export function AdminTenantsPage() {
                     value={
                       t.subscriptionAmount ? (
                         <>
-                          <Signed value={t.subscriptionAmount}>{fmtMoney(t.subscriptionAmount)}</Signed>{' '}
+                          <Signed value={t.subscriptionAmount}>
+                            {fmtMoney(t.subscriptionAmount)}
+                          </Signed>{' '}
                           / {t.subscriptionCycle === 'yearly' ? 'سنة' : 'شهر'}
                         </>
                       ) : (

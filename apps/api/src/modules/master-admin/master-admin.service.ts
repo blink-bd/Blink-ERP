@@ -433,7 +433,7 @@ export class MasterAdminService implements OnModuleInit {
   async listTenantUsers(tenantId: string) {
     await this.getTenant(tenantId);
     return this.dataSource.query(
-      `SELECT u.id, u.email, u.full_name AS "fullName", u.phone, u.is_active AS "isActive",
+      `SELECT u.id, u.email, u.username, u.full_name AS "fullName", u.phone, u.is_active AS "isActive",
               u.branch_id AS "branchId", u.warehouse_id AS "warehouseId",
               u.allowed_branch_ids AS "allowedBranchIds", u.allowed_warehouse_ids AS "allowedWarehouseIds",
               u.last_login_at AS "lastLoginAt", u.last_login_ip AS "lastLoginIp",

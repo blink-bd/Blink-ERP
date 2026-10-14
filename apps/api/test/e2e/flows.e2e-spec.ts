@@ -103,6 +103,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
           adminUser: {
             fullName: `Owner ${suffix}`,
             email: `owner${suffix.toLowerCase()}@example.test`,
+            username: `owner_${suffix.toLowerCase()}`,
             password: 'Owner!Pass2026x',
           },
         });
@@ -120,6 +121,50 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const ids = list.body.data.map((t: any) => t.id);
       expect(ids).toContain(state.tenantAId);
       expect(ids).toContain(state.tenantBId);
+    });
+
+    it('enforces case-insensitive username uniqueness across all tenants', async () => {
+      const duplicate = await master.post(api('/admin/tenants'), {
+        businessName: 'Duplicate username tenant',
+        businessNameAr: 'تاجر باسم مستخدم مكرر',
+        email: 'duplicate-tenant@example.test',
+        adminUser: {
+          fullName: 'Duplicate Owner',
+          email: 'duplicate-owner@example.test',
+          username: 'OWNER_A',
+          password: 'Owner!Pass2026x',
+        },
+      });
+      expect(duplicate.status).toBe(409);
+      const [row] = await dataSource.query(
+        `SELECT COUNT(*)::int AS count FROM tenants WHERE email = $1`,
+        ['duplicate-tenant@example.test']
+      );
+      expect(row.count).toBe(0);
+
+      const [ownerB] = await dataSource.query(
+        `SELECT id FROM users WHERE tenant_id = $1 AND email = $2 AND deleted_at IS NULL`,
+        [state.tenantBId, 'ownerb@example.test']
+      );
+      const duplicateUpdate = await master.put(
+        api(`/admin/tenants/${state.tenantBId}/users/${ownerB.id}`),
+        { username: 'OWNER_A' }
+      );
+      expect(duplicateUpdate.status).toBe(409);
+    });
+
+    it('requires a username for the first user when creating a tenant', async () => {
+      const response = await master.post(api('/admin/tenants'), {
+        businessName: 'Tenant without owner username',
+        businessNameAr: 'تاجر بدون اسم مستخدم للمالك',
+        email: 'missing-owner-tenant@example.test',
+        adminUser: {
+          fullName: 'Owner without username',
+          email: 'missing-owner@example.test',
+          password: 'Owner!Pass2026x',
+        },
+      });
+      expect(response.status).toBe(400);
     });
 
     it('enables the commercial features per tenant (with config)', async () => {
@@ -184,8 +229,8 @@ describe('Blink ERP — integration flows (e2e)', () => {
   // ---------------------------------------------------------------- tenant auth
   describe('tenant login and branch setup', () => {
     it('logs in the tenant owner with HttpOnly cookies', async () => {
-      const response = await tenantA.post(api(`/auth/login?tenantId=${state.tenantAId}`), {
-        email: 'ownera@example.test',
+      const response = await tenantA.post(api('/auth/login'), {
+        username: 'owner_a',
         password: 'Owner!Pass2026x',
       });
       expect([200, 201]).toContain(response.status);
@@ -193,6 +238,18 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(tenantA.hasCookie('blink_refresh_token')).toBe(true);
       expect(response.headers.get('set-cookie')).toMatch(/HttpOnly/i);
       expect(JSON.stringify(response.body)).not.toContain('blink_access_token');
+      const me = await tenantA.get(api('/auth/me'));
+      expect(me.body.data.username).toBe('owner_a');
+    });
+
+    it('requires a username when the merchant creates a new user', async () => {
+      const response = await tenantA.post(api('/users'), {
+        fullName: 'مستخدم بدون اسم دخول',
+        email: 'missing-username@example.test',
+        password: 'Missing!Pass2026x',
+        roleIds: [],
+      });
+      expect(response.status).toBe(400);
     });
 
     it('creates branches and links a warehouse to each branch', async () => {
@@ -344,7 +401,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
         headers: { 'X-Reminder-Job-Token': REMINDERS_TOKEN },
       });
       expect(run.status).toBe(201);
-      const body = await run.json();
+      const body: any = await run.json();
       expect(body.data.supplierLimitTenantsProcessed).toBeGreaterThanOrEqual(1);
     });
   });
@@ -1105,14 +1162,16 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const createUser = await tenantA.post(api('/users'), {
         fullName: 'مشرف المخزون',
         email: 'supervisor@example.test',
+        username: 'supervisor_inventory',
         password: 'Super!Pass2026x',
         roleIds: [supervisorRole.id],
         branchId: state.branch1Id,
       });
       expect([200, 201]).toContain(createUser.status);
+      expect(createUser.body.data.username).toBe('supervisor_inventory');
 
-      const login = await cashierA.post(api(`/auth/login?tenantId=${state.tenantAId}`), {
-        email: 'supervisor@example.test',
+      const login = await cashierA.post(api('/auth/login'), {
+        username: 'supervisor_inventory',
         password: 'Super!Pass2026x',
       });
       expect([200, 201]).toContain(login.status);
@@ -1231,8 +1290,8 @@ describe('Blink ERP — integration flows (e2e)', () => {
     });
 
     it('keeps tenants isolated (products, sales, transfers, attachments)', async () => {
-      const login = await tenantB.post(api(`/auth/login?tenantId=${state.tenantBId}`), {
-        email: 'ownerb@example.test',
+      const login = await tenantB.post(api('/auth/login'), {
+        username: 'owner_b',
         password: 'Owner!Pass2026x',
       });
       expect([200, 201]).toContain(login.status);
@@ -1351,6 +1410,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const created = await tenantA.post(api('/users'), {
         fullName: 'مدير الفرع التاني',
         email: 'branch2@example.test',
+        username: 'branch2_manager',
         password: 'Branch!Pass2026x',
         roleIds: [state.branchRoleId],
         branchId: state.branch2Id,
@@ -1363,8 +1423,8 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(created.body.data.accessAllBranches).toBe(false);
 
       restricted = new TestClient(baseUrl);
-      const login = await restricted.post(api(`/auth/login?tenantId=${state.tenantAId}`), {
-        email: 'branch2@example.test',
+      const login = await restricted.post(api('/auth/login'), {
+        username: 'branch2_manager',
         password: 'Branch!Pass2026x',
       });
       expect([200, 201]).toContain(login.status);
@@ -1415,6 +1475,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const allAccess = await restricted.post(api('/users'), {
         fullName: 'محاولة صلاحية أوسع',
         email: 'escalate1@example.test',
+        username: 'escalate_branch_access',
         password: 'Escalate!Pass2026x',
         roleIds: [state.branchRoleId],
         accessAllBranches: true,
@@ -1425,6 +1486,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const otherBranch = await restricted.post(api('/users'), {
         fullName: 'محاولة فرع تاني',
         email: 'escalate2@example.test',
+        username: 'escalate_other_branch',
         password: 'Escalate!Pass2026x',
         roleIds: [state.branchRoleId],
         accessAllBranches: false,
@@ -1512,6 +1574,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const user = await tenantA.post(api('/users'), {
         fullName: 'كاشير فرع الهرم',
         email: 'branch3@example.test',
+        username: 'branch3_cashier',
         password: 'Branch!Pass2026y',
         roleIds: [state.branchRoleId],
         accessAllBranches: false,
@@ -1520,8 +1583,8 @@ describe('Blink ERP — integration flows (e2e)', () => {
       });
       expect(user.status).toBe(201);
       const cashier = new TestClient(baseUrl);
-      const login = await cashier.post(api(`/auth/login?tenantId=${state.tenantAId}`), {
-        email: 'branch3@example.test',
+      const login = await cashier.post(api('/auth/login'), {
+        username: 'branch3_cashier',
         password: 'Branch!Pass2026y',
       });
       expect([200, 201]).toContain(login.status);
@@ -1573,7 +1636,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
         headers: { 'X-Reminder-Job-Token': REMINDERS_TOKEN },
       });
       expect(run.status).toBe(201);
-      const body = await run.json();
+      const body: any = await run.json();
       expect(body.data.customerReminders).toBeGreaterThanOrEqual(1);
 
       const list = await tenantA.get(api('/balance-reminders'));
@@ -1615,7 +1678,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
         method: 'POST',
         headers: { 'X-Reminder-Job-Token': REMINDERS_TOKEN },
       });
-      const body = await run.json();
+      const body: any = await run.json();
       expect(body.data.supplierReminders).toBeGreaterThanOrEqual(1);
 
       const list = await tenantA.get(api('/balance-reminders'));
@@ -2148,6 +2211,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const created = await master.post(api(`/admin/tenants/${state.tenantAId}/users`), {
         fullName: 'موظف من الإدارة',
         email: 'admin-made@tenant-a.test',
+        username: 'admin_made',
         password: 'Admin-Made-Pass-2026',
         roleIds: [newRole.body.data.id],
         accessAllBranches: true,
@@ -2156,10 +2220,10 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const userId = created.body.data.id;
 
       const maintenanceReader = new TestClient(baseUrl);
-      const maintenanceLogin = await maintenanceReader.post(
-        api(`/auth/login?tenantId=${state.tenantAId}`),
-        { email: 'admin-made@tenant-a.test', password: 'Admin-Made-Pass-2026' }
-      );
+      const maintenanceLogin = await maintenanceReader.post(api('/auth/login'), {
+        username: 'admin_made',
+        password: 'Admin-Made-Pass-2026',
+      });
       expect([200, 201]).toContain(maintenanceLogin.status);
       expect((await maintenanceReader.get(api('/maintenance'))).status).toBe(200);
       expect((await maintenanceReader.post(api('/maintenance'), {})).status).toBe(403);
@@ -2173,6 +2237,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       const updated = await master.put(api(`/admin/tenants/${state.tenantAId}/users/${userId}`), {
         fullName: 'موظف بعد التعديل',
         email: 'renamed@tenant-a.test',
+        username: 'admin_made_updated',
         phone: '01012345678',
         isActive: false,
       });
@@ -2180,6 +2245,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(updated.body.data).toMatchObject({
         fullName: 'موظف بعد التعديل',
         email: 'renamed@tenant-a.test',
+        username: 'admin_made_updated',
         isActive: false,
       });
 
@@ -2194,7 +2260,11 @@ describe('Blink ERP — integration flows (e2e)', () => {
 
       const list = await master.get(api(`/admin/tenants/${state.tenantAId}/users`));
       const row = list.body.data.find((u: any) => u.id === userId);
-      expect(row).toMatchObject({ email: 'renamed@tenant-a.test', isActive: false });
+      expect(row).toMatchObject({
+        email: 'renamed@tenant-a.test',
+        username: 'admin_made_updated',
+        isActive: false,
+      });
       expect(row.roles[0]).toHaveProperty('id');
 
       const removed = await master.del(api(`/admin/tenants/${state.tenantAId}/users/${userId}`));
@@ -2371,12 +2441,12 @@ describe('Blink ERP — integration flows (e2e)', () => {
     });
   });
 
-  // ---------------------------------------------------------- login without UUID
-  describe('tenant login without a tenant id', () => {
-    it('resolves the tenant automatically when the email exists in one active tenant', async () => {
+  // ---------------------------------------------------- username-only tenant login
+  describe('tenant login by username without a tenant id', () => {
+    it('finds the tenant by a case-insensitive username', async () => {
       const client = new TestClient(baseUrl, '203.0.113.40');
       const response = await client.post(api('/auth/login'), {
-        email: 'ownerb@example.test',
+        username: 'OWNER_B',
         password: 'Owner!Pass2026x',
       });
       expect([200, 201]).toContain(response.status);
@@ -2384,7 +2454,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(response.body.data.tenant.id).toBe(state.tenantBId);
     });
 
-    it('asks for a tenant id when the same email exists in more than one tenant', async () => {
+    it('uses username rather than a contact email shared between tenants', async () => {
       const extra = await master.post(api('/admin/tenants'), {
         businessName: 'E2E Store C',
         businessNameAr: 'متجر الاختبار ج',
@@ -2392,25 +2462,68 @@ describe('Blink ERP — integration flows (e2e)', () => {
         adminUser: {
           fullName: 'Owner C',
           email: 'ownerb@example.test',
+          username: 'owner_c',
           password: 'Owner!Pass2026x',
         },
       });
       expect([200, 201]).toContain(extra.status);
+      const tenantCId = extra.body.data.tenant.id;
 
-      const client = new TestClient(baseUrl, '203.0.113.41');
-      const ambiguous = await client.post(api('/auth/login'), {
-        email: 'ownerb@example.test',
+      const ownerB = new TestClient(baseUrl, '203.0.113.41');
+      const loginB = await ownerB.post(api('/auth/login'), {
+        username: 'owner_b',
         password: 'Owner!Pass2026x',
       });
-      expect(ambiguous.status).toBe(400);
-      expect(ambiguous.body.error?.message).toContain('أكثر من متجر');
+      expect([200, 201]).toContain(loginB.status);
+      expect(loginB.body.data.tenant.id).toBe(state.tenantBId);
 
-      const withTenant = await client.post(api(`/auth/login?tenantId=${state.tenantBId}`), {
-        email: 'ownerb@example.test',
+      const ownerC = new TestClient(baseUrl, '203.0.113.42');
+      const loginC = await ownerC.post(api('/auth/login'), {
+        username: 'owner_c',
         password: 'Owner!Pass2026x',
       });
-      expect([200, 201]).toContain(withTenant.status);
-      expect(withTenant.body.data.tenant.id).toBe(state.tenantBId);
+      expect([200, 201]).toContain(loginC.status);
+      expect(loginC.body.data.tenant.id).toBe(tenantCId);
+    });
+
+    it('keeps a legacy user blank until the master admin assigns a username', async () => {
+      const [owner] = await dataSource.query(
+        `SELECT id FROM users WHERE tenant_id = $1 AND email = $2 AND deleted_at IS NULL`,
+        [state.tenantAId, 'ownera@example.test']
+      );
+      expect(owner?.id).toBeTruthy();
+      await dataSource.query('UPDATE users SET username = NULL WHERE id = $1', [owner.id]);
+
+      const listed = await master.get(api(`/admin/tenants/${state.tenantAId}/users`));
+      const legacy = listed.body.data.find((user: any) => user.id === owner.id);
+      expect(legacy.username).toBeNull();
+
+      const client = new TestClient(baseUrl, '203.0.113.43');
+      const emailAsLogin = await client.post(api('/auth/login'), {
+        email: 'ownera@example.test',
+        password: 'Owner!Pass2026x',
+      });
+      expect(emailAsLogin.status).toBe(400);
+
+      const oldUsername = await client.post(api('/auth/login'), {
+        username: 'owner_a',
+        password: 'Owner!Pass2026x',
+      });
+      expect(oldUsername.status).toBe(401);
+
+      const assigned = await master.put(
+        api(`/admin/tenants/${state.tenantAId}/users/${owner.id}`),
+        { username: 'owner_a' }
+      );
+      expect(assigned.status).toBe(200);
+      expect(assigned.body.data.username).toBe('owner_a');
+
+      const login = await client.post(api('/auth/login'), {
+        username: 'OWNER_A',
+        password: 'Owner!Pass2026x',
+      });
+      expect([200, 201]).toContain(login.status);
+      expect(login.body.data.tenant.id).toBe(state.tenantAId);
     });
   });
 
@@ -2433,7 +2546,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
         body: JSON.stringify({ status: 'success', objectKey: 'backups/e2e.dump' }),
       });
       expect(response.status).toBe(201);
-      const body = await response.json();
+      const body: any = await response.json();
       expect(['skipped', 'sent']).toContain(body.data.email);
       expect(['skipped', 'sent']).toContain(body.data.whatsapp);
     });

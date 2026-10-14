@@ -268,6 +268,7 @@ export class UserManagementService {
     return {
       id: user.id,
       email: user.email,
+      username: user.username ?? null,
       fullName: user.fullName,
       phone: user.phone,
       isActive: user.isActive,
@@ -320,6 +321,9 @@ export class UserManagementService {
     );
 
     const email = dto.email.toLowerCase().trim();
+    const username = this.usersService.normalizeUsername(dto.username);
+    if (!username) throw new BadRequestException('اسم المستخدم مطلوب');
+
     const exists = await this.users.findOne({
       where: { tenantId: actor.tenantId, email },
       withDeleted: true,
@@ -329,6 +333,7 @@ export class UserManagementService {
     const created = await this.usersService.create({
       tenantId: actor.tenantId,
       email,
+      username,
       password: dto.password,
       fullName: dto.fullName,
       phone: dto.phone,
@@ -362,6 +367,15 @@ export class UserManagementService {
     this.assertCanManage(actor, target);
     const before = this.toPublic(target);
     let revoke = false;
+
+    if (dto.username !== undefined) {
+      const username = this.usersService.normalizeUsername(dto.username);
+      if (!username) throw new BadRequestException('اسم المستخدم مطلوب');
+      if (username !== target.username?.toLowerCase()) {
+        await this.usersService.assertUsernameAvailable(username, target.id);
+        target.username = username;
+      }
+    }
 
     if (dto.isActive === false && target.isActive) {
       if (target.id === actor.id) throw new BadRequestException('لا يمكنك إيقاف حسابك بنفسك');
@@ -419,7 +433,14 @@ export class UserManagementService {
     if (dto.isActive !== undefined) target.isActive = dto.isActive;
     if (dto.branchId !== undefined) target.branchId = dto.branchId ?? (null as any);
     if (dto.warehouseId !== undefined) target.warehouseId = dto.warehouseId ?? (null as any);
-    await this.users.save(target);
+    try {
+      await this.users.save(target);
+    } catch (error) {
+      if (this.usersService.isUsernameUniqueViolation(error)) {
+        throw new ConflictException('اسم المستخدم مستخدم بالفعل');
+      }
+      throw error;
+    }
     if (revoke) await this.usersService.revokeSessions(target.id);
 
     const after = this.toPublic(await this.getTarget(actor.tenantId, id));
@@ -444,7 +465,7 @@ export class UserManagementService {
     return after;
   }
 
-  /** تغيير بريد الدخول (للمدير العام بس) — بيطلّع المستخدم من كل أجهزته. */
+  /** تغيير بريد التواصل (للمدير العام بس) — يبطّل جلسات المستخدم لأمان الحساب. */
   async changeEmail(actor: Actor, id: string, rawEmail: string, req: any) {
     if (!actor.platformAdmin) throw new ForbiddenException('تغيير البريد من الإدارة بس');
     const target = await this.getTarget(actor.tenantId, id);

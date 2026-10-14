@@ -7,14 +7,11 @@ import {
   UseGuards,
   Request,
   Response,
-  Query,
-  BadRequestException,
   UnauthorizedException,
   Ip,
   Headers,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { isUUID } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Response as ExpressResponse } from 'express';
@@ -64,15 +61,9 @@ export class AuthController {
     @Body() dto: LoginDto,
     @Ip() ip: string,
     @Response({ passthrough: true }) res: ExpressResponse,
-    @Query('tenantId') tenantId: string | undefined,
     @Headers('user-agent') userAgent?: string
   ) {
-    // معرّف المتجر اختياري: لو البريد مسجل في متجر واحد نشط يتم تحديده تلقائياً.
-    const providedTenantId = tenantId?.trim();
-    if (providedTenantId && !isUUID(providedTenantId)) {
-      throw new BadRequestException('معرّف المتجر غير صحيح');
-    }
-    const result = await this.authService.login(dto, providedTenantId || null, ip, {
+    const result = await this.authService.login(dto, ip, {
       userAgent: String(userAgent || '').slice(0, 500),
     });
     this.setAuthCookies(res, result);

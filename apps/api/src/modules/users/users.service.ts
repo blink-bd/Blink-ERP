@@ -1,4 +1,4 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { BadRequestException, Injectable, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as argon2 from 'argon2';
@@ -9,6 +9,7 @@ import { Permission } from './entities/permission.entity';
 interface CreateUserInput {
   tenantId: string;
   email: string;
+  username: string;
   password: string;
   fullName: string;
   phone?: string;
@@ -41,34 +42,60 @@ export class UsersService {
     });
   }
 
-  async findByEmailAndTenant(email: string, tenantId: string): Promise<User | null> {
-    return this.usersRepository.findOne({
-      where: { email: email.toLowerCase().trim(), tenantId },
-      relations: ['tenant', 'roles', 'roles.permissions'],
-    });
+  async findByUsername(username: string): Promise<User | null> {
+    const normalized = this.normalizeUsername(username);
+    if (!normalized) return null;
+    return this.usersRepository
+      .createQueryBuilder('user')
+      .leftJoinAndSelect('user.tenant', 'tenant')
+      .leftJoinAndSelect('user.roles', 'roles')
+      .leftJoinAndSelect('roles.permissions', 'permissions')
+      .where('LOWER(user.username) = :username', { username: normalized })
+      .andWhere('user.deletedAt IS NULL')
+      .getOne();
   }
 
-  /**
-   * المتاجر النشطة التي يوجد فيها مستخدم بهذا البريد.
-   * يُستخدم لتسجيل الدخول بدون كتابة معرّف المتجر: لو البريد مسجل في متجر واحد
-   * نشط نحدده تلقائياً، ولو مسجل في أكثر من متجر نطلب من المستخدم تحديد المتجر.
-   */
-  async findActiveTenantIdsByEmail(email: string): Promise<string[]> {
-    const rows = await this.usersRepository
+  /** Normalize and validate the platform-wide username used for sign-in. */
+  normalizeUsername(value: string | null | undefined): string | null {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    const username = value.trim().toLowerCase();
+    if (username.length < 3 || username.length > 50 || !/^[a-z0-9_.-]+$/.test(username)) {
+      throw new BadRequestException(
+        'اسم المستخدم يجب أن يكون من 3 إلى 50 حرفاً إنجليزياً أو رقماً أو . _ -'
+      );
+    }
+    return username;
+  }
+
+  async assertUsernameAvailable(username: string, excludeUserId?: string): Promise<void> {
+    const normalized = this.normalizeUsername(username);
+    if (!normalized) throw new BadRequestException('اسم المستخدم مطلوب');
+
+    const query = this.usersRepository
       .createQueryBuilder('user')
-      .innerJoin('user.tenant', 'tenant')
-      .select('DISTINCT user.tenantId', 'tenantId')
-      .where('user.email = :email', { email: email.toLowerCase().trim() })
-      .andWhere('user.deletedAt IS NULL')
-      .andWhere('tenant.isActive = true')
-      .andWhere('tenant.deletedAt IS NULL')
-      .limit(2)
-      .getRawMany<{ tenantId: string }>();
-    return rows.map((row) => row.tenantId);
+      .where('LOWER(user.username) = :username', { username: normalized })
+      .andWhere('user.deletedAt IS NULL');
+    if (excludeUserId) query.andWhere('user.id <> :excludeUserId', { excludeUserId });
+
+    if ((await query.getCount()) > 0) {
+      throw new ConflictException('اسم المستخدم مستخدم بالفعل');
+    }
+  }
+
+  isUsernameUniqueViolation(error: unknown): boolean {
+    const databaseError = (error as any)?.driverError ?? error;
+    return (
+      databaseError?.code === '23505' &&
+      databaseError?.constraint === 'idx_users_username_global_unique'
+    );
   }
 
   async create(input: CreateUserInput): Promise<User> {
     const email = input.email.toLowerCase().trim();
+    const username = this.normalizeUsername(input.username);
+    if (!username) throw new BadRequestException('اسم المستخدم مطلوب');
+    await this.assertUsernameAvailable(username);
+
     const existing = await this.usersRepository.findOne({
       where: { email, tenantId: input.tenantId },
     });
@@ -79,12 +106,21 @@ export class UsersService {
     const user = this.usersRepository.create({
       tenantId: input.tenantId,
       email,
+      username,
       passwordHash: await hashPassword(input.password),
       fullName: input.fullName.trim(),
       phone: input.phone,
     });
 
-    const saved = await this.usersRepository.save(user);
+    let saved: User;
+    try {
+      saved = await this.usersRepository.save(user);
+    } catch (error) {
+      if (this.isUsernameUniqueViolation(error)) {
+        throw new ConflictException('اسم المستخدم مستخدم بالفعل');
+      }
+      throw error;
+    }
     if (input.assignOwnerRole) {
       await this.assignOwnerRole(input.tenantId, saved.id);
     }

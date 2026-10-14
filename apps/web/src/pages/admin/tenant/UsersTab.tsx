@@ -49,6 +49,7 @@ interface UserForm {
   id?: string;
   fullName: string;
   email: string;
+  username: string;
   phone: string;
   password: string;
   isActive: boolean;
@@ -84,6 +85,7 @@ const emptyRoleForm = (): NewRoleForm => ({
 const emptyForm = (): UserForm => ({
   fullName: '',
   email: '',
+  username: '',
   phone: '',
   password: generatePassword(),
   isActive: true,
@@ -159,6 +161,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
       id: u.id,
       fullName: u.fullName || '',
       email: u.email || '',
+      username: u.username || '',
       phone: u.phone || '',
       password: '',
       isActive: !!u.isActive,
@@ -225,9 +228,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
         permissionsCount: createdRole.permissions?.length ?? 0,
       };
       setRoles((current) =>
-        current.some((role) => role.id === availableRole.id)
-          ? current
-          : [...current, availableRole]
+        current.some((role) => role.id === availableRole.id) ? current : [...current, availableRole]
       );
       setForm((current) =>
         current
@@ -272,8 +273,11 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
 
   const save = async () => {
     if (!form) return;
-    if (form.fullName.trim().length < 2) return toast.error('اكتب اسم المستخدم');
-    if (!form.email.trim()) return toast.error('اكتب البريد الإلكتروني');
+    if (form.fullName.trim().length < 2) return toast.error('اكتب الاسم بالكامل');
+    if (!form.email.trim()) return toast.error('اكتب البريد الإلكتروني للتواصل');
+    if (!/^[A-Za-z0-9_.-]{3,50}$/.test(form.username.trim())) {
+      return toast.error('اسم المستخدم من 3 إلى 50 حرفاً إنجليزياً أو رقماً أو . _ -');
+    }
     if (!form.id && form.password.length < 8) return toast.error('كلمة المرور 8 أحرف على الأقل');
     if (!form.roleIds.length) return toast.error('اختار دور واحد على الأقل');
     if (!formIsOwner && !form.accessAllBranches && !form.allowedBranchIds.length) {
@@ -303,6 +307,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
         await adminApi.put(`/admin/tenants/${id}/users/${form.id}`, {
           fullName: form.fullName.trim(),
           email: form.email.trim(),
+          username: form.username.trim(),
           phone: form.phone.trim(),
           isActive: form.isActive,
           roleIds: form.roleIds,
@@ -313,13 +318,16 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
         await adminApi.post(`/admin/tenants/${id}/users`, {
           fullName: form.fullName.trim(),
           email: form.email.trim(),
+          username: form.username.trim(),
           phone: form.phone.trim() || undefined,
           password: form.password,
           roleIds: form.roleIds,
           ...access,
         });
-        copy(`${form.email.trim()}\n${form.password}`);
-        toast.success('تم إضافة المستخدم ونسخ بيانات الدخول — ابعتها له', { duration: 6000 });
+        copy(`${form.username.trim()}\n${form.password}`);
+        toast.success('تم إضافة المستخدم ونسخ اسم المستخدم وكلمة المرور — ابعتها له', {
+          duration: 6000,
+        });
       }
       setForm(null);
       refresh();
@@ -446,6 +454,20 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                       )}
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-500">
+                      <button
+                        type="button"
+                        className={u.username ? 'hover:text-slate-800' : 'text-amber-700'}
+                        dir="ltr"
+                        title={u.username ? 'نسخ اسم المستخدم' : 'عيّن اسم مستخدم من زر تعديل'}
+                        onClick={() => {
+                          if (u.username) {
+                            copy(u.username);
+                            toast.success('اتنسخ اسم المستخدم');
+                          }
+                        }}
+                      >
+                        {u.username || 'اسم المستخدم غير محدد'}
+                      </button>
                       <button
                         type="button"
                         className="hover:text-slate-800"
@@ -603,18 +625,34 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
                 />
               </div>
               <div>
-                <Label>البريد الإلكتروني (للدخول)</Label>
+                <Label>اسم المستخدم (لتسجيل الدخول)</Label>
+                <Input
+                  required
+                  dir="ltr"
+                  minLength={3}
+                  maxLength={50}
+                  autoComplete="username"
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  placeholder="مثال: ahmed_store"
+                  className="text-left"
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  فريد على مستوى المنصة. الحسابات القديمة تفضل بدون اسم لحد ما تحدده هنا.
+                </p>
+              </div>
+              <div>
+                <Label>البريد الإلكتروني (للتواصل فقط)</Label>
                 <Input
                   dir="ltr"
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                 />
-                {form.id && (
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    لو غيّرته، المستخدم هيتعمله خروج ويدخل بالبريد الجديد.
-                  </p>
-                )}
+                <p className="mt-1 text-[11px] text-slate-400">
+                  البريد لا يُستخدم لتسجيل الدخول.
+                  {form.id && ' لو غيّرته، هيتسجل خروج المستخدم من كل الأجهزة.'}
+                </p>
               </div>
               <div>
                 <Label>الموبايل</Label>
@@ -805,9 +843,7 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
               <Input
                 maxLength={500}
                 value={roleForm.description}
-                onChange={(event) =>
-                  setRoleForm({ ...roleForm, description: event.target.value })
-                }
+                onChange={(event) => setRoleForm({ ...roleForm, description: event.target.value })}
                 placeholder="مثال: عرض فواتير الصيانة وتسجيل فواتير جديدة"
               />
             </div>

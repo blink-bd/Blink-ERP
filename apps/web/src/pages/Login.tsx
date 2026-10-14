@@ -10,16 +10,15 @@ export function LoginPage() {
   const { t } = useTranslation('auth');
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [tenantId, setTenantId] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await login(email, password, tenantId);
+      await login(username, password);
       navigate('/dashboard');
     } catch (error) {
       console.error(error);
@@ -39,37 +38,37 @@ export function LoginPage() {
         <form onSubmit={handleSubmit} className="mt-8 space-y-6">
           <div className="space-y-4">
             <div>
-              <Label htmlFor="tenantId">معرّف المتجر (اختياري)</Label>
+              <Label htmlFor="username">{t('username')}</Label>
               <Input
-                id="tenantId"
+                id="username"
+                name="username"
                 type="text"
-                value={tenantId}
-                onChange={(e) => setTenantId(e.target.value)}
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                pattern="[A-Za-z0-9_.-]+"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                minLength={3}
+                maxLength={50}
                 disabled={isLoading}
-                placeholder="اتركه فارغاً لو بريدك مسجل في متجر واحد"
+                placeholder="اكتب اسم المستخدم"
+                dir="ltr"
+                className="text-left"
               />
               <p className="mt-1 text-xs text-gray-500">
-                لو بريدك مسجل في أكثر من متجر، اكتب معرّف المتجر (UUID) الذي وصلك من إدارة النظام.
+                لو ماعندكش اسم مستخدم، تواصل مع مدير النظام عشان يحدده.
               </p>
-            </div>
-
-            <div>
-              <Label htmlFor="email">{t('email')}</Label>
-              <Input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={isLoading}
-              />
             </div>
 
             <div>
               <Label htmlFor="password">{t('password')}</Label>
               <Input
                 id="password"
+                name="password"
                 type="password"
+                autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required

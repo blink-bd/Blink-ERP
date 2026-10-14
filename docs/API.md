@@ -25,15 +25,14 @@
 ## Authentication
 
 ### Login
-`tenantId` في الـ query **اختياري**: لو البريد مسجل في متجر واحد نشط يتم تحديد المتجر تلقائياً،
-ولو مسجل في أكثر من متجر يلزم إرسال `tenantId` وإلا يُرجع 400 مع رسالة توضح ذلك.
+يكون دخول مستخدمي التجار باسم مستخدم فريد على مستوى المنصة وكلمة المرور، من غير بريد أو معرّف تاجر. اسم المستخدم غير حساس لحالة الأحرف. البريد يظل بيانات تواصل ولا يُستخدم كبديل للدخول. حسابات ما قبل إضافة usernames تظل فارغة حتى يعيّن المدير العام اسماً لها.
 
 ```http
-POST /auth/login?tenantId=tenant-uuid
+POST /auth/login
 Content-Type: application/json
 
 {
-  "email": "user@example.com",
+  "username": "ahmed_store",
   "password": "password123"
 }
 
@@ -44,6 +43,7 @@ Response 200:
     "user": {
       "id": "uuid",
       "email": "user@example.com",
+      "username": "ahmed_store",
       "fullName": "محمد أحمد",
       "tenantId": "tenant-uuid",
       "roles": ["cashier"],
@@ -55,28 +55,12 @@ Response 200:
       "currency": "SAR",
       "timezone": "Asia/Riyadh",
       "language": "ar"
-    },
-    "features": ["pos", "sales", "inventory", "customers"],
-    "branding": {
-      "appName": "نظام نقاط البيع",
-      "logoUrl": "/uploads/tenants/xxx/logo.png",
-      "primaryColor": "#0858A2",
-      "secondaryColor": "#123456"
-    },
-    "accessToken": "eyJhbGc...",
-    "refreshToken": "uuid"
+    }
   },
   "message": "تم تسجيل الدخول بنجاح"
 }
 
-Response 401:
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_CREDENTIALS",
-    "message": "البريد الإلكتروني أو كلمة المرور غير صحيحة"
-  }
-}
+Response 401: بيانات الدخول غير صحيحة
 ```
 
 ### Refresh Token
@@ -429,8 +413,8 @@ GET /reports/advanced/top-customers           أعلى العملاء شراءً
 ```http
 GET    /users/me
 GET    /users                        (users.view)    -> { users[], limits: { maxUsers, current } }
-POST   /users                        (users.create)  -> بيطبق maxUsers وقاعدة "مفيش صلاحيات أعلى من صلاحياتك"
-PUT    /users/:id                    (users.update)
+POST   /users                        { fullName, email, username, password, roleIds[], ... } (users.create)
+PUT    /users/:id                    { username?, ... } (users.update)
 POST   /users/:id/reset-password     (users.update)  10 req/min
 POST   /users/:id/revoke-sessions    (users.update)  -> بيزود sessionVersion
 DELETE /users/:id                    (users.delete)  -> آخر مالك نشط محمي
@@ -439,6 +423,8 @@ GET    /roles/permissions            (roles.manage)
 POST   /roles | PUT /roles/:id | DELETE /roles/:id   (roles.manage)
 POST   /auth/change-password         { currentPassword, newPassword }  5 req/min, لا يقبل API key
 ```
+
+`username` مطلوب لكل مستخدم جديد، فريد على مستوى المنصة دون حساسية لحالة الأحرف، ويُستخدم مع كلمة المرور للدخول. البريد مطلوب كبيانات تواصل فقط. يمكن للمدير العام تعيين أو تعديل اسم المستخدم من ملف التاجر، والحسابات القديمة تظل بلا username حتى تعيينه.
 
 ---
 
@@ -501,7 +487,7 @@ POST /admin/auth/2fa/disable      { password, otp }
 ```http
 GET    /admin/tenants
 GET    /admin/tenants/:id
-POST   /admin/tenants            { businessName, ..., country?, currency?, timezone?, adminUser: {...} }
+POST   /admin/tenants            { businessName, ..., adminUser: { fullName, email, username, password } }
 PUT    /admin/tenants/:id        أي حقل من فوق ماعدا adminUser
 PATCH  /admin/tenants/:id/status        { isActive }
 PUT    /admin/tenants/:id/subscription  { subscriptionPrice, subscriptionCycle, subscriptionNote, subscriptionEndsAt }
@@ -520,6 +506,8 @@ PUT    /admin/tenants/:id/warehouses/:warehouseId   { branchId?, name?, isActive
 POST   /admin/tenants/:id/warehouses/:warehouseId/branches  { branchId }     فرع يستخدم مخزن موجود (مشترك)
 DELETE /admin/tenants/:id/warehouses/:warehouseId/branches/:branchId         فك ربط فرع مشترك
 GET    /admin/tenants/:id/users
+POST   /admin/tenants/:id/users       { fullName, email, username, password, roleIds[], ... }
+PUT    /admin/tenants/:id/users/:userId { username?, email?, ... }
 GET    /admin/tenants/:id/roles
 GET    /admin/tenants/:id/permissions
 POST   /admin/tenants/:id/roles       { name, nameAr, description?, permissions[] } إنشاء دور مخصص للتاجر

@@ -122,7 +122,8 @@ export function OverviewTab({
         <Section title="بيانات التاجر">
           <div className="divide-y divide-slate-100">
             <Row label="صاحب النشاط" value={owner?.fullName} />
-            <Row label="إيميل الدخول" value={owner?.email} />
+            <Row label="اسم المستخدم للدخول" value={owner?.username || 'غير محدد'} />
+            <Row label="البريد الإلكتروني للتواصل" value={owner?.email} />
             <Row label="تليفون" value={tenant.phone || owner?.phone} />
             <Row
               label="المدينة / الدولة"

@@ -12,6 +12,10 @@ export class User extends BaseEntity {
   @Column({ length: 255 })
   email: string;
 
+  /** اسم دخول فريد على مستوى المنصة؛ NULL للحسابات القديمة لحد ما المدير يحدده. */
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  username?: string | null;
+
   @Column({ name: 'password_hash', length: 255 })
   @Exclude()
   passwordHash: string;
