@@ -594,6 +594,76 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(twice.status).toBe(400);
     });
 
+    it('writes off a fully damaged return in one step (stock out + loss booked once)', async () => {
+      const stockOf = async () => {
+        const [row] = await dataSource.query(
+          `SELECT quantity, reserved_quantity AS reserved FROM inventory
+           WHERE tenant_id = $1 AND product_id = $2 AND warehouse_id = $3`,
+          [state.tenantAId, state.productId, state.warehouse1Id]
+        );
+        return { quantity: Number(row.quantity), reserved: Number(row.reserved) };
+      };
+      const sale = await tenantA.post(api('/sales'), {
+        customerId: state.customerId,
+        warehouseId: state.warehouse1Id,
+        items: [{ productId: state.productId, quantity: 1 }],
+      });
+      expect([200, 201]).toContain(sale.status);
+      const before = await stockOf();
+      const returned = await tenantA.post(api(`/sales/${sale.body.data.id}/return`), {
+        items: [{ saleItemId: sale.body.data.items[0].id, quantity: 1 }],
+        reason: 'تالف تماماً — للإعدام',
+      });
+      expect(returned.status).toBe(201);
+      const returnItemId = returned.body.data.items[0].id;
+      const unitCost = Number(returned.body.data.items[0].unitCost);
+      const dispositionUrl = `/sales/returns/${returned.body.data.id}/items/${returnItemId}/disposition`;
+
+      // الخسارة بتتحسب لوحدها بقيمة التكلفة، فأي رقم يدوي هنا هيكررها → مرفوض
+      const withManualWaste = await tenantA.post(api(dispositionUrl), {
+        disposition: 'write_off',
+        wasteExpense: 50,
+      });
+      expect(withManualWaste.status).toBe(400);
+      const withRepair = await tenantA.post(api(dispositionUrl), {
+        disposition: 'write_off',
+        repairExpense: 20,
+      });
+      expect(withRepair.status).toBe(400);
+
+      const resolution = await tenantA.post(api(dispositionUrl), { disposition: 'write_off' });
+      expect(resolution.status).toBe(201);
+      expect(resolution.body.data.disposition).toBe('write_off');
+      expect(resolution.body.data.newProductId ?? null).toBeNull();
+      expect(Number(resolution.body.data.wasteExpense)).toBeCloseTo(unitCost, 2);
+
+      // الكمية خرجت من المخزون وفكّ الحجز — من غير ما يتعمل صنف جديد
+      const after = await stockOf();
+      expect(after.quantity).toBe(before.quantity);
+      expect(after.reserved).toBe(before.reserved);
+
+      const [item] = await dataSource.query(
+        `SELECT disposition, waste_expense AS waste, new_product_id AS new_product
+         FROM sale_return_items WHERE id = $1`,
+        [returnItemId]
+      );
+      expect(item.disposition).toBe('write_off');
+      expect(Number(item.waste)).toBeCloseTo(unitCost, 2);
+      expect(item.new_product ?? null).toBeNull();
+
+      // الخسارة اتسجلت مصروف واحد بقيمة التكلفة الأصلية
+      const [returnRow] = await dataSource.query(
+        `SELECT return_number FROM sale_returns WHERE id = $1`,
+        [returned.body.data.id]
+      );
+      const expenses = await dataSource.query(
+        `SELECT amount FROM expenses WHERE tenant_id = $1 AND expense_number LIKE $2`,
+        [state.tenantAId, `EXP-RET-${returnRow.return_number}-%`]
+      );
+      expect(expenses.length).toBe(1);
+      expect(Number(expenses[0].amount)).toBeCloseTo(unitCost, 2);
+    });
+
     it('keeps profit reporting consistent after returns', async () => {
       const today = new Date().toISOString().slice(0, 10);
       const from = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);

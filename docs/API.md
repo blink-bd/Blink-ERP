@@ -340,6 +340,19 @@ Feature Required: returns
 { "returnDate": "2024-01-16T11:00:00Z", "items": [{ "saleItemId": "uuid", "quantity": 1, "reason": "معيب" }], "refundAmount": 35.00 }
 ```
 
+### Return Item Disposition (فحص المرتجع)
+```http
+POST /sales/returns/:returnId/items/:itemId/disposition
+Permissions Required: sales.return
+Feature Required: return_disposition
+{ "disposition": "original | supplier | restocked | write_off", "supplierId": "uuid", "repairExpense": 25.00, "repairDescription": "تغيير شاشة", "wasteExpense": 10.00, "product": { "name": "موبايل مرتجع", "sku": "RT-1", "costPrice": 80, "sellingPrice": 110 } }
+```
+- `original`: الصنف سليم — يرجع المخزن على نفس الصنف بتكلفته الأصلية.
+- `supplier`: يُعاد للمورد ويخفض رصيده بقيمة `unitCost × quantity` (يتطلب `supplierId`).
+- `restocked`: يدخل المخزن كصنف مستقل جديد (يتطلب `product` برمز أو باركود). لو تكلفته الجديدة أقل من الأصلية يُسجل الفرق هالكاً تلقائياً.
+- `write_off`: **هالك/إتلاف كامل** — تخرج الكمية من المخزون وتُسجل خسارة بقيمة `unitCost × quantity` في خطوة واحدة. لا يُنشأ صنف جديد، ويرفض الطلب (400) لو أُدخل `wasteExpense` أو `repairExpense` لأن الخسارة تُحسب تلقائياً.
+- `repairExpense` يُسجل فاتورة صيانة داخلية عند تفعيل `maintenance_management` وإلا مصروفاً. `wasteExpense` يُسجل دائماً مصروف «صيانة وهالك المرتجعات».
+
 ### Void Sale
 ```http
 POST /sales/:id/void

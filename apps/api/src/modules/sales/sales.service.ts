@@ -1072,8 +1072,26 @@ export class SalesService {
       if (!Number.isFinite(wasteInput) || wasteInput < 0) {
         throw new BadRequestException('قيمة الهالك غير صالحة');
       }
+      // الهالك/الإتلاف الكامل بيحسب الخسارة بنفسه (التكلفة الأصلية × الكمية)؛ أي رقم
+      // يدوي هنا هيكون تكرار للخسارة، والصنف المتلف مش بيتسجل له تكلفة صيانة أصلاً.
+      if (dto.disposition === 'write_off') {
+        if (wasteInput > 0) {
+          throw new BadRequestException(
+            'في حالة الهالك/الإتلاف الخسارة بتتحسب تلقائياً بقيمة التكلفة — سيب خانة الهالك صفر'
+          );
+        }
+        if (repairExpense > 0) {
+          throw new BadRequestException('الصنف المُتلف مش بيتسجل له تكلفة صيانة');
+        }
+      }
       let writeDown = 0;
       const branchId = await resolveTenantBranch(manager, tenantId, saleReturn.branchId);
+      const dispositionLabels: Record<string, string> = {
+        supplier: 'إرجاع لمورد',
+        restocked: 'صنف مستقل',
+        write_off: 'هالك/إتلاف',
+      };
+      const dispositionLabel = dispositionLabels[dto.disposition] || dto.disposition;
 
       if (originalProduct.trackInventory) {
         // الكمية المرتجعة دخلت المخزن على الصنف الأصلي وهي «محجوزة» لحد الفحص.
@@ -1096,7 +1114,7 @@ export class SalesService {
           referenceType: 'sale_return_disposition',
           referenceId: saleReturn.id,
           referenceNumber: saleReturn.returnNumber,
-          notes: `إخراج الكمية المرتجعة من الصنف الأصلي (${dto.disposition})`,
+          notes: `إخراج الكمية المرتجعة من الصنف الأصلي (${dispositionLabel})`,
           userId,
         });
       }
@@ -1148,6 +1166,12 @@ export class SalesService {
             [tenantId, originalProduct.id, saleReturn.warehouseId, quantity, originalUnitCost]
           );
         }
+      } else if (dto.disposition === 'write_off') {
+        // هالك/إتلاف كامل: الكمية خرجت من المخزون فوق، وقيمتها كلها خسارة فعلية.
+        // مفيش صنف جديد ولا تصحيح تكلفة — الخسارة بتتحسب من التكلفة الأصلية مباشرة
+        // عشان تظهر في الأرباح مرة واحدة بس.
+        item.disposition = 'write_off';
+        writeDown = Math.round(originalUnitCost * quantity * 10000) / 10000;
       } else {
         const newProduct = await this.createReturnedProduct(
           manager,
@@ -1209,10 +1233,13 @@ export class SalesService {
         }
       }
       if (wasteExpense > 0) {
-        const parts = [
-          wasteInput > 0 ? `هالك ${wasteInput}` : '',
-          writeDown > 0 ? `فرق تقييم ${writeDown} (التكلفة الجديدة أقل من الأصلية)` : '',
-        ].filter(Boolean);
+        const isWriteOff = item.disposition === 'write_off';
+        const parts = isWriteOff
+          ? [`إتلاف كامل — قيمة التكلفة ${writeDown}`]
+          : [
+              wasteInput > 0 ? `هالك ${wasteInput}` : '',
+              writeDown > 0 ? `فرق تقييم ${writeDown} (التكلفة الجديدة أقل من الأصلية)` : '',
+            ].filter(Boolean);
         await this.createReturnedItemExpense(
           manager,
           tenantId,
@@ -1220,7 +1247,7 @@ export class SalesService {
           branchId,
           saleReturn.returnNumber,
           `${item.id.slice(0, 8)}-W`,
-          `هالك للصنف المرتجع: ${originalProduct.name} — ${parts.join('، ')}`,
+          `${isWriteOff ? 'إتلاف/هالك' : 'هالك'} للصنف المرتجع: ${originalProduct.name} — ${parts.join('، ')}`,
           wasteExpense
         );
       }
