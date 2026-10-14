@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { RefreshCw, SearchCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -8,7 +9,7 @@ import toast from 'react-hot-toast';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { formatDateTime } from '@/lib/datetime';
 
-type Disposition = 'supplier' | 'restocked' | 'original';
+type Disposition = 'supplier' | 'restocked' | 'original' | 'write_off';
 
 interface ReturnItem {
   id: string;
@@ -17,7 +18,7 @@ interface ReturnItem {
   unitPrice: number;
   unitCost: number;
   total: number;
-  disposition: 'pending' | 'supplier' | 'restocked' | 'original';
+  disposition: 'pending' | 'supplier' | 'restocked' | 'original' | 'write_off';
   product?: { name: string; sku?: string; barcode?: string; unit?: string };
 }
 
@@ -108,11 +109,14 @@ export function ReturnsPage() {
       toast.error('أدخل رمزاً أو باركود جديداً للصنف المستقل');
       return;
     }
+    const isWriteOff = draft.disposition === 'write_off';
     const payload: any = {
       disposition: draft.disposition,
-      repairExpense: Number(draft.repairExpense) || 0,
-      repairDescription: draft.repairDescription.trim() || undefined,
-      wasteExpense: Number(draft.wasteExpense) || 0,
+      // الهالك/الإتلاف بيحسب الخسارة بنفسه من التكلفة الأصلية، فمش بنبعته خانات يدوية
+      // عشان الخسارة متتحسبش مرتين.
+      repairExpense: isWriteOff ? 0 : Number(draft.repairExpense) || 0,
+      repairDescription: isWriteOff ? undefined : draft.repairDescription.trim() || undefined,
+      wasteExpense: isWriteOff ? 0 : Number(draft.wasteExpense) || 0,
     };
     if (draft.disposition === 'supplier') {
       payload.supplierId = draft.supplierId;
@@ -135,20 +139,24 @@ export function ReturnsPage() {
         payload
       );
       const result = res.data.data || {};
-      const extra = [
-        result.maintenanceInvoiceId ? 'واتسجلت الصيانة في «إدارة الصيانة»' : '',
-        Number(result.writeDown) > 0
-          ? `واتسجل فرق التقييم ${Number(result.writeDown).toFixed(2)} هالك`
-          : '',
-      ].filter(Boolean);
-      toast.success(
-        (draft.disposition === 'supplier'
+      // في الهالك/الإتلاف الرسالة الأساسية فيها الخسارة أصلاً، فمفيش تفاصيل إضافية.
+      const extra = isWriteOff
+        ? []
+        : [
+            result.maintenanceInvoiceId ? 'واتسجلت الصيانة في «إدارة الصيانة»' : '',
+            Number(result.writeDown) > 0
+              ? `واتسجل فرق التقييم ${Number(result.writeDown).toFixed(2)} هالك`
+              : '',
+          ].filter(Boolean);
+      const message =
+        draft.disposition === 'supplier'
           ? 'تم تسجيل الإرجاع للمورد وتحديث رصيده'
           : draft.disposition === 'original'
             ? 'رجعت الكمية للمخزون على نفس الصنف وبقت متاحة للبيع'
-            : 'تم إنشاء الصنف المستقل وإضافته للمخزون') + (extra.length ? ` ${extra.join(' ')}` : ''),
-        { duration: 6000 }
-      );
+            : isWriteOff
+              ? `الكمية خرجت من المخزون واتسجلت خسارة ${Number(result.wasteExpense || 0).toFixed(2)} ج.م`
+              : 'تم إنشاء الصنف المستقل وإضافته للمخزون';
+      toast.success(message + (extra.length ? ` ${extra.join(' ')}` : ''), { duration: 6000 });
       await load();
     } catch (err: any) {
       toast.error(err?.response?.data?.message || 'تعذر حفظ قرار فحص المرتجع');
@@ -163,7 +171,8 @@ export function ReturnsPage() {
         <div>
           <h1 className="text-2xl font-bold">فحص مرتجعات المبيعات</h1>
           <p className="mt-1 text-sm text-gray-500">
-            راجع الصنف: رجّعه المخزن على نفس الصنف لو سليم، أو أعده للمورد، أو أنشئ له بطاقة مخزون مستقلة (مستعمل/مفتوح).
+            راجع الصنف: رجّعه المخزن لو سليم، أو أعده للمورد، أو اعمل له بطاقة مستقلة
+            (مستعمل/مفتوح)، أو سجّله هالك/إتلاف لو باظ تماماً وهيرمي.
           </p>
         </div>
         <Button variant="outline" onClick={() => load()} disabled={loading}>
@@ -198,19 +207,19 @@ export function ReturnsPage() {
                 </div>
                 <div className="text-left text-sm">
                   <div className="font-semibold">
-                    إجمالي المرتجع: {Number(saleReturn.total).toFixed(2)} ج.م
+                    إجمالي المرتجع: <Signed value={Number(saleReturn.total)}>{Number(saleReturn.total).toFixed(2)}</Signed> ج.م
                   </div>
                   <div className="mt-1 space-x-2 text-xs text-gray-500 rtl:space-x-reverse">
                     {Number(saleReturn.invoiceCredit) > 0 && (
-                      <span>خصم من الفاتورة {Number(saleReturn.invoiceCredit).toFixed(2)}</span>
+                      <span>خصم من الفاتورة <Signed value={Number(saleReturn.invoiceCredit)}>{Number(saleReturn.invoiceCredit).toFixed(2)}</Signed></span>
                     )}
                     {Number(saleReturn.accountCredit) > 0 && (
                       <span>
-                        خصم من مديونية العميل {Number(saleReturn.accountCredit).toFixed(2)}
+                        خصم من مديونية العميل <Signed value={Number(saleReturn.accountCredit)}>{Number(saleReturn.accountCredit).toFixed(2)}</Signed>
                       </span>
                     )}
                     {Number(saleReturn.refundPaid) > 0 && (
-                      <span>مردود للعميل {Number(saleReturn.refundPaid).toFixed(2)}</span>
+                      <span>مردود للعميل <Signed value={Number(saleReturn.refundPaid)}>{Number(saleReturn.refundPaid).toFixed(2)}</Signed></span>
                     )}
                   </div>
                 </div>
@@ -228,11 +237,11 @@ export function ReturnsPage() {
                             <h3 className="font-semibold">{item.product?.name || 'صنف مرتجع'}</h3>
                             <p className="mt-1 text-sm text-gray-600">
                               الكمية: {Number(item.quantity)} · سعر البيع:{' '}
-                              {Number(item.unitPrice).toFixed(2)} ج.م · التكلفة الأصلية:{' '}
-                              {Number(item.unitCost).toFixed(2)} ج.م
+                              <Signed value={Number(item.unitPrice)}>{Number(item.unitPrice).toFixed(2)}</Signed> ج.م · التكلفة الأصلية:{' '}
+                              <Signed value={Number(item.unitCost)}>{Number(item.unitCost).toFixed(2)}</Signed> ج.م
                             </p>
                             <p className="mt-1 text-xs text-gray-500">
-                              إجمالي القيمة: {Number(item.total).toFixed(2)} ج.م
+                              إجمالي القيمة: <Signed value={Number(item.total)}>{Number(item.total).toFixed(2)}</Signed> ج.م
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -260,6 +269,14 @@ export function ReturnsPage() {
                             >
                               إنشاء صنف مستقل
                             </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant={draft.disposition === 'write_off' ? 'destructive' : 'outline'}
+                              onClick={() => updateDraft(item, { disposition: 'write_off' })}
+                            >
+                              هالك / إتلاف
+                            </Button>
                           </div>
                         </div>
 
@@ -286,7 +303,7 @@ export function ReturnsPage() {
                               سيُخصم من المخزون {Number(item.quantity)} وحدة، ويُخفض رصيد المورد
                               بمقدار{' '}
                               <strong>
-                                {(Number(item.unitCost) * Number(item.quantity)).toFixed(2)} ج.م
+                                <Signed value={(Number(item.unitCost) * Number(item.quantity))}>{(Number(item.unitCost) * Number(item.quantity)).toFixed(2)}</Signed> ج.م
                               </strong>
                               .
                             </div>
@@ -295,9 +312,24 @@ export function ReturnsPage() {
                           <p className="rounded bg-emerald-50 p-3 text-sm text-emerald-800">
                             الصنف سليم وهيرجع المخزن على نفس الصنف الأصلي
                             {item.product?.sku ? ` (${item.product.sku})` : ''} بتكلفته الأصلية{' '}
-                            {Number(item.unitCost).toFixed(2)} ج.م، والكمية ({Number(item.quantity)})
+                            <Signed value={Number(item.unitCost)}>{Number(item.unitCost).toFixed(2)}</Signed> ج.م، والكمية ({Number(item.quantity)})
                             هتبقى متاحة للبيع تاني فوراً.
                           </p>
+                        ) : draft.disposition === 'write_off' ? (
+                          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                            <p className="font-semibold">الصنف تالف ومش هيتباع تاني</p>
+                            <ul className="mt-2 list-disc space-y-1 pr-5 text-xs">
+                              <li>الكمية ({Number(item.quantity)}) هتتشال من المخزون نهائياً.</li>
+                              <li>
+                                خسارة بقيمة التكلفة الأصلية{' '}
+                                <strong>
+                                  <Signed value={(Number(item.unitCost) * Number(item.quantity))}>{(Number(item.unitCost) * Number(item.quantity)).toFixed(2)}</Signed> ج.م
+                                </strong>{' '}
+                                هتتحسب لوحدها مصروف وتظهر في الأرباح.
+                              </li>
+                              <li>مش هيتعمل صنف جديد، ومش محتاج تملأ أي خانة تانية.</li>
+                            </ul>
+                          </div>
                         ) : (
                           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                             <div>
@@ -384,50 +416,91 @@ export function ReturnsPage() {
                             </p>
                           )}
 
-                        <div className="grid gap-3 border-t pt-3 sm:grid-cols-3">
-                          <div>
-                            <Label>تكلفة صيانة الصنف (اختياري)</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={draft.repairExpense}
-                              onChange={(event) =>
-                                updateDraft(item, { repairExpense: event.target.value })
-                              }
-                            />
-                            <p className="mt-1 text-xs text-gray-500">
+                        {draft.disposition === 'write_off' ? (
+                          <p className="border-t pt-3 text-xs text-gray-500">
+                            مفيش خانات تانية في حالة الهالك/الإتلاف — الخسارة بتتحسب لوحدها فوق.
+                          </p>
+                        ) : (
+                          <div className="grid gap-3 border-t pt-3 sm:grid-cols-3">
+                            <div>
+                              <Label>إصلاح الصنف — دفعت كام؟ (اختياري)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={draft.repairExpense}
+                                onChange={(event) =>
+                                  updateDraft(item, { repairExpense: event.target.value })
+                                }
+                              />
+                              <p className="mt-1 text-xs text-gray-500">
+                                فلوس دفعتها عشان تصلّح الصنف ويرجع يتباع.
+                              </p>
+                            </div>
+                            <div>
+                              <Label>إيه اللي اتعمل في الصنف؟</Label>
+                              <Input
+                                value={draft.repairDescription}
+                                placeholder="مثال: تغيير شاشة"
+                                onChange={(event) =>
+                                  updateDraft(item, { repairDescription: event.target.value })
+                                }
+                              />
+                            </div>
+                            <div>
+                              <Label>خسارة جزئية في الصنف (اختياري)</Label>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                value={draft.wasteExpense}
+                                onChange={(event) =>
+                                  updateDraft(item, { wasteExpense: event.target.value })
+                                }
+                              />
+                              <p className="mt-1 text-xs text-gray-500">
+                                نقص في قيمة الصنف مش هيتعوض — كسر أو خدش. سيبها صفر لو مفيش.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        <details className="rounded-md border bg-gray-50 px-3 py-2 text-xs text-gray-600">
+                          <summary className="cursor-pointer font-medium text-gray-700">
+                            مش فاهم الخانات؟ اضغط هنا للشرح
+                          </summary>
+                          <ul className="mt-2 list-disc space-y-1 pr-5 leading-relaxed">
+                            <li>
+                              <strong>رجوع على نفس الصنف</strong>: الصنف سليم — يرجع المخزن ويتباع
+                              تاني بنفس تكلفته، ومفيش خسارة.
+                            </li>
+                            <li>
+                              <strong>إرجاع لمورد</strong>: البضاعة ترجع للمورد وقيمتها تتخصم من
+                              حسابه عندك.
+                            </li>
+                            <li>
+                              <strong>إنشاء صنف مستقل</strong>: الصنف اتفتح أو اتخدش وهيتباع بسعر
+                              أقل — بيتعمل له بطاقة جديدة باسم وكود وسعر جديد. لو تكلفته الجديدة
+                              أقل من الأصلية، الفرق بيتسجل خسارة لوحده.
+                            </li>
+                            <li>
+                              <strong>هالك / إتلاف</strong>: الصنف باظ تماماً وهيرمي — الكمية تخرج
+                              من المخزون وقيمتها كلها تتسجل خسارة في خطوة واحدة.
+                            </li>
+                            <li>
+                              <strong>إصلاح الصنف</strong>: فلوس اتصرفت عشان الصنف يرجع يتباع
                               {maintenanceEnabled
-                                ? 'بتتسجل فاتورة صيانة داخلية في «إدارة الصيانة» وتظهر في تقارير الصيانة والأرباح.'
-                                : 'بتتسجل مصروف «صيانة وهالك المرتجعات» على فرع الفاتورة.'}
-                            </p>
-                          </div>
-                          <div>
-                            <Label>وصف الصيانة</Label>
-                            <Input
-                              value={draft.repairDescription}
-                              placeholder="مثال: تغيير شاشة"
-                              onChange={(event) =>
-                                updateDraft(item, { repairDescription: event.target.value })
-                              }
-                            />
-                          </div>
-                          <div>
-                            <Label>هالك / خسارة (اختياري)</Label>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={draft.wasteExpense}
-                              onChange={(event) =>
-                                updateDraft(item, { wasteExpense: event.target.value })
-                              }
-                            />
-                            <p className="mt-1 text-xs text-gray-500">
-                              بيتسجل مصروف «صيانة وهالك المرتجعات».
-                            </p>
-                          </div>
-                        </div>
+                                ? ' — بتتسجل فاتورة صيانة داخلية في «إدارة الصيانة»'
+                                : ' — بتتسجل مصروف على الفرع'}
+                              . لو الصنف هيترمى سيبها صفر.
+                            </li>
+                            <li>
+                              <strong>خسارة جزئية</strong>: نقص في قيمة الصنف مش هيتعوض، وده غير
+                              الإتلاف الكامل. لو اخترت «هالك / إتلاف» سيبها صفر عشان الخسارة
+                              متتحسبش مرتين.
+                            </li>
+                          </ul>
+                        </details>
                         <div className="flex justify-end">
                           <Button disabled={saving} onClick={() => saveDecision(saleReturn, item)}>
                             {saving ? 'جارٍ الحفظ...' : 'حفظ قرار الفحص'}

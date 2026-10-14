@@ -51,6 +51,8 @@ export const PERMISSION_LABELS: Record<string, string> = {
   'users.update': 'تعديل المستخدمين وكلمات مرورهم',
   'users.delete': 'حذف المستخدمين',
   'roles.manage': 'إدارة الأدوار والصلاحيات',
+  'maintenance.view': 'عرض فواتير الصيانة',
+  'maintenance.create': 'تسجيل فواتير الصيانة',
   'backup.export': 'تنزيل نسخة احتياطية',
   'api_keys.manage': 'إدارة مفاتيح API',
   'data.import': 'استيراد البيانات',
@@ -71,4 +73,5 @@ export const PERMISSION_CATEGORY_LABELS: Record<string, string> = {
   reports: 'التقارير',
   settings: 'الإعدادات',
   users: 'المستخدمين',
+  maintenance: 'إدارة الصيانة',
 };

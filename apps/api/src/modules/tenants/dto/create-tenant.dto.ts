@@ -42,6 +42,12 @@ class AdminUserDto {
   @IsEmail()
   email: string;
 
+  @ApiProperty({ example: 'owner_store' })
+  @IsString()
+  @Length(3, 50)
+  @Matches(/^[A-Za-z0-9_.-]+$/, { message: 'اسم المستخدم حروف إنجليزية وأرقام و . _ - فقط' })
+  username: string;
+
   @ApiProperty()
   @IsString()
   @Length(8, 100)

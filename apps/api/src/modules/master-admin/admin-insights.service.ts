@@ -414,7 +414,8 @@ export class AdminInsightsService {
       [id]
     );
     const [owner] = await this.dataSource.query(
-      `SELECT u.id, u.full_name AS "fullName", u.email, u.phone, u.last_login_at AS "lastLoginAt"
+      `SELECT u.id, u.full_name AS "fullName", u.email, u.username, u.phone,
+              u.last_login_at AS "lastLoginAt"
        FROM users u
        JOIN user_roles ur ON ur.user_id = u.id
        JOIN roles r ON r.id = ur.role_id AND r.name = 'owner'

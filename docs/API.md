@@ -25,15 +25,14 @@
 ## Authentication
 
 ### Login
-`tenantId` في الـ query **اختياري**: لو البريد مسجل في متجر واحد نشط يتم تحديد المتجر تلقائياً،
-ولو مسجل في أكثر من متجر يلزم إرسال `tenantId` وإلا يُرجع 400 مع رسالة توضح ذلك.
+يكون دخول مستخدمي التجار باسم مستخدم فريد على مستوى المنصة وكلمة المرور، من غير بريد أو معرّف تاجر. اسم المستخدم غير حساس لحالة الأحرف. البريد يظل بيانات تواصل ولا يُستخدم كبديل للدخول. حسابات ما قبل إضافة usernames تظل فارغة حتى يعيّن المدير العام اسماً لها.
 
 ```http
-POST /auth/login?tenantId=tenant-uuid
+POST /auth/login
 Content-Type: application/json
 
 {
-  "email": "user@example.com",
+  "username": "ahmed_store",
   "password": "password123"
 }
 
@@ -44,6 +43,7 @@ Response 200:
     "user": {
       "id": "uuid",
       "email": "user@example.com",
+      "username": "ahmed_store",
       "fullName": "محمد أحمد",
       "tenantId": "tenant-uuid",
       "roles": ["cashier"],
@@ -55,28 +55,12 @@ Response 200:
       "currency": "SAR",
       "timezone": "Asia/Riyadh",
       "language": "ar"
-    },
-    "features": ["pos", "sales", "inventory", "customers"],
-    "branding": {
-      "appName": "نظام نقاط البيع",
-      "logoUrl": "/uploads/tenants/xxx/logo.png",
-      "primaryColor": "#0858A2",
-      "secondaryColor": "#123456"
-    },
-    "accessToken": "eyJhbGc...",
-    "refreshToken": "uuid"
+    }
   },
   "message": "تم تسجيل الدخول بنجاح"
 }
 
-Response 401:
-{
-  "success": false,
-  "error": {
-    "code": "INVALID_CREDENTIALS",
-    "message": "البريد الإلكتروني أو كلمة المرور غير صحيحة"
-  }
-}
+Response 401: بيانات الدخول غير صحيحة
 ```
 
 ### Refresh Token
@@ -261,6 +245,17 @@ Permissions Required: products.update
 Response 200: { "success": true, "data": {...}, "message": "تم تحديث المنتج بنجاح" }
 ```
 
+### Resolve Product Price Review (مراجعة التسعير)
+```http
+POST /products/:id/price-review
+Permissions Required: products.update
+{ "costChoice": "previous | new", "sellingPrice": 200.00, "wholesalePrice": 180.00, "halfWholesalePrice": 190.00 }
+```
+- ينفع فقط لما يكون على المنتج تنبيه مراجعة تسعير مفتوح (`needsPriceReview = true`)، وإلا `400`.
+- `previous` = التكلفة المسجلة قبل فاتورة الشراء، `new` = التكلفة اللي نزل بيها المورد. التكلفة المختارة بتتحط في `costPrice`.
+- `sellingPrice` لازم يكون أكبر من التكلفة المختارة، ونفس الشرط على الجملة ونصف الجملة لو اتبعتوا. `halfWholesalePrice` محتاج ميزة `half_wholesale_pricing`.
+- بعد الحفظ يتقفل التنبيه وتتفضّى خانات المراجعة (`priceReviewPreviousCost` / `priceReviewNewCost` / `priceReviewPurchaseNumber` / `priceReviewAt`).
+
 ### Delete Product
 ```http
 DELETE /products/:id
@@ -340,6 +335,19 @@ Feature Required: returns
 { "returnDate": "2024-01-16T11:00:00Z", "items": [{ "saleItemId": "uuid", "quantity": 1, "reason": "معيب" }], "refundAmount": 35.00 }
 ```
 
+### Return Item Disposition (فحص المرتجع)
+```http
+POST /sales/returns/:returnId/items/:itemId/disposition
+Permissions Required: sales.return
+Feature Required: return_disposition
+{ "disposition": "original | supplier | restocked | write_off", "supplierId": "uuid", "repairExpense": 25.00, "repairDescription": "تغيير شاشة", "wasteExpense": 10.00, "product": { "name": "موبايل مرتجع", "sku": "RT-1", "costPrice": 80, "sellingPrice": 110 } }
+```
+- `original`: الصنف سليم — يرجع المخزن على نفس الصنف بتكلفته الأصلية.
+- `supplier`: يُعاد للمورد ويخفض رصيده بقيمة `unitCost × quantity` (يتطلب `supplierId`).
+- `restocked`: يدخل المخزن كصنف مستقل جديد (يتطلب `product` برمز أو باركود). لو تكلفته الجديدة أقل من الأصلية يُسجل الفرق هالكاً تلقائياً.
+- `write_off`: **هالك/إتلاف كامل** — تخرج الكمية من المخزون وتُسجل خسارة بقيمة `unitCost × quantity` في خطوة واحدة. لا يُنشأ صنف جديد، ويرفض الطلب (400) لو أُدخل `wasteExpense` أو `repairExpense` لأن الخسارة تُحسب تلقائياً.
+- `repairExpense` يُسجل فاتورة صيانة داخلية عند تفعيل `maintenance_management` وإلا مصروفاً. `wasteExpense` يُسجل دائماً مصروف «صيانة وهالك المرتجعات».
+
 ### Void Sale
 ```http
 POST /sales/:id/void
@@ -405,8 +413,8 @@ GET /reports/advanced/top-customers           أعلى العملاء شراءً
 ```http
 GET    /users/me
 GET    /users                        (users.view)    -> { users[], limits: { maxUsers, current } }
-POST   /users                        (users.create)  -> بيطبق maxUsers وقاعدة "مفيش صلاحيات أعلى من صلاحياتك"
-PUT    /users/:id                    (users.update)
+POST   /users                        { fullName, email, username, password, roleIds[], ... } (users.create)
+PUT    /users/:id                    { username?, ... } (users.update)
 POST   /users/:id/reset-password     (users.update)  10 req/min
 POST   /users/:id/revoke-sessions    (users.update)  -> بيزود sessionVersion
 DELETE /users/:id                    (users.delete)  -> آخر مالك نشط محمي
@@ -415,6 +423,8 @@ GET    /roles/permissions            (roles.manage)
 POST   /roles | PUT /roles/:id | DELETE /roles/:id   (roles.manage)
 POST   /auth/change-password         { currentPassword, newPassword }  5 req/min, لا يقبل API key
 ```
+
+`username` مطلوب لكل مستخدم جديد، فريد على مستوى المنصة دون حساسية لحالة الأحرف، ويُستخدم مع كلمة المرور للدخول. البريد مطلوب كبيانات تواصل فقط. يمكن للمدير العام تعيين أو تعديل اسم المستخدم من ملف التاجر، والحسابات القديمة تظل بلا username حتى تعيينه.
 
 ---
 
@@ -477,7 +487,7 @@ POST /admin/auth/2fa/disable      { password, otp }
 ```http
 GET    /admin/tenants
 GET    /admin/tenants/:id
-POST   /admin/tenants            { businessName, ..., country?, currency?, timezone?, adminUser: {...} }
+POST   /admin/tenants            { businessName, ..., adminUser: { fullName, email, username, password } }
 PUT    /admin/tenants/:id        أي حقل من فوق ماعدا adminUser
 PATCH  /admin/tenants/:id/status        { isActive }
 PUT    /admin/tenants/:id/subscription  { subscriptionPrice, subscriptionCycle, subscriptionNote, subscriptionEndsAt }
@@ -487,13 +497,39 @@ GET    /admin/tenants/:id/usage
             limits: { maxUsers, maxBranches, maxWarehouses, maxProducts } }
 GET    /admin/tenants/:id/features
 PUT    /admin/tenants/:id/features      { features: [{ featureId, isEnabled }] }  الاعتماديات بتتفعل تلقائياً
+GET    /admin/tenants/:id/branches
+POST   /admin/tenants/:id/branches                  { name, code?, phone? }  إنشاء فرع للتاجر
+PUT    /admin/tenants/:id/branches/:branchId
+GET    /admin/tenants/:id/warehouses
+POST   /admin/tenants/:id/warehouses                { name, branchId? }      إنشاء مخزن وربطه بفرع
+PUT    /admin/tenants/:id/warehouses/:warehouseId   { branchId?, name?, isActive? }
+POST   /admin/tenants/:id/warehouses/:warehouseId/branches  { branchId }     فرع يستخدم مخزن موجود (مشترك)
+DELETE /admin/tenants/:id/warehouses/:warehouseId/branches/:branchId         فك ربط فرع مشترك
 GET    /admin/tenants/:id/users
+POST   /admin/tenants/:id/users       { fullName, email, username, password, roleIds[], ... }
+PUT    /admin/tenants/:id/users/:userId { username?, email?, ... }
+GET    /admin/tenants/:id/roles
+GET    /admin/tenants/:id/permissions
+POST   /admin/tenants/:id/roles       { name, nameAr, description?, permissions[] } إنشاء دور مخصص للتاجر
 POST   /admin/tenants/:id/reset-user-password
 GET    /admin/tenants/:id/audit-logs
 GET    /admin/tenants/:id/backup        نسخة JSON (بدون هاشات أو أسرار)
 POST   /admin/tenants/restore
 DELETE /admin/tenants/:id               { businessName } للتأكيد
 ```
+
+إنشاء الفروع والمخازن وربطها (بما فيها المخازن المشتركة بين الفروع) متاح للمدير العام فقط من
+المسارات أعلاه؛ التاجر يستهلك الفروع والمخازن الموجودة في البيع والشراء والتحويلات.
+المدير العام يقدر ينشئ دوراً مخصصاً بصلاحياته من `/admin/tenants/:id/roles`؛ الدور يظهر بعدها
+في قائمة الاختيار عند إنشاء/تعديل مستخدم للتاجر.
+
+`maintenance.view` يعرض إدارة الصيانة، و`maintenance.create` يسمح بتسجيل فاتورة جديدة؛ تظهر الصلاحيتان
+في مجموعة «إدارة الصيانة» داخل اختيار صلاحيات الأدوار. مسارات الفواتير تتطلب صلاحية العرض، ومسار الإنشاء
+يتطلب صلاحية التسجيل، بالإضافة إلى ميزة `maintenance_management`.
+
+`GET /api/v1/maintenance/:id/share` (Feature: `maintenance.share`) يرجع بيانات إرسال فاتورة الصيانة
+للعميل: رقم الفاتورة والتاريخ وبيانات العميل ورقم الواتساب و`servicePrice` و`message` جاهزة.
+الرد لا يحتوي على `partsCost` أو `profit`، والرسالة تعرض إيراد الخدمة بمسمى «تكلفة الصيانة».
 
 الإعدادات الإقليمية:
 - `timezone`: اسم IANA صحيح (`Africa/Cairo`، `Asia/Riyadh`، …). أي قيمة تانية بترجع 400.

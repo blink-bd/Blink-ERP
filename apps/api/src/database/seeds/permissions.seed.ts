@@ -42,6 +42,7 @@ const resources: Array<{
   { resource: 'users', actions: ['view', 'create', 'update', 'delete'], category: 'users' },
   { resource: 'backup', actions: ['export'], category: 'settings' },
   { resource: 'roles', actions: ['manage'], category: 'users' },
+  { resource: 'maintenance', actions: ['view', 'create'], category: 'maintenance' },
   { resource: 'api_keys', actions: ['manage'], category: 'settings' },
   { resource: 'data', actions: ['import', 'export'], category: 'settings' },
   { resource: 'audit', actions: ['view'], category: 'settings' },

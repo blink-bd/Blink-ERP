@@ -45,7 +45,7 @@ export class SaleReturnItem {
   unitCost: number;
 
   @Column({ length: 20, default: 'pending' })
-  disposition: 'pending' | 'supplier' | 'restocked' | 'original';
+  disposition: 'pending' | 'supplier' | 'restocked' | 'original' | 'write_off';
 
   @Column({ name: 'supplier_id', type: 'uuid', nullable: true })
   supplierId?: string;

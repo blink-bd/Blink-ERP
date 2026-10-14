@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { AlertTriangle, Info, ShieldAlert } from 'lucide-react';
 import { formatDate, formatDateTime } from '@/lib/datetime';
+import { signedTone } from '@/lib/signed';
 
 /** عناصر واجهة مشتركة لصفحات المدير العام. */
 
@@ -31,6 +32,7 @@ export function StatCard({
   hint,
   icon,
   tone = 'default',
+  signedValue,
   onClick,
 }: {
   label: string;
@@ -38,6 +40,8 @@ export function StatCard({
   hint?: ReactNode;
   icon?: ReactNode;
   tone?: Tone;
+  /** لو اتبعتت، لون الرقم بيتحسب من إشارته: سالب أحمر، صفر أسود، موجب أخضر. */
+  signedValue?: unknown;
   onClick?: () => void;
 }) {
   const Comp: any = onClick ? 'button' : 'div';
@@ -55,7 +59,11 @@ export function StatCard({
       )}
       <span className="min-w-0 flex-1">
         <span className="block text-xs font-medium text-slate-500">{label}</span>
-        <span className={`mt-1 block text-2xl font-bold leading-tight ${toneText[tone]}`}>
+        <span
+          className={`mt-1 block text-2xl font-bold leading-tight ${
+            signedValue === undefined ? toneText[tone] : signedTone(signedValue as number)
+          }`}
+        >
           {value}
         </span>
         {hint && <span className="mt-1 block text-xs text-slate-400">{hint}</span>}

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { AlertTriangle, Wallet } from 'lucide-react';
+import { signedTone } from '@/lib/signed';
 
 interface Summary {
   salesToday: { invoicesCount: number; totalSales: number; returnsTotal?: number; netSales?: number };
@@ -14,10 +15,11 @@ interface Summary {
   supplierInvoices?: { count: number; totalOwed: number };
 }
 
-const Card = ({ label, value, tone = '', sub }: { label: string; value: any; tone?: string; sub?: string }) => (
+/** لون الرقم حسب إشارته: سالب أحمر، صفر أسود، موجب أخضر (إلا كروت التنبيهات). */
+const Card = ({ label, value, tone, sub }: { label: string; value: any; tone?: string; sub?: string }) => (
   <div className="bg-white rounded-lg shadow p-5">
     <p className="text-sm text-gray-500">{label}</p>
-    <p className={`text-3xl font-bold ${tone}`}>{value}</p>
+    <p className={`text-3xl font-bold ${tone ?? signedTone(value)}`}>{value}</p>
     {sub && <p className="text-xs text-gray-400 mt-1">{sub}</p>}
   </div>
 );
@@ -46,19 +48,18 @@ export function DashboardPage() {
             <Card
               label="مبيعات اليوم (بعد المرتجعات)"
               value={(data.salesToday.netSales ?? data.salesToday.totalSales).toFixed(2)}
-              tone="text-primary"
               sub={`${data.salesToday.invoicesCount} فاتورة بإجمالي ${data.salesToday.totalSales.toFixed(2)}${data.returnsToday?.count ? ` · مرتجعات ${data.returnsToday.total.toFixed(2)} (${data.returnsToday.count})` : ''}`}
             />
-            <Card label="مصروفات اليوم" value={data.expensesToday.total.toFixed(2)} tone="text-red-600" sub={`${data.expensesToday.count} عملية`} />
-            <Card label="صافي اليوم" value={((data.salesToday.netSales ?? data.salesToday.totalSales) - data.expensesToday.total).toFixed(2)} tone="text-green-600" />
+            <Card label="مصروفات اليوم" value={data.expensesToday.total.toFixed(2)} sub={`${data.expensesToday.count} عملية`} />
+            <Card label="صافي اليوم" value={((data.salesToday.netSales ?? data.salesToday.totalSales) - data.expensesToday.total).toFixed(2)} />
             {data.customerInvoices && (
               <Link to="/customers">
-                <Card label="مستحق من العملاء" value={data.customerInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.customerInvoices.count} فاتورة آجلة`} />
+                <Card label="مستحق من العملاء" value={data.customerInvoices.totalOwed.toFixed(2)} sub={`${data.customerInvoices.count} فاتورة آجلة`} />
               </Link>
             )}
             {data.supplierInvoices && (
               <Link to="/suppliers">
-                <Card label="مستحق للموردين" value={data.supplierInvoices.totalOwed.toFixed(2)} tone="text-orange-600" sub={`${data.supplierInvoices.count} فاتورة آجلة`} />
+                <Card label="مستحق للموردين" value={data.supplierInvoices.totalOwed.toFixed(2)} sub={`${data.supplierInvoices.count} فاتورة آجلة`} />
               </Link>
             )}
             <Card label="منتجات بحاجة لانتباه" value={data.lowStockAlerts.length} tone="text-red-600" />

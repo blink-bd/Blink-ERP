@@ -87,7 +87,7 @@ function AppRoutes() {
           <Route path="/pos" element={<FeatureRoute feature="pos" title="نقطة البيع"><POSPage /></FeatureRoute>} />
           <Route path="/sales" element={<FeatureRoute feature="sales" title="المبيعات"><SalesPage /></FeatureRoute>} />
           <Route path="/returns" element={<FeatureRoute feature="return_disposition" title="المرتجعات"><ReturnsPage /></FeatureRoute>} />
-          <Route path="/maintenance" element={<FeatureRoute feature="maintenance_management" title="الصيانة"><MaintenancePage /></FeatureRoute>} />
+          <Route path="/maintenance" element={<FeatureRoute feature="maintenance_management" title="الصيانة" permission="maintenance.view"><MaintenancePage /></FeatureRoute>} />
           <Route path="/products" element={<FeatureRoute feature="products" title="المنتجات"><ProductsPage /></FeatureRoute>} />
           <Route path="/inventory" element={<FeatureRoute feature="inventory" title="المخزون"><InventoryPage /></FeatureRoute>} />
           <Route path="/customers" element={<FeatureRoute feature="customers" title="العملاء"><CustomersPage /></FeatureRoute>} />
@@ -98,7 +98,7 @@ function AppRoutes() {
           <Route path="/reports" element={<FeatureRoute feature="reports" title="التقارير"><ReportsPage /></FeatureRoute>} />
           <Route path="/branch-reports" element={<FeatureRoute feature="branch_analytics" title="تقارير الفروع"><BranchReportsPage /></FeatureRoute>} />
           <Route path="/balance-reminders" element={<FeatureRoute feature="balance_reminders" title="تذكير المديونيات"><BalanceRemindersPage /></FeatureRoute>} />
-          <Route path="/transfers" element={<FeatureRoute feature="inventory" title="الفروع والتحويلات"><TransfersPage /></FeatureRoute>} />
+          <Route path="/transfers" element={<FeatureRoute feature="inventory.transfers" title="تحويلات المخزون بين الفروع"><TransfersPage /></FeatureRoute>} />
           <Route path="/users" element={<FeatureRoute feature="users" title="المستخدمين والصلاحيات"><UsersPage /></FeatureRoute>} />
           <Route path="/api-keys" element={<ApiKeysPage />} />
           <Route path="/data" element={<DataTransferPage />} />

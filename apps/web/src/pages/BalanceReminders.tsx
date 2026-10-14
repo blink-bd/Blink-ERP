@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { BellRing, Clock3, RefreshCw } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -186,7 +187,7 @@ export function BalanceRemindersPage() {
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
                     <span>
                       الرصيد:{' '}
-                      {Number(event.balance).toLocaleString('ar-EG', { minimumFractionDigits: 2 })}{' '}
+                      <Signed value={Number(event.balance)}>{Number(event.balance).toLocaleString('ar-EG', { minimumFractionDigits: 2 })}</Signed>{' '}
                       ج.م
                     </span>
                     <span>الفاصل: {event.reminderDays} يوماً</span>

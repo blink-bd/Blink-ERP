@@ -61,6 +61,7 @@ export class TenantsService {
     if (existing) {
       throw new ConflictException('Tenant with this email already exists');
     }
+    await this.usersService.assertUsernameAvailable(dto.adminUser.username);
 
     const tenant = this.tenantsRepository.create({
       businessName: dto.businessName,
@@ -86,6 +87,7 @@ export class TenantsService {
     const adminUser = await this.usersService.create({
       tenantId: savedTenant.id,
       email: dto.adminUser.email,
+      username: dto.adminUser.username,
       password: dto.adminUser.password,
       fullName: dto.adminUser.fullName,
       assignOwnerRole: true,

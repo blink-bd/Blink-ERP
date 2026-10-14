@@ -31,6 +31,7 @@ interface RoleRef {
 interface TenantUser {
   id: string;
   email: string;
+  username?: string | null;
   fullName: string;
   phone?: string;
   isActive: boolean;
@@ -78,6 +79,7 @@ const branchWarehouses = (warehouses: Location[], branchId: string) =>
 const emptyUser = {
   id: '',
   email: '',
+  username: '',
   fullName: '',
   phone: '',
   password: '',
@@ -199,6 +201,7 @@ function UsersTab() {
     setForm({
       id: u.id,
       email: u.email,
+      username: u.username || '',
       fullName: u.fullName,
       phone: u.phone || '',
       password: '',
@@ -275,6 +278,18 @@ function UsersTab() {
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!/^[A-Za-z0-9_.-]{3,50}$/.test(form.username.trim())) {
+      toast.error('اسم المستخدم من 3 إلى 50 حرفاً إنجليزياً أو رقماً أو . _ -');
+      return;
+    }
+    if (!form.id && !form.email.trim()) {
+      toast.error('اكتب البريد الإلكتروني للتواصل');
+      return;
+    }
+    if (!form.id && form.password.length < 8) {
+      toast.error('كلمة المرور 8 أحرف على الأقل');
+      return;
+    }
     if (!form.roleIds.length) {
       toast.error('اختار دور واحد على الأقل');
       return;
@@ -296,6 +311,7 @@ function UsersTab() {
     try {
       const common = {
         fullName: form.fullName.trim(),
+        username: form.username.trim(),
         phone: form.phone.trim() || undefined,
         roleIds: form.roleIds,
         branchId: form.branchId || null,
@@ -408,7 +424,8 @@ function UsersTab() {
           <thead className="bg-gray-50">
             <tr>
               <th className="p-3 text-right">الاسم</th>
-              <th className="p-3 text-right">البريد</th>
+              <th className="p-3 text-right">اسم المستخدم</th>
+              <th className="p-3 text-right">البريد الإلكتروني</th>
               <th className="p-3 text-right">الأدوار</th>
               {showAccess && <th className="p-3 text-right">الفروع والمخازن</th>}
               <th className="p-3 text-right">آخر دخول</th>
@@ -428,6 +445,9 @@ function UsersTab() {
                         أنت
                       </span>
                     )}
+                  </td>
+                  <td className="p-3 font-mono text-gray-700" dir="ltr">
+                    {u.username || <span className="font-sans text-amber-700">غير محدد</span>}
                   </td>
                   <td className="p-3 text-gray-600" dir="ltr">
                     {u.email}
@@ -525,7 +545,7 @@ function UsersTab() {
             })}
             {!users.length && (
               <tr>
-                <td colSpan={showAccess ? 7 : 6} className="p-6 text-center text-gray-400">
+                <td colSpan={showAccess ? 8 : 7} className="p-6 text-center text-gray-400">
                   لا يوجد مستخدمين
                 </td>
               </tr>
@@ -549,9 +569,28 @@ function UsersTab() {
               onChange={(e) => setForm({ ...form, fullName: e.target.value })}
             />
           </div>
+          <div>
+            <Label>اسم المستخدم (لتسجيل الدخول)</Label>
+            <Input
+              required
+              type="text"
+              dir="ltr"
+              minLength={3}
+              maxLength={50}
+              pattern="[A-Za-z0-9_.-]+"
+              autoComplete="username"
+              className="text-left"
+              placeholder="مثال: ahmed_store"
+              value={form.username}
+              onChange={(e) => setForm({ ...form, username: e.target.value })}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              من 3 إلى 50 حرفاً إنجليزياً أو رقماً أو . _ -. يجب أن يكون فريداً.
+            </p>
+          </div>
           {!form.id && (
             <div>
-              <Label>البريد الإلكتروني (اسم الدخول)</Label>
+              <Label>البريد الإلكتروني (للتواصل فقط)</Label>
               <Input
                 required
                 type="email"
@@ -559,6 +598,7 @@ function UsersTab() {
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
+              <p className="mt-1 text-xs text-gray-500">البريد لا يُستخدم لتسجيل الدخول.</p>
             </div>
           )}
           <div>
@@ -813,12 +853,17 @@ function RolesTab() {
     setShowForm(true);
   };
   const toggle = (perm: string) =>
-    setForm((f) => ({
-      ...f,
-      permissions: f.permissions.includes(perm)
-        ? f.permissions.filter((p) => p !== perm)
-        : [...f.permissions, perm],
-    }));
+    setForm((f) => {
+      const permissions = new Set(f.permissions);
+      if (permissions.has(perm)) {
+        permissions.delete(perm);
+        if (perm === 'maintenance.view') permissions.delete('maintenance.create');
+      } else {
+        permissions.add(perm);
+        if (perm === 'maintenance.create') permissions.add('maintenance.view');
+      }
+      return { ...f, permissions: Array.from(permissions) };
+    });
   const toggleGroup = (items: PermissionInfo[], on: boolean) =>
     setForm((f) => {
       const names = items.map((i) => i.name).filter(canGrant);

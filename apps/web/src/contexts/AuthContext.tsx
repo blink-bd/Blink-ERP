@@ -6,6 +6,7 @@ import { setTenantTimezone } from '@/lib/datetime';
 interface User {
   id: string;
   email: string;
+  username?: string | null;
   fullName: string;
   tenantId: string;
   roles: string[];
@@ -27,7 +28,7 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, tenantId?: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -62,11 +63,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string, tenantId?: string) => {
+  const login = async (username: string, password: string) => {
     try {
-      const query = tenantId?.trim() ? `?tenantId=${encodeURIComponent(tenantId.trim())}` : '';
-      const response = await api.post(`/auth/login${query}`, {
-        email,
+      const response = await api.post('/auth/login', {
+        username,
         password,
       });
       const tenant = response.data.data.tenant;

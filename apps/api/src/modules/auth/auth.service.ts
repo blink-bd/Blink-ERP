@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '@/modules/users/users.service';
@@ -28,22 +23,18 @@ export class AuthService {
     private readonly audit: AuditService
   ) {}
 
-  /**
-   * NOTE: this basic implementation authenticates a user by email within a
-   * single-tenant lookup once the tenant is known (e.g. subdomain or a
-   * tenant-scoped login form). For a fully generic "any tenant" login screen,
-   * extend findByEmailAndTenant to search across tenants by email uniqueness
-   * rules appropriate to your product.
-   */
-  async login(dto: LoginDto, tenantId: string | null, ip: string, meta: RequestMeta = {}) {
-    const resolvedTenantId = tenantId || (await this.resolveTenantIdByEmail(dto.email));
-    const user = resolvedTenantId
-      ? await this.usersService.findByEmailAndTenant(dto.email, resolvedTenantId)
-      : null;
-    const base = { tenantId: user?.tenantId, ip, userAgent: meta.userAgent, userEmail: dto.email };
+  /** تسجيل الدخول باسم مستخدم عالمي؛ البريد ومعرّف التاجر لا يدخلان في المصادقة. */
+  async login(dto: LoginDto, ip: string, meta: RequestMeta = {}) {
+    const user = await this.usersService.findByUsername(dto.username);
+    const base = {
+      tenantId: user?.tenantId,
+      ip,
+      userAgent: meta.userAgent,
+      userEmail: user?.email,
+    };
 
     if (!user) {
-      // تحقق وهمي بنفس التكلفة حتى لا يكشف زمن الرد وجود الإيميل
+      // تحقق وهمي بنفس التكلفة حتى لا يكشف زمن الرد وجود اسم المستخدم
       await burnPasswordVerification(dto.password);
       throw new UnauthorizedException('بيانات الدخول غير صحيحة');
     }
@@ -82,20 +73,6 @@ export class AuthService {
     return this.issueSession(user);
   }
 
-  /**
-   * يحدد المتجر من البريد لو المستخدم لم يكتب معرّف المتجر:
-   * متجر واحد نشط => نكمل، أكثر من متجر => نطلب تحديد المتجر، لا شيء => فشل عام.
-   */
-  private async resolveTenantIdByEmail(email: string): Promise<string | null> {
-    const tenantIds = await this.usersService.findActiveTenantIdsByEmail(email);
-    if (tenantIds.length > 1) {
-      throw new BadRequestException(
-        'هذا البريد مسجل في أكثر من متجر. أدخل معرّف المتجر (Tenant ID) لإكمال الدخول'
-      );
-    }
-    return tenantIds[0] || null;
-  }
-
   /** يصدر توكنات جديدة (دخول أو بعد تغيير كلمة المرور). */
   private issueSession(user: User) {
     const roles = (user.roles || []).map((r) => r.name);
@@ -107,6 +84,7 @@ export class AuthService {
       sub: user.id,
       tenantId: user.tenantId,
       email: user.email,
+      username: user.username ?? null,
       roles,
       permissions,
       sessionVersion: user.sessionVersion,
@@ -134,6 +112,7 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
+        username: user.username ?? null,
         fullName: user.fullName,
         tenantId: user.tenantId,
         roles,
@@ -210,6 +189,7 @@ export class AuthService {
         sub: user.id,
         tenantId: user.tenantId,
         email: user.email,
+        username: user.username ?? null,
         roles,
         permissions,
         sessionVersion: user.sessionVersion,

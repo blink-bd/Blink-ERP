@@ -96,6 +96,32 @@ export class Product extends TenantBaseEntity {
   @Column({ name: 'price_review_note', type: 'text', nullable: true })
   priceReviewNote?: string;
 
+  /** سعر التكلفة المسجل قبل فاتورة الشراء اللي عملت التنبيه. */
+  @Column({
+    name: 'price_review_previous_cost',
+    type: 'decimal',
+    precision: 15,
+    scale: 4,
+    nullable: true,
+  })
+  priceReviewPreviousCost?: number;
+
+  /** سعر التكلفة الجديد اللي نزل بيها المورد. */
+  @Column({
+    name: 'price_review_new_cost',
+    type: 'decimal',
+    precision: 15,
+    scale: 4,
+    nullable: true,
+  })
+  priceReviewNewCost?: number;
+
+  @Column({ name: 'price_review_purchase_number', type: 'varchar', length: 50, nullable: true })
+  priceReviewPurchaseNumber?: string;
+
+  @Column({ name: 'price_review_at', type: 'timestamptz', nullable: true })
+  priceReviewAt?: Date;
+
   @ManyToOne(() => Category)
   @JoinColumn({ name: 'category_id' })
   category?: Category;

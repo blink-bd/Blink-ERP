@@ -1,6 +1,10 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { BadgeDollarSign, Plus, RefreshCw, Wrench, X } from 'lucide-react';
+import { Signed, signedTone } from '@/lib/signed';
+import { BadgeDollarSign, MessageCircle, Plus, RefreshCw, Wrench, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useFeature } from '@/contexts/FeaturesContext';
+import { usePermissions } from '@/lib/permissions';
+import { ShareMaintenanceDialog } from '@/components/ShareMaintenanceDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -63,6 +67,11 @@ const money = (value: unknown) =>
   `${Number(value || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
 
 export function MaintenancePage() {
+  const shareEnabled = useFeature('maintenance.share');
+  const { has } = usePermissions();
+  const canCreate = has('maintenance.create');
+  const canViewCustomers = has('customers.view');
+  const [shareInvoiceId, setShareInvoiceId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const { workspace, loading: workspaceLoading } = useWorkspace();
   // احتياطي لو بيانات فرع العمل ماتحمّلتش.
@@ -72,9 +81,7 @@ export function MaintenancePage() {
   // فروع نطاق العمل الحالي (للفاتورة الجديدة وللفلتر).
   const branches: Branch[] = workspace ? workingBranches(workspace) : fallbackBranches;
   const [selectedBranches, setSelectedBranches] = useState<string[]>([]);
-  const [startDate, setStartDate] = useState(
-    daysAgoKey(30)
-  );
+  const [startDate, setStartDate] = useState(daysAgoKey(30));
   const [endDate, setEndDate] = useState(todayKey());
   const [data, setData] = useState<any>(null);
   const [form, setForm] = useState<MaintenanceForm>(emptyForm);
@@ -102,11 +109,12 @@ export function MaintenancePage() {
   }, [endDate, selectedBranches, startDate]);
 
   useEffect(() => {
+    if (!canCreate || !canViewCustomers) return;
     api
       .get('/customers')
       .then((customerResponse) => setCustomers(customerResponse.data.data))
-      .catch(() => toast.error('تعذر تحميل بيانات العملاء'));
-  }, []);
+      .catch(() => setCustomers([]));
+  }, [canCreate, canViewCustomers]);
 
   useEffect(() => {
     if (workspaceLoading || workspace) return;
@@ -129,7 +137,6 @@ export function MaintenancePage() {
       const branchId = keepIfValid(branches, current.branchId, defaultBranchId);
       return branchId === current.branchId ? current : { ...current, branchId };
     });
-     
   }, [defaultBranchId, branches.map((branch) => branch.id).join(',')]);
 
   useEffect(() => {
@@ -152,6 +159,7 @@ export function MaintenancePage() {
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!canCreate) return;
     setSaving(true);
     try {
       await api.post('/maintenance', {
@@ -203,13 +211,15 @@ export function MaintenancePage() {
             فواتير صيانة محفوظة ببيانات العميل والمنتج، مع فصل تكلفة القطع عن إيراد الخدمة وربحها.
           </p>
         </div>
-        <Button onClick={() => setShowForm((visible) => !visible)}>
-          {showForm ? <X className="ml-2 h-4 w-4" /> : <Plus className="ml-2 h-4 w-4" />}
-          {showForm ? 'إغلاق النموذج' : 'فاتورة صيانة جديدة'}
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowForm((visible) => !visible)}>
+            {showForm ? <X className="ml-2 h-4 w-4" /> : <Plus className="ml-2 h-4 w-4" />}
+            {showForm ? 'إغلاق النموذج' : 'فاتورة صيانة جديدة'}
+          </Button>
+        )}
       </div>
 
-      {showForm && (
+      {canCreate && showForm && (
         <form onSubmit={submit} className="space-y-5 rounded-lg border bg-white p-5 shadow-sm">
           <h2 className="font-bold">بيانات فاتورة الصيانة</h2>
           <div className="grid gap-4 md:grid-cols-3">
@@ -337,7 +347,7 @@ export function MaintenancePage() {
               <div
                 className={`mt-1 text-xl font-bold ${projectedProfit < 0 ? 'text-red-700' : 'text-green-700'}`}
               >
-                {money(projectedProfit)}
+                <Signed value={projectedProfit}>{money(projectedProfit)}</Signed>
               </div>
               <div className="text-xs text-gray-500">سعر الخدمة − تكلفة القطع</div>
             </div>
@@ -391,19 +401,32 @@ export function MaintenancePage() {
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric title="عدد فواتير الصيانة" value={Number(summary.count).toLocaleString('ar-EG')} />
-        <Metric title="إيراد خدمة الصيانة" value={money(summary.serviceRevenue)} />
-        <Metric title="تكلفة قطع الصيانة" value={money(summary.partsCost)} tone="red" />
         <Metric
-          title="ربح الصيانة"
-          value={money(summary.profit)}
-          tone={Number(summary.profit) < 0 ? 'red' : 'green'}
+          title="عدد فواتير الصيانة"
+          value={Number(summary.count).toLocaleString('ar-EG')}
+          signedValue={summary.count}
         />
+        <Metric
+          title="إيراد خدمة الصيانة"
+          value={money(summary.serviceRevenue)}
+          signedValue={summary.serviceRevenue}
+        />
+        <Metric
+          title="تكلفة قطع الصيانة"
+          value={money(summary.partsCost)}
+          signedValue={summary.partsCost}
+        />
+        <Metric title="ربح الصيانة" value={money(summary.profit)} signedValue={summary.profit} />
       </div>
       {Number(summary.returnRepairs) > 0 && (
         <p className="text-xs text-gray-500">
-          منها {Number(summary.returnRepairs).toLocaleString('ar-EG')} صيانة لأصناف مرتجعة بتكلفة{' '}
-          {money(summary.returnRepairsCost)} (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
+          منها{' '}
+          <Signed value={Number(summary.returnRepairs)}>
+            {Number(summary.returnRepairs).toLocaleString('ar-EG')}
+          </Signed>{' '}
+          صيانة لأصناف مرتجعة بتكلفة{' '}
+          <Signed value={summary.returnRepairsCost}>{money(summary.returnRepairsCost)}</Signed>{' '}
+          (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
         </p>
       )}
 
@@ -421,19 +444,20 @@ export function MaintenancePage() {
                 <th className="p-3 text-right">إيراد الخدمة</th>
                 <th className="p-3 text-right">تكلفة القطع</th>
                 <th className="p-3 text-right">الربح</th>
+                {shareEnabled && <th className="p-3 text-right">إرسال</th>}
               </tr>
             </thead>
             <tbody>
               {loading && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-400">
+                  <td colSpan={shareEnabled ? 7 : 6} className="p-8 text-center text-gray-400">
                     جاري تحميل الفواتير...
                   </td>
                 </tr>
               )}
               {!loading && invoices.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-400">
+                  <td colSpan={shareEnabled ? 7 : 6} className="p-8 text-center text-gray-400">
                     لا توجد فواتير صيانة في الفترة المحددة.
                   </td>
                 </tr>
@@ -467,17 +491,40 @@ export function MaintenancePage() {
                         {invoice.productModel || invoice.productSerial || '—'}
                       </div>
                     </td>
-                    <td className="p-3">{money(invoice.servicePrice)}</td>
-                    <td className="p-3">{money(invoice.partsCost)}</td>
+                    <td className="p-3">
+                      <Signed value={invoice.servicePrice}>{money(invoice.servicePrice)}</Signed>
+                    </td>
+                    <td className="p-3">
+                      <Signed value={invoice.partsCost}>{money(invoice.partsCost)}</Signed>
+                    </td>
                     <td
                       className={`p-3 font-bold ${Number(invoice.profit) < 0 ? 'text-red-700' : 'text-green-700'}`}
                     >
-                      {money(invoice.profit)}
+                      <Signed value={invoice.profit}>{money(invoice.profit)}</Signed>
                     </td>
+                    {shareEnabled && (
+                      <td className="p-3">
+                        {invoice.source === 'manual' ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            title="إرسال الفاتورة للعميل على الواتساب"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setShareInvoiceId(invoice.id);
+                            }}
+                          >
+                            <MessageCircle className="ml-1 h-4 w-4" /> واتساب
+                          </Button>
+                        ) : (
+                          <span className="text-xs text-gray-400">صيانة داخلية</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                   {expandedInvoice === invoice.id && (
                     <tr className="border-t bg-gray-50">
-                      <td colSpan={6} className="space-y-2 p-4">
+                      <td colSpan={shareEnabled ? 7 : 6} className="space-y-2 p-4">
                         <div>
                           <strong>وصف الصيانة:</strong> {invoice.maintenanceDescription}
                         </div>
@@ -506,6 +553,8 @@ export function MaintenancePage() {
           </table>
         </div>
       </section>
+
+      <ShareMaintenanceDialog invoiceId={shareInvoiceId} onClose={() => setShareInvoiceId(null)} />
     </div>
   );
 }
@@ -514,13 +563,22 @@ function Metric({
   title,
   value,
   tone = 'default',
+  signedValue,
 }: {
   title: string;
   value: string;
   tone?: 'default' | 'green' | 'red';
+  /** لو اتبعتت، اللون بيتحسب من إشارة الرقم: سالب أحمر، صفر أسود، موجب أخضر. */
+  signedValue?: unknown;
 }) {
   const textColor =
-    tone === 'green' ? 'text-green-700' : tone === 'red' ? 'text-red-700' : 'text-gray-900';
+    signedValue !== undefined
+      ? signedTone(signedValue as number)
+      : tone === 'green'
+        ? 'text-green-700'
+        : tone === 'red'
+          ? 'text-red-700'
+          : 'text-gray-900';
   return (
     <div className="rounded-lg border bg-white p-4">
       <div className="text-sm text-gray-500">{title}</div>

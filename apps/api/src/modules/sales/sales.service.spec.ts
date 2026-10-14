@@ -300,4 +300,92 @@ describe('SalesService - createReturn', () => {
     expect(result.items[0].returnedQuantity).toBe(2);
     expect(result.items[0].remainingQuantity).toBe(3);
   });
+
+  describe('resolveReturnItem - هالك/إتلاف', () => {
+    const returnId = 'return-123';
+    const itemId = 'ri-1';
+
+    const configureDispositionTransaction = () => {
+      const saleReturn = {
+        id: returnId,
+        tenantId,
+        branchId: 'branch-123',
+        warehouseId: 'wh-123',
+        returnNumber: 'RET-2026-0009',
+        status: 'pending_inspection',
+      };
+      const returnItem = {
+        id: itemId,
+        tenantId,
+        returnId,
+        productId: 'prod-1',
+        quantity: 2,
+        unitCost: 100,
+        disposition: 'pending',
+      };
+      mockManager.findOne.mockImplementation((entity: any) => {
+        if (entity === SaleReturn) return Promise.resolve(saleReturn);
+        if (entity === SaleReturnItem) return Promise.resolve(returnItem);
+        if (entity === Product) {
+          return Promise.resolve({ id: 'prod-1', name: 'شاشة مكسورة', trackInventory: true });
+        }
+        return Promise.resolve(null);
+      });
+      mockManager.count.mockResolvedValue(0);
+      mockManager.save.mockImplementation((entity: any) => Promise.resolve(entity));
+      mockManager.query.mockImplementation(async (sql: string) => {
+        if (sql.includes('FROM branches')) return [{ id: 'branch-123' }];
+        if (sql.includes('INSERT INTO expense_categories')) return [{ id: 'cat-1' }];
+        return [];
+      });
+      return { saleReturn, returnItem };
+    };
+
+    it('بيشيل الكمية من المخزون ويسجل الخسارة بقيمة التكلفة في خطوة واحدة', async () => {
+      configureDispositionTransaction();
+
+      const result = await service.resolveReturnItem(tenantId, returnId, itemId, userId, {
+        disposition: 'write_off',
+      });
+
+      expect(result.disposition).toBe('write_off');
+      expect(result.writeDown).toBeCloseTo(200, 2);
+      expect(result.wasteExpense).toBeCloseTo(200, 2);
+      expect(result.newProductId ?? null).toBeNull();
+
+      // الكمية خرجت من المخزون
+      expect(mockInventoryService.adjustInventoryInTransaction).toHaveBeenCalledWith(
+        mockManager,
+        expect.objectContaining({ quantity: -2, type: 'return_out' })
+      );
+      // مفيش صنف جديد اتعمل
+      expect(mockManager.create).not.toHaveBeenCalledWith(Product, expect.anything());
+
+      // الخسارة اتسجلت مصروف واحد بقيمة التكلفة
+      const expenseInsert = mockManager.query.mock.calls.find(([sql]: any[]) =>
+        String(sql).includes('INSERT INTO expenses')
+      );
+      expect(expenseInsert).toBeDefined();
+      expect(expenseInsert?.[1][4]).toBeCloseTo(200, 2);
+      expect(String(expenseInsert?.[1][5])).toContain('إتلاف');
+    });
+
+    it('بيرفض الهالك اليدوي وتكلفة الصيانة مع الإتلاف الكامل عشان الخسارة متتحسبش مرتين', async () => {
+      configureDispositionTransaction();
+      await expect(
+        service.resolveReturnItem(tenantId, returnId, itemId, userId, {
+          disposition: 'write_off',
+          wasteExpense: 50,
+        })
+      ).rejects.toThrow(BadRequestException);
+
+      configureDispositionTransaction();
+      await expect(
+        service.resolveReturnItem(tenantId, returnId, itemId, userId, {
+          disposition: 'write_off',
+          repairExpense: 20,
+        })
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
 });

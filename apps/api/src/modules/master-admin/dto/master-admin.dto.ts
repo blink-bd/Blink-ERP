@@ -76,7 +76,7 @@ export class ResetTenantUserPasswordDto {
   @IsString() @Length(8, 128) newPassword: string;
 }
 
-/** تعديل مستخدم تاجر من المدير العام — كل اللي التاجر يقدر يعدله + بريد الدخول. */
+/** تعديل مستخدم تاجر من المدير العام — كل اللي التاجر يقدر يعدله + بريد التواصل. */
 export class AdminUpdateTenantUserDto extends UpdateTenantUserDto {
   @IsOptional() @IsEmail() @Length(3, 255) email?: string;
 }

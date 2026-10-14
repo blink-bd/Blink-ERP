@@ -13,6 +13,10 @@ import {
 
 export class CreateTenantUserDto {
   @IsEmail() @Length(3, 255) email: string;
+  @IsString()
+  @Length(3, 50)
+  @Matches(/^[A-Za-z0-9_.-]+$/, { message: 'اسم المستخدم حروف إنجليزية وأرقام و . _ - فقط' })
+  username: string;
   @IsString() @Length(2, 255) fullName: string;
   @IsOptional() @IsString() @Length(0, 50) phone?: string;
   @IsString() @Length(8, 128) password: string;
@@ -34,6 +38,11 @@ export class CreateTenantUserDto {
 }
 
 export class UpdateTenantUserDto {
+  @IsOptional()
+  @IsString()
+  @Length(3, 50)
+  @Matches(/^[A-Za-z0-9_.-]+$/, { message: 'اسم المستخدم حروف إنجليزية وأرقام و . _ - فقط' })
+  username?: string;
   @IsOptional() @IsString() @Length(2, 255) fullName?: string;
   @IsOptional() @IsString() @Length(0, 50) phone?: string;
   @IsOptional() @IsBoolean() isActive?: boolean;

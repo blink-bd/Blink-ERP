@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 interface User {
   id: string;
   email: string;
+  username?: string | null;
   fullName: string;
   tenantId: string;
   roles: string[];
@@ -15,7 +16,7 @@ interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (email: string, password: string, tenantId: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -48,10 +49,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string, tenantId: string) => {
+  const login = async (username: string, password: string) => {
     try {
-      const response = await api.post(`/auth/login?tenantId=${encodeURIComponent(tenantId)}`, {
-        email,
+      const response = await api.post('/auth/login', {
+        username,
         password,
       });
       setUser(response.data.data.user);

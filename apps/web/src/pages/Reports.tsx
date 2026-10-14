@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { Lock, Printer } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useFeature } from '@/contexts/FeaturesContext';
@@ -262,7 +263,7 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
               <tr key={s.supplierId} className="border-t">
                 <Td>{s.supplierName}</Td>
                 <Td>{s.purchasesCount}</Td>
-                <Td className="font-medium">{money(s.total)}</Td>
+                <Td className="font-medium"><Signed value={s.total}>{money(s.total)}</Signed></Td>
               </tr>
             ))}
           </Table>
@@ -281,7 +282,7 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
               <tr key={i} className="border-t">
                 <Td>{c.category}</Td>
                 <Td>{c.count}</Td>
-                <Td className="font-medium">{money(c.total)}</Td>
+                <Td className="font-medium"><Signed value={c.total}>{money(c.total)}</Signed></Td>
               </tr>
             ))}
           </Table>
@@ -321,27 +322,27 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
           </div>
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="rounded-lg bg-white p-5 shadow">
-              <h3 className="mb-3 font-semibold">قائمة الدخل ({num(r.revenue.invoices)} فاتورة)</h3>
+              <h3 className="mb-3 font-semibold">قائمة الدخل (<Signed value={r.revenue.invoices}>{num(r.revenue.invoices)}</Signed> فاتورة)</h3>
               <table className="w-full text-sm">
                 <tbody>
                   {rows.map(([label, value, cls]) => (
                     <tr key={label} className="border-t">
                       <td className={`p-2 ${cls || ''}`}>{label}</td>
                       <td className={`p-2 text-left ${cls || ''}`} dir="ltr">
-                        {money(value)}
+                        <Signed value={value}>{money(value)}</Signed>
                       </td>
                     </tr>
                   ))}
                   <tr className="border-t">
                     <td className="p-2 text-gray-500">خصومات ممنوحة (مخصومة بالفعل من المبيعات)</td>
                     <td className="p-2 text-left text-gray-500" dir="ltr">
-                      {money(r.revenue.discounts)}
+                      <Signed value={r.revenue.discounts}>{money(r.revenue.discounts)}</Signed>
                     </td>
                   </tr>
                   <tr className="border-t">
                     <td className="p-2 text-gray-500">هامش صافي الربح</td>
                     <td className="p-2 text-left text-gray-500" dir="ltr">
-                      {num(r.netProfitMargin, 1)}%
+                      <Signed value={r.netProfitMargin}>{num(r.netProfitMargin, 1)}</Signed>%
                     </td>
                   </tr>
                 </tbody>
@@ -355,7 +356,7 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                     <tr key={c.category} className="border-t">
                       <td className="p-2">{c.category}</td>
                       <td className="p-2 text-left" dir="ltr">
-                        {money(c.total)}
+                        <Signed value={c.total}>{money(c.total)}</Signed>
                       </td>
                     </tr>
                   ))}
@@ -398,12 +399,12 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                   </div>
                 </Td>
                 <Td>{i.category || '—'}</Td>
-                <Td>{num(i.quantity, 3)}</Td>
+                <Td><Signed value={i.quantity}>{num(i.quantity, 3)}</Signed></Td>
                 <Td>{i.returnedQuantity ? num(i.returnedQuantity, 3) : '—'}</Td>
-                <Td>{money(i.revenue)}</Td>
-                <Td>{money(i.cost)}</Td>
-                <Td className={`font-medium ${profitTone(i.profit)}`}>{money(i.profit)}</Td>
-                <Td>{num(i.margin, 1)}%</Td>
+                <Td><Signed value={i.revenue}>{money(i.revenue)}</Signed></Td>
+                <Td><Signed value={i.cost}>{money(i.cost)}</Signed></Td>
+                <Td className={`font-medium ${profitTone(i.profit)}`}><Signed value={i.profit}>{money(i.profit)}</Signed></Td>
+                <Td><Signed value={i.margin}>{num(i.margin, 1)}</Signed>%</Td>
               </tr>
             ))}
           </Table>
@@ -433,16 +434,16 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                   {i.email}
                 </div>
               </Td>
-              <Td>{num(i.salesCount)}</Td>
+              <Td><Signed value={i.salesCount}>{num(i.salesCount)}</Signed></Td>
               <Td className="font-medium">
-                {money(i.total)}
+                <Signed value={i.total}>{money(i.total)}</Signed>
                 {i.returnsTotal > 0 && (
-                  <div className="text-xs text-gray-500">صافي {money(i.netTotal)}</div>
+                  <div className="text-xs text-gray-500">صافي <Signed value={i.netTotal}>{money(i.netTotal)}</Signed></div>
                 )}
               </Td>
-              <Td>{money(i.averageTicket)}</Td>
-              <Td className="text-green-600">{money(i.grossProfit)}</Td>
-              <Td>{money(i.discounts)}</Td>
+              <Td><Signed value={i.averageTicket}>{money(i.averageTicket)}</Signed></Td>
+              <Td ><Signed value={i.grossProfit}>{money(i.grossProfit)}</Signed></Td>
+              <Td><Signed value={i.discounts}>{money(i.discounts)}</Signed></Td>
               <Td>{i.returnsCount ? `${i.returnsCount} (${money(i.returnsTotal)})` : '—'}</Td>
               <Td className={i.cancelledCount ? 'text-red-600' : ''}>
                 {i.cancelledCount ? `${i.cancelledCount} (${money(i.cancelledTotal)})` : '—'}
@@ -470,12 +471,12 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
             {r.items.map((i: any) => (
               <tr key={i.methodId} className="border-t">
                 <Td>{i.name}</Td>
-                <Td>{num(i.count)}</Td>
+                <Td><Signed value={i.count}>{num(i.count)}</Signed></Td>
                 <Td>{money(i.received ?? i.total)}</Td>
                 <Td className={i.refunds ? 'text-red-600' : ''}>
-                  {i.refunds ? money(i.refunds) : '—'}
+                  <Signed value={i.refunds}>{i.refunds ? money(i.refunds) : '—'}</Signed>
                 </Td>
-                <Td className="font-medium">{money(i.total)}</Td>
+                <Td className="font-medium"><Signed value={i.total}>{money(i.total)}</Signed></Td>
                 <Td>
                   <div className="flex items-center gap-2">
                     <div className="h-2 w-24 rounded bg-gray-100">
@@ -484,7 +485,7 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                         style={{ width: `${Math.min(100, i.share)}%` }}
                       />
                     </div>
-                    {num(i.share, 1)}%
+                    <Signed value={i.share}>{num(i.share, 1)}</Signed>%
                   </div>
                 </Td>
               </tr>
@@ -513,11 +514,11 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                   {w.warehouse}
                   {w.isMain && <span className="ms-2 text-xs text-gray-400">(رئيسي)</span>}
                 </Td>
-                <Td>{num(w.products)}</Td>
-                <Td>{num(w.quantity, 3)}</Td>
-                <Td>{money(w.costValue)}</Td>
-                <Td>{money(w.retailValue)}</Td>
-                <Td className="text-green-600">{money(w.potentialProfit)}</Td>
+                <Td><Signed value={w.products}>{num(w.products)}</Signed></Td>
+                <Td><Signed value={w.quantity}>{num(w.quantity, 3)}</Signed></Td>
+                <Td><Signed value={w.costValue}>{money(w.costValue)}</Signed></Td>
+                <Td><Signed value={w.retailValue}>{money(w.retailValue)}</Signed></Td>
+                <Td ><Signed value={w.potentialProfit}>{money(w.potentialProfit)}</Signed></Td>
               </tr>
             ))}
           </Table>
@@ -529,11 +530,11 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
             {r.byCategory.map((c: any) => (
               <tr key={c.category} className="border-t">
                 <Td>{c.category}</Td>
-                <Td>{num(c.products)}</Td>
-                <Td>{num(c.quantity, 3)}</Td>
-                <Td>{money(c.costValue)}</Td>
-                <Td>{money(c.retailValue)}</Td>
-                <Td className="text-green-600">{money(c.potentialProfit)}</Td>
+                <Td><Signed value={c.products}>{num(c.products)}</Signed></Td>
+                <Td><Signed value={c.quantity}>{num(c.quantity, 3)}</Signed></Td>
+                <Td><Signed value={c.costValue}>{money(c.costValue)}</Signed></Td>
+                <Td><Signed value={c.retailValue}>{money(c.retailValue)}</Signed></Td>
+                <Td ><Signed value={c.potentialProfit}>{money(c.potentialProfit)}</Signed></Td>
               </tr>
             ))}
           </Table>
@@ -561,8 +562,8 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                   </div>
                 </Td>
                 <Td>{i.category || '—'}</Td>
-                <Td>{num(i.quantity, 3)}</Td>
-                <Td className="font-medium">{money(i.costValue)}</Td>
+                <Td><Signed value={i.quantity}>{num(i.quantity, 3)}</Signed></Td>
+                <Td className="font-medium"><Signed value={i.costValue}>{money(i.costValue)}</Signed></Td>
                 <Td>
                   {i.neverSold ? (
                     <span className="text-red-600">لم يُبع أبداً</span>
@@ -661,10 +662,10 @@ function ReportBody({ tab, r }: { tab: Tab; r: any }) {
                 <Td>
                   <span dir="ltr">{c.phone || '—'}</span>
                 </Td>
-                <Td>{num(c.salesCount)}</Td>
-                <Td>{money(c.total)}</Td>
-                <Td className="text-green-600">{money(c.grossProfit)}</Td>
-                <Td className={c.balance > 0 ? 'text-orange-600' : ''}>{money(c.balance)}</Td>
+                <Td><Signed value={c.salesCount}>{num(c.salesCount)}</Signed></Td>
+                <Td><Signed value={c.total}>{money(c.total)}</Signed></Td>
+                <Td ><Signed value={c.grossProfit}>{money(c.grossProfit)}</Signed></Td>
+                <Td ><Signed value={c.balance}>{money(c.balance)}</Signed></Td>
                 <Td>
                   {c.lastPurchaseAt ? formatDate(c.lastPurchaseAt) : '—'}
                 </Td>

@@ -65,12 +65,14 @@ export class ReturnedProductInputDto {
 
 export class ResolveReturnItemDto {
   /**
-   * - supplier : يرجع للمورد ويتخصم من رصيده.
-   * - restocked: يدخل المخزن كصنف جديد مستقل (مستعمل/مفتوح) بكود وسعر جديد.
-   * - original : يرجع المخزن على نفس الصنف الأصلي (سليم) بنفس تكلفته.
+   * - supplier  : يرجع للمورد ويتخصم من رصيده.
+   * - restocked : يدخل المخزن كصنف جديد مستقل (مستعمل/مفتوح) بكود وسعر جديد.
+   * - original  : يرجع المخزن على نفس الصنف الأصلي (سليم) بنفس تكلفته.
+   * - write_off : هالك/إتلاف كامل — الكمية تخرج من المخزون وقيمتها (التكلفة الأصلية ×
+   *   الكمية) تتسجل خسارة في خطوة واحدة. مفيش صنف جديد ولا تكلفة صيانة ولا هالك يدوي.
    */
-  @IsIn(['supplier', 'restocked', 'original'])
-  disposition: 'supplier' | 'restocked' | 'original';
+  @IsIn(['supplier', 'restocked', 'original', 'write_off'])
+  disposition: 'supplier' | 'restocked' | 'original' | 'write_off';
 
   @IsOptional()
   @IsUUID()

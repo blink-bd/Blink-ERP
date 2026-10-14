@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,6 +8,7 @@ import toast from 'react-hot-toast';
 import { Plus, X, Pencil, Trash2, Barcode as BarcodeIcon, Printer } from 'lucide-react';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { printBarcodeLabel, printBarcodeLabels } from '@/lib/barcode';
+import { formatDateTime } from '@/lib/datetime';
 
 interface Product {
   id: string;
@@ -26,6 +28,10 @@ interface Product {
   stockStatus: string;
   needsPriceReview?: boolean;
   priceReviewNote?: string;
+  priceReviewPreviousCost?: number | null;
+  priceReviewNewCost?: number | null;
+  priceReviewPurchaseNumber?: string | null;
+  priceReviewAt?: string | null;
 }
 
 type ProductForm = {
@@ -91,6 +97,15 @@ export function ProductsPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<ProductForm>(emptyForm);
+  // مراجعة التسعير بعد نزول المنتج من المورد بتكلفة مختلفة
+  const [reviewFor, setReviewFor] = useState<Product | null>(null);
+  const [reviewChoice, setReviewChoice] = useState<'previous' | 'new'>('new');
+  const [reviewPrices, setReviewPrices] = useState({
+    sellingPrice: '',
+    wholesalePrice: '',
+    halfWholesalePrice: '',
+  });
+  const [savingReview, setSavingReview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const [addingCategory, setAddingCategory] = useState(false);
@@ -183,6 +198,62 @@ export function ProductsPage() {
     setForm({ ...emptyForm });
     setShowForm(true);
   };
+/** التكلفة اللي التاجر اختار يشتغل عليها في نافذة المراجعة. */
+  const reviewCost = (p: Product, choice: 'previous' | 'new') =>
+    choice === 'previous'
+      ? Number(p.priceReviewPreviousCost ?? p.costPrice)
+      : Number(p.priceReviewNewCost ?? p.costPrice);
+
+  const openReview = (p: Product) => {
+    setReviewFor(p);
+    setReviewChoice('new');
+    setReviewPrices({
+      sellingPrice: Number(p.sellingPrice) ? String(Number(p.sellingPrice)) : '',
+      wholesalePrice:
+        p.wholesalePrice === null || p.wholesalePrice === undefined
+          ? ''
+          : String(Number(p.wholesalePrice)),
+      halfWholesalePrice:
+        p.halfWholesalePrice === null || p.halfWholesalePrice === undefined
+          ? ''
+          : String(Number(p.halfWholesalePrice)),
+    });
+  };
+
+  const submitReview = async () => {
+    if (!reviewFor) return;
+    const cost = reviewCost(reviewFor, reviewChoice);
+    const sellingPrice = Number(reviewPrices.sellingPrice);
+    if (!Number.isFinite(sellingPrice) || sellingPrice <= cost) {
+      toast.error(`سعر البيع القطاعي لازم يكون أكبر من التكلفة (${cost.toFixed(2)})`);
+      return;
+    }
+    setSavingReview(true);
+    try {
+      await api.post(`/products/${reviewFor.id}/price-review`, {
+        costChoice: reviewChoice,
+        sellingPrice,
+        wholesalePrice:
+          reviewPrices.wholesalePrice === '' ? undefined : Number(reviewPrices.wholesalePrice),
+        halfWholesalePrice:
+          reviewPrices.halfWholesalePrice === ''
+            ? undefined
+            : Number(reviewPrices.halfWholesalePrice),
+      });
+      toast.success('تم حفظ التسعير الجديد وقفل التنبيه');
+      setReviewFor(null);
+      await load();
+    } catch (err: any) {
+      toast.error(
+        err?.response?.data?.error?.message ||
+          err?.response?.data?.message ||
+          'تعذر حفظ التسعير الجديد'
+      );
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
   const openEdit = (p: Product) => {
     const currentQuantity =
       p.openingQuantity === null || p.openingQuantity === undefined
@@ -617,6 +688,7 @@ export function ProductsPage() {
               <th className="text-right p-3">الباركود</th>
               <th className="text-right p-3">الصنف</th>
               {costVisible && <th className="text-right p-3">التكلفة</th>}
+              {costVisible && <th className="text-right p-3">مراجعة التسعير</th>}
               <th className="text-right p-3">قطاعي</th>
               {halfWholesaleEnabled && <th className="text-right p-3">نصف جملة</th>}
               <th className="text-right p-3">جملة</th>
@@ -691,21 +763,54 @@ export function ProductsPage() {
                   <td className="p-3 text-gray-500">{p.sku || '-'}</td>
                   <td className="p-3 text-gray-500">{p.barcode || '-'}</td>
                   <td className="p-3 text-gray-500">{p.category?.name || '-'}</td>
-                  {costVisible && <td className="p-3">{Number(p.costPrice).toFixed(2)}</td>}
-                  <td className="p-3 font-medium">{Number(p.sellingPrice).toFixed(2)}</td>
+                  {costVisible && <td className="p-3"><Signed value={Number(p.costPrice)}>{Number(p.costPrice).toFixed(2)}</Signed></td>}
+                  {costVisible && (
+                    <td className="p-3">
+                      {p.needsPriceReview ? (
+                        <div className="space-y-1">
+                          <button
+                            type="button"
+                            onClick={() => openReview(p)}
+                            className="rounded bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-200"
+                            title={p.priceReviewNote || 'راجع تسعير المنتج'}
+                          >
+                            عدّل التسعير
+                          </button>
+                          <p className="text-xs text-amber-700">
+                            السابق{' '}
+                            <Signed value={p.priceReviewPreviousCost}>
+                              {Number(p.priceReviewPreviousCost ?? p.costPrice).toFixed(2)}
+                            </Signed>{' '}
+                            ← الجديد{' '}
+                            <Signed value={p.priceReviewNewCost}>
+                              {Number(p.priceReviewNewCost ?? p.costPrice).toFixed(2)}
+                            </Signed>
+                            {p.priceReviewPurchaseNumber ? ` · ${p.priceReviewPurchaseNumber}` : ''}
+                          </p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                  )}
+                  <td className="p-3 font-medium"><Signed value={Number(p.sellingPrice)}>{Number(p.sellingPrice).toFixed(2)}</Signed></td>
                   {halfWholesaleEnabled && (
                     <td className="p-3 text-gray-500">
-                      {p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null
-                        ? Number(p.halfWholesalePrice).toFixed(2)
-                        : '-'}
+                      <Signed value={p.halfWholesalePrice}>
+                        {p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null
+                          ? Number(p.halfWholesalePrice).toFixed(2)
+                          : '-'}
+                      </Signed>
                     </td>
                   )}
                   <td className="p-3 text-gray-500">
-                    {p.wholesalePrice !== undefined && p.wholesalePrice !== null
-                      ? Number(p.wholesalePrice).toFixed(2)
-                      : '-'}
+                    <Signed value={p.wholesalePrice}>
+                      {p.wholesalePrice !== undefined && p.wholesalePrice !== null
+                        ? Number(p.wholesalePrice).toFixed(2)
+                        : '-'}
+                    </Signed>
                   </td>
-                  <td className="p-3">{formatQuantity(p.availableQuantity)}</td>
+                  <td className="p-3"><Signed value={p.availableQuantity}>{formatQuantity(p.availableQuantity)}</Signed></td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded text-xs ${st.cls}`}>{st.text}</span>
                   </td>
@@ -740,6 +845,114 @@ export function ProductsPage() {
           </tbody>
         </table>
       </div>
+
+      {reviewFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setReviewFor(null)}
+        >
+          <div
+            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-xl font-bold">مراجعة تسعير: {reviewFor.name}</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              نزل المنتج من المورد بتكلفة مختلفة عن المسجلة عندك. اختار التكلفة اللي هتشتغل
+              عليها وعدّل أسعار البيع.
+            </p>
+            {reviewFor.priceReviewPurchaseNumber && (
+              <p className="mt-1 text-xs text-gray-400">
+                فاتورة الشراء: {reviewFor.priceReviewPurchaseNumber}
+                {reviewFor.priceReviewAt ? ` · ${formatDateTime(reviewFor.priceReviewAt)}` : ''}
+              </p>
+            )}
+
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {(
+                [
+                  ['previous', 'التكلفة السابقة', reviewFor.priceReviewPreviousCost],
+                  ['new', 'التكلفة الجديدة', reviewFor.priceReviewNewCost],
+                ] as const
+              ).map(([choice, label, amount]) => (
+                <label
+                  key={choice}
+                  className={`cursor-pointer rounded-md border p-3 text-sm ${
+                    reviewChoice === choice
+                      ? 'border-primary bg-primary/5 font-medium'
+                      : 'border-gray-200'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="costChoice"
+                    className="ml-2"
+                    checked={reviewChoice === choice}
+                    onChange={() => setReviewChoice(choice)}
+                  />
+                  {label}
+                  <span className="mt-1 block text-lg font-bold">
+                    <Signed value={amount}>
+                      {Number(amount ?? reviewFor.costPrice).toFixed(2)}
+                    </Signed>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+              <div>
+                <Label>سعر البيع القطاعي</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={reviewPrices.sellingPrice}
+                  onChange={(e) => setReviewPrices({ ...reviewPrices, sellingPrice: e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>سعر الجملة</Label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={reviewPrices.wholesalePrice}
+                  onChange={(e) =>
+                    setReviewPrices({ ...reviewPrices, wholesalePrice: e.target.value })
+                  }
+                />
+              </div>
+              {halfWholesaleEnabled && (
+                <div>
+                  <Label>سعر نصف الجملة</Label>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={reviewPrices.halfWholesalePrice}
+                    onChange={(e) =>
+                      setReviewPrices({ ...reviewPrices, halfWholesalePrice: e.target.value })
+                    }
+                  />
+                </div>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              التكلفة المختارة: <strong>{reviewCost(reviewFor, reviewChoice).toFixed(2)}</strong> —
+              أسعار البيع لازم تكون أكبر منها.
+            </p>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setReviewFor(null)}>
+                لاحقاً
+              </Button>
+              <Button onClick={submitReview} disabled={savingReview}>
+                {savingReview ? 'جارٍ الحفظ...' : 'حفظ التسعير'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

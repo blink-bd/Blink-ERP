@@ -69,6 +69,7 @@ async function main() {
   // ------------------------------------------------------------ tenant
   console.log('\n[2] Tenant onboarding');
   const ownerEmail = `owner-${uniq}@example.com`;
+  const ownerUsername = `owner-${uniq}`;
   const ownerPassword = 'Owner#Pass2024!x';
   const ct = await call('POST', '/admin/tenants', {
     token: mt,
@@ -76,31 +77,28 @@ async function main() {
       businessName: `Smoke ${uniq}`,
       businessNameAr: `متجر ${uniq}`,
       email: `shop-${uniq}@example.com`,
-      adminUser: { fullName: 'Owner', email: ownerEmail, password: ownerPassword },
+      adminUser: {
+        fullName: 'Owner',
+        email: ownerEmail,
+        username: ownerUsername,
+        password: ownerPassword,
+      },
     },
   });
   check('create tenant', ct.status < 300, ct);
   const tenantId = data(ct)?.tenant?.id || data(ct)?.id;
   check('tenant id returned', !!tenantId, data(ct));
 
-  const tokenRes = await call('POST', `/auth/login?tenantId=${tenantId}`, {
-    body: { email: ownerEmail, password: ownerPassword },
+  const tokenRes = await call('POST', '/auth/login', {
+    body: { username: ownerUsername.toUpperCase(), password: ownerPassword },
   });
-  check('owner login', tokenRes.status < 300, tokenRes);
+  check('owner login by case-insensitive username without tenant id', tokenRes.status < 300, tokenRes);
   let ot = data(tokenRes)?.accessToken;
 
-  const crossTenant = await call(
-    'POST',
-    `/auth/login?tenantId=00000000-0000-4000-8000-000000000000`,
-    {
-      body: { email: ownerEmail, password: ownerPassword },
-    }
-  );
-  check('login against another tenant id → 401', crossTenant.status === 401, crossTenant);
-  const badTenantId = await call('POST', `/auth/login?tenantId=abc`, {
+  const emailLogin = await call('POST', '/auth/login', {
     body: { email: ownerEmail, password: ownerPassword },
   });
-  check('malformed tenantId → 400', badTenantId.status === 400, badTenantId);
+  check('email is not accepted as a tenant login identifier → 400', emailLogin.status === 400, emailLogin);
 
   // ------------------------------------------------------------ features
   console.log('\n[3] Feature gating');
@@ -190,11 +188,13 @@ async function main() {
   const cashierRoleId = data(cashierRole)?.id;
 
   const cashierEmail = `cashier-${uniq}@example.com`;
+  const cashierUsername = `cashier-${uniq}`;
   const cashierPassword = 'Cashier#Pass2024!';
   const cu = await call('POST', '/users', {
     token: ot,
     body: {
       email: cashierEmail,
+      username: cashierUsername,
       fullName: 'Cashier',
       password: cashierPassword,
       roleIds: [cashierRoleId],
@@ -207,6 +207,7 @@ async function main() {
     token: ot,
     body: {
       email: `third-${uniq}@example.com`,
+      username: `third-${uniq}`,
       fullName: 'Third',
       password: cashierPassword,
       roleIds: [cashierRoleId],
@@ -214,8 +215,8 @@ async function main() {
   });
   check('maxUsers=2 enforced → 403', third.status === 403, third);
 
-  const cl = await call('POST', `/auth/login?tenantId=${tenantId}`, {
-    body: { email: cashierEmail, password: cashierPassword },
+  const cl = await call('POST', '/auth/login', {
+    body: { username: cashierUsername, password: cashierPassword },
   });
   check('cashier login', cl.status < 300, cl);
   const ctok = data(cl)?.accessToken;

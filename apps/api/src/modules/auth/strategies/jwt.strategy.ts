@@ -11,6 +11,7 @@ export interface JwtPayload {
   sub: string;
   tenantId: string;
   email: string;
+  username?: string | null;
   roles: string[];
   permissions: string[];
   sessionVersion: number;
@@ -52,6 +53,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: user.id,
       tenantId: user.tenantId,
       email: user.email,
+      username: user.username ?? null,
       roles,
       permissions,
       authType: 'jwt' as const,

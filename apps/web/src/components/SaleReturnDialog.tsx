@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import toast from 'react-hot-toast';
 import { api } from '@/lib/api';
 import { Modal } from '@/components/ui/modal';
@@ -203,11 +204,11 @@ export function SaleReturnDialog({
           <div className="grid grid-cols-2 gap-2 rounded-lg bg-gray-50 p-3 text-xs sm:grid-cols-4">
             <div>
               <div className="text-gray-500">إجمالي الفاتورة</div>
-              <div className="font-semibold">{money(Number(sale.total))}</div>
+              <div className="font-semibold"><Signed value={Number(sale.total)}>{money(Number(sale.total))}</Signed></div>
             </div>
             <div>
               <div className="text-gray-500">المدفوع</div>
-              <div className="font-semibold">{money(Number(sale.paidAmount))}</div>
+              <div className="font-semibold"><Signed value={Number(sale.paidAmount)}>{money(Number(sale.paidAmount))}</Signed></div>
             </div>
             <div>
               <div className="text-gray-500">مرتجعات سابقة</div>
@@ -238,7 +239,7 @@ export function SaleReturnDialog({
                       <p className="truncate font-medium">{item.productName}</p>
                       <p className="text-xs text-gray-500">
                         المباع: {Number(item.quantity)} — المتبقي: {remaining} — السعر:{' '}
-                        {money(Number(item.unitPrice))}
+                        <Signed value={Number(item.unitPrice)}>{money(Number(item.unitPrice))}</Signed>
                       </p>
                       {done && (
                         <span className="text-xs font-medium text-amber-600">
@@ -276,19 +277,19 @@ export function SaleReturnDialog({
             <div className="space-y-2 rounded-lg border border-blue-100 bg-blue-50 p-3">
               <div className="flex justify-between font-semibold">
                 <span>قيمة المرتجع</span>
-                <span>{money(estimate.total)}</span>
+                <span><Signed value={estimate.total}>{money(estimate.total)}</Signed></span>
               </div>
               {estimate.invoiceCredit > 0 && (
                 <div className="flex justify-between text-xs">
                   <span>يتخصم من المتبقي (الآجل) على الفاتورة</span>
-                  <span>{money(estimate.invoiceCredit)}</span>
+                  <span><Signed value={estimate.invoiceCredit}>{money(estimate.invoiceCredit)}</Signed></span>
                 </div>
               )}
               {estimate.paidPortion > 0 && (
                 <>
                   <div className="flex justify-between text-xs">
                     <span>من المبلغ المدفوع</span>
-                    <span>{money(estimate.paidPortion)}</span>
+                    <span><Signed value={estimate.paidPortion}>{money(estimate.paidPortion)}</Signed></span>
                   </div>
                   <div className="space-y-2 pt-1">
                     <label className="flex items-center gap-2">

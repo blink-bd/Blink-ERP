@@ -1,4 +1,5 @@
 import { Bar, BarChart, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Signed } from '@/lib/signed';
 import {
   Box,
   CalendarDays,
@@ -66,6 +67,7 @@ export function OverviewTab({
         <StatCard
           label="أيام استخدام آخر 30 يوم"
           value={`${activity.activeDays30d} / 30`}
+          signedValue={activity.activeDays30d}
           hint={`${fmtNumber(activity.logins30d)} مرة دخول`}
           icon={<CalendarDays className="h-5 w-5" />}
           tone={
@@ -75,6 +77,7 @@ export function OverviewTab({
         <StatCard
           label="فواتير بيع آخر 30 يوم"
           value={fmtNumber(docs.sales30d)}
+          signedValue={docs.sales30d}
           hint={`${fmtNumber(docs.sales)} إجمالي · آخر فاتورة ${timeAgo(activity.lastSaleAt)}`}
           icon={<ShoppingCart className="h-5 w-5" />}
           tone="violet"
@@ -119,7 +122,8 @@ export function OverviewTab({
         <Section title="بيانات التاجر">
           <div className="divide-y divide-slate-100">
             <Row label="صاحب النشاط" value={owner?.fullName} />
-            <Row label="إيميل الدخول" value={owner?.email} />
+            <Row label="اسم المستخدم للدخول" value={owner?.username || 'غير محدد'} />
+            <Row label="البريد الإلكتروني للتواصل" value={owner?.email} />
             <Row label="تليفون" value={tenant.phone || owner?.phone} />
             <Row
               label="المدينة / الدولة"
@@ -152,9 +156,14 @@ export function OverviewTab({
             <Row
               label="المبلغ"
               value={
-                subscription.amount !== null
-                  ? `${fmtMoney(subscription.amount)} / ${subscription.cycle === 'yearly' ? 'سنة' : 'شهر'}`
-                  : 'مش متسجل'
+                subscription.amount !== null ? (
+                  <>
+                    <Signed value={subscription.amount}>{fmtMoney(subscription.amount)}</Signed> /{' '}
+                    {subscription.cycle === 'yearly' ? 'سنة' : 'شهر'}
+                  </>
+                ) : (
+                  'مش متسجل'
+                )
               }
             />
             <Row label="بداية الاشتراك" value={fmtDate(subscription.startDate)} />

@@ -15,6 +15,7 @@ import { BranchesService } from './branches.service';
 import { BranchesController } from './branches.controller';
 import { WarehousesService } from './warehouses.service';
 import { WarehousesController } from './warehouses.controller';
+import { AdminLocationsController } from './admin-locations.controller';
 
 @Module({
   imports: [
@@ -28,7 +29,13 @@ import { WarehousesController } from './warehouses.controller';
       InventoryTransferItem,
     ]),
   ],
-  controllers: [InventoryController, TransfersController, BranchesController, WarehousesController],
+  controllers: [
+    InventoryController,
+    TransfersController,
+    BranchesController,
+    WarehousesController,
+    AdminLocationsController,
+  ],
   providers: [InventoryService, TransfersService, BranchesService, WarehousesService],
   exports: [InventoryService, TransfersService, BranchesService, WarehousesService],
 })

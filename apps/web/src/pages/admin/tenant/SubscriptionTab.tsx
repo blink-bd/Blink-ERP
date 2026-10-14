@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import toast from 'react-hot-toast';
 import { adminApi } from '@/lib/adminApi';
 import { Button } from '@/components/ui/button';
@@ -147,7 +148,8 @@ export function SubscriptionTab({
               <div className="mt-1 font-bold text-slate-800">{daysLeftLabel(sub.daysLeft)}</div>
               {sub.monthlyValue > 0 && (
                 <div className="mt-1 text-xs text-slate-500">
-                  يعادل {fmtMoney(sub.monthlyValue)} شهرياً
+                  يعادل <Signed value={sub.monthlyValue}>{fmtMoney(sub.monthlyValue)}</Signed>{' '}
+                  شهرياً
                 </div>
               )}
             </div>
@@ -246,7 +248,13 @@ export function SubscriptionTab({
           </div>
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
             <span className="text-xs text-slate-500">
-              {monthly > 0 ? `يعادل ${fmtMoney(monthly)} في الشهر` : ''}
+              {monthly > 0 ? (
+                <>
+                  يعادل <Signed value={monthly}>{fmtMoney(monthly)}</Signed> في الشهر
+                </>
+              ) : (
+                ''
+              )}
             </span>
             <Button onClick={save} disabled={saving}>
               {saving ? 'جاري الحفظ...' : 'حفظ الاشتراك'}

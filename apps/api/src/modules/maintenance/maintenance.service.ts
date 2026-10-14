@@ -4,10 +4,79 @@ import { isUUID } from 'class-validator';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { resolveTenantBranch } from '@/common/utils/branch-accounting';
 import { normalizeInclusiveDateRange } from '@/common/utils/date-range';
-import { getTenantTimezone, tenantYear } from '@/common/utils/tenant-time';
+import {
+  dateInTimezone,
+  getTenantTimezone,
+  safeTimezone,
+  tenantYear,
+} from '@/common/utils/tenant-time';
+import { callingCodeFor, toInternationalPhone } from '@/common/utils/phone';
 import { Customer } from '@/modules/customers/entities/customer.entity';
 import { CreateMaintenanceInvoiceDto } from './dto/create-maintenance-invoice.dto';
 import { MaintenanceInvoice } from './maintenance-invoice.entity';
+
+const CURRENCY_LABELS: Record<string, string> = {
+  EGP: 'ج.م',
+  SAR: 'ر.س',
+  AED: 'د.إ',
+  KWD: 'د.ك',
+  QAR: 'ر.ق',
+  BHD: 'د.ب',
+  OMR: 'ر.ع',
+  JOD: 'د.أ',
+  IQD: 'د.ع',
+  LYD: 'د.ل',
+};
+
+export function maintenanceAmount(value: number, currency: string): string {
+  return `${Number(value || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })} ${CURRENCY_LABELS[currency] || currency}`;
+}
+
+export interface MaintenanceShareInput {
+  customerName: string;
+  businessName: string;
+  invoiceNumber: string;
+  /** التاريخ منسّق جاهز للعرض. */
+  dateLabel: string;
+  productName: string;
+  productModel?: string | null;
+  productSerial?: string | null;
+  maintenanceDescription: string;
+  /** إيراد خدمة الصيانة = اللي العميل بيدفعه. */
+  servicePrice: number;
+  currency: string;
+}
+
+/**
+ * رسالة واتساب لفاتورة الصيانة.
+ *
+ * مهمة: العميل يشوف تفاصيل الشغل و«تكلفة الصيانة» اللي دفعها بس — تكلفة القطع والربح
+ * بيانات داخلية للتاجر وماينفعش توصل للعميل، فالرسالة مافيهاش غير servicePrice.
+ */
+export function buildMaintenanceShareMessage(input: MaintenanceShareInput): string {
+  const productLine = [
+    input.productName,
+    input.productModel,
+    input.productSerial ? `IMEI/Serial: ${input.productSerial}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  return [
+    `مرحباً ${input.customerName}،`,
+    `فاتورة صيانة رقم ${input.invoiceNumber} من ${input.businessName}`,
+    `التاريخ: ${input.dateLabel}`,
+    `الجهاز: ${productLine}`,
+    `أعمال الصيانة: ${input.maintenanceDescription}`,
+    '',
+    `تكلفة الصيانة: ${maintenanceAmount(input.servicePrice, input.currency)}`,
+    '',
+    'شكراً لتعاملك معنا 🌹',
+  ].join('\n');
+}
 
 @Injectable()
 export class MaintenanceService {
@@ -199,5 +268,62 @@ export class MaintenanceService {
     const invoice = await this.invoices.findOne({ where: { id, tenantId } });
     if (!invoice) throw new NotFoundException('فاتورة الصيانة غير موجودة');
     return invoice;
+  }
+
+  /**
+   * بيانات إرسال فاتورة الصيانة للعميل على الواتساب.
+   * بيرجع إيراد الخدمة بس (مسمى «تكلفة الصيانة» في الرسالة) — تكلفة القطع والربح
+   * مش بتخرج من السيرفر أصلاً في الرد ده.
+   */
+  async getShareInfo(tenantId: string, id: string) {
+    const [row] = await this.dataSource.query(
+      `SELECT m.invoice_number AS "invoiceNumber", m.maintenance_date AS "date",
+              m.customer_name AS "customerName", m.customer_phone AS "customerPhone",
+              m.product_name AS "productName", m.product_model AS "productModel",
+              m.product_serial AS "productSerial",
+              m.maintenance_description AS "maintenanceDescription",
+              m.service_price AS "servicePrice", m.source,
+              t.currency, t.timezone, t.country,
+              COALESCE(t.business_name_ar, t.business_name) AS "businessName"
+       FROM maintenance_invoices m
+       JOIN tenants t ON t.id = m.tenant_id
+       WHERE m.id = $1 AND m.tenant_id = $2`,
+      [id, tenantId]
+    );
+    if (!row) throw new NotFoundException('فاتورة الصيانة غير موجودة');
+    if (row.source !== 'manual') {
+      throw new BadRequestException('صيانة الأصناف المرتجعة داخلية ومش بتتبعت للعميل');
+    }
+
+    const timezone = safeTimezone(row.timezone);
+    const dateLabel = dateInTimezone(new Date(row.date), timezone).split('-').reverse().join('/');
+    const shareInput: MaintenanceShareInput = {
+      customerName: row.customerName,
+      businessName: row.businessName,
+      invoiceNumber: row.invoiceNumber,
+      dateLabel,
+      productName: row.productName,
+      productModel: row.productModel,
+      productSerial: row.productSerial,
+      maintenanceDescription: row.maintenanceDescription,
+      servicePrice: Number(row.servicePrice) || 0,
+      currency: row.currency,
+    };
+
+    return {
+      kind: 'maintenance' as const,
+      invoiceNumber: shareInput.invoiceNumber,
+      date: row.date,
+      timezone,
+      currency: row.currency,
+      businessName: shareInput.businessName,
+      customer: {
+        name: shareInput.customerName,
+        phone: row.customerPhone || null,
+        whatsapp: toInternationalPhone(row.customerPhone, callingCodeFor(timezone, row.country)),
+      },
+      servicePrice: shareInput.servicePrice,
+      message: buildMaintenanceShareMessage(shareInput),
+    };
   }
 }
