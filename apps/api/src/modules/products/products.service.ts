@@ -12,6 +12,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { InventoryService } from '@/modules/inventory/inventory.service';
 import { WarehousesService } from '@/modules/inventory/warehouses.service';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ResolvePriceReviewDto } from './dto/resolve-price-review.dto';
 import { FeaturesService } from '@/modules/features/features.service';
 import {
   AccessScope,
@@ -407,9 +408,61 @@ export class ProductsService {
     product.costPrice = unitCost;
     product.needsPriceReview = true;
     product.priceReviewNote = `تغيّر سعر التكلفة من ${oldCost.toFixed(2)} إلى ${unitCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر البيع القطاعي والجملة`;
+    product.priceReviewPreviousCost = oldCost;
+    product.priceReviewNewCost = unitCost;
+    product.priceReviewAt = new Date();
     product.updatedBy = userId;
     await manager.save(product);
     return true;
+  }
+
+  /**
+   * حسم تنبيه مراجعة التسعير: التاجر يختار يشتغل على التكلفة السابقة ولا الجديدة اللي
+   * نزلت من المورد، ويحدّث القطاعي والجملة والنصف جملة، والتنبيه يتقفل.
+   */
+  async resolvePriceReview(
+    tenantId: string,
+    id: string,
+    dto: ResolvePriceReviewDto,
+    userId?: string
+  ): Promise<Product> {
+    const product = await this.findById(tenantId, id);
+    if (!product.needsPriceReview) {
+      throw new BadRequestException('مفيش تنبيه مراجعة تسعير مفتوح على المنتج ده');
+    }
+    const previousCost = Number(product.priceReviewPreviousCost ?? product.costPrice);
+    const newCost = Number(product.priceReviewNewCost ?? product.costPrice);
+    const costPrice = dto.costChoice === 'previous' ? previousCost : newCost;
+
+    const sellingPrice = Number(dto.sellingPrice);
+    const wholesalePrice =
+      dto.wholesalePrice === undefined
+        ? product.wholesalePrice === null || product.wholesalePrice === undefined
+          ? undefined
+          : Number(product.wholesalePrice)
+        : Number(dto.wholesalePrice);
+    const halfWholesalePrice =
+      dto.halfWholesalePrice === undefined
+        ? product.halfWholesalePrice === null || product.halfWholesalePrice === undefined
+          ? undefined
+          : Number(product.halfWholesalePrice)
+        : Number(dto.halfWholesalePrice);
+
+    await this.assertHalfWholesaleAllowed(tenantId, dto.halfWholesalePrice);
+    this.validateSellingPrices(costPrice, sellingPrice, wholesalePrice, halfWholesalePrice);
+
+    product.costPrice = costPrice;
+    product.sellingPrice = sellingPrice;
+    product.wholesalePrice = wholesalePrice;
+    product.halfWholesalePrice = halfWholesalePrice;
+    product.needsPriceReview = false;
+    product.priceReviewNote = null as any;
+    product.priceReviewPreviousCost = null as any;
+    product.priceReviewNewCost = null as any;
+    product.priceReviewPurchaseNumber = null as any;
+    product.priceReviewAt = null as any;
+    product.updatedBy = userId;
+    return this.productsRepository.save(product);
   }
 
   async update(
@@ -508,6 +561,10 @@ export class ProductsService {
     if (confirmPriceReview) {
       product.needsPriceReview = false;
       product.priceReviewNote = null as any;
+      product.priceReviewPreviousCost = null as any;
+      product.priceReviewNewCost = null as any;
+      product.priceReviewPurchaseNumber = null as any;
+      product.priceReviewAt = null as any;
     }
     return repository.save(product);
   }

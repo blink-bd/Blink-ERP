@@ -22,6 +22,7 @@ import { scopeOf } from '@/common/utils/access-scope';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ResolvePriceReviewDto } from './dto/resolve-price-review.dto';
 
 @ApiTags('products')
 @ApiBearerAuth()
@@ -125,6 +126,25 @@ export class ProductsController {
       scopeOf(req)
     );
     return { success: true, data: product, message: 'تم تحديث المنتج بنجاح' };
+  }
+
+  /**
+   * حسم تنبيه مراجعة التسعير: التاجر يختار التكلفة السابقة أو الجديدة ويحدّث أسعار البيع.
+   */
+  @Post(':id/price-review')
+  @RequirePermission('products.update')
+  async resolvePriceReview(
+    @Request() req,
+    @Param('id') id: string,
+    @Body() dto: ResolvePriceReviewDto
+  ) {
+    const product = await this.productsService.resolvePriceReview(
+      req.tenantId,
+      id,
+      dto,
+      req.user?.id
+    );
+    return { success: true, data: product, message: 'تم حفظ التسعير الجديد للمنتج' };
   }
 
   @Delete(':id')

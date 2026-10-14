@@ -349,6 +349,101 @@ describe('Blink ERP — integration flows (e2e)', () => {
     });
   });
 
+  // ------------------------------------------------- product pricing review
+  describe('product pricing review after a supplier cost change', () => {
+    it('flags the product with both costs and lets the merchant choose the cost basis', async () => {
+      // منتج مستقل للاختبار: مايأثرش على أسعار أو أرصدة الأصناف المشتركة
+      const product = await tenantA.post(api('/products'), {
+        name: 'كابل شحن لمراجعة التسعير',
+        sku: 'CABLE-PRICING-1',
+        barcode: '9876543210902',
+        costPrice: 100,
+        sellingPrice: 150,
+        wholesalePrice: 130,
+        unit: 'قطعة',
+        trackInventory: true,
+      });
+      expect(product.status).toBe(201);
+      const productId = product.body.data.id;
+
+      // المورد نزّل نفس المنتج المسجل عندي بتكلفة أعلى من المسجلة
+      const purchase = await tenantA.post(api('/purchases'), {
+        supplierId: state.supplierId,
+        warehouseId: state.warehouse1Id,
+        supplierInvoiceNumber: 'SUP-PRICING-1',
+        items: [{ productId, quantity: 2, unitCost: 120 }],
+        paidAmount: 240,
+      });
+      expect(purchase.status).toBe(201);
+
+      const flagged = await tenantA.get(api(`/products/${productId}`));
+      expect(flagged.body.data.needsPriceReview).toBe(true);
+      expect(Number(flagged.body.data.priceReviewPreviousCost)).toBeCloseTo(100, 2);
+      expect(Number(flagged.body.data.priceReviewNewCost)).toBeCloseTo(120, 2);
+      expect(flagged.body.data.priceReviewPurchaseNumber).toBe(purchase.body.data.purchaseNumber);
+      // التكلفة المسجلة عند التاجر ما بتتغيرش لوحدها
+      expect(Number(flagged.body.data.costPrice)).toBeCloseTo(100, 2);
+
+      // التاجر يختار يشتغل على التكلفة الجديدة ويحدّث أسعار البيع
+      const resolved = await tenantA.post(api(`/products/${productId}/price-review`), {
+        costChoice: 'new',
+        sellingPrice: 200,
+        wholesalePrice: 180,
+      });
+      expect([200, 201]).toContain(resolved.status);
+      expect(Number(resolved.body.data.costPrice)).toBeCloseTo(120, 2);
+      expect(Number(resolved.body.data.sellingPrice)).toBeCloseTo(200, 2);
+      expect(Number(resolved.body.data.wholesalePrice)).toBeCloseTo(180, 2);
+      expect(resolved.body.data.needsPriceReview).toBe(false);
+      expect(resolved.body.data.priceReviewNewCost ?? null).toBeNull();
+
+      // التنبيه اتقفل
+      const again = await tenantA.post(api(`/products/${productId}/price-review`), {
+        costChoice: 'new',
+        sellingPrice: 210,
+      });
+      expect(again.status).toBe(400);
+
+      // سعر أقل من المورد برضه بيعمل تنبيه، والتاجر يقدر يكمّل على التكلفة السابقة
+      const cheaper = await tenantA.post(api('/purchases'), {
+        supplierId: state.supplierId,
+        warehouseId: state.warehouse1Id,
+        supplierInvoiceNumber: 'SUP-PRICING-2',
+        items: [{ productId, quantity: 1, unitCost: 90 }],
+        paidAmount: 90,
+      });
+      expect(cheaper.status).toBe(201);
+      const afterCheaper = await tenantA.get(api(`/products/${productId}`));
+      expect(afterCheaper.body.data.needsPriceReview).toBe(true);
+      expect(Number(afterCheaper.body.data.priceReviewPreviousCost)).toBeCloseTo(120, 2);
+      expect(Number(afterCheaper.body.data.priceReviewNewCost)).toBeCloseTo(90, 2);
+
+      const keepPrevious = await tenantA.post(api(`/products/${productId}/price-review`), {
+        costChoice: 'previous',
+        sellingPrice: 200,
+        wholesalePrice: 180,
+      });
+      expect([200, 201]).toContain(keepPrevious.status);
+      expect(Number(keepPrevious.body.data.costPrice)).toBeCloseTo(120, 2);
+      expect(keepPrevious.body.data.needsPriceReview).toBe(false);
+
+      // سعر بيع أقل من التكلفة المختارة مرفوض
+      const badSale = await tenantA.post(api('/purchases'), {
+        supplierId: state.supplierId,
+        warehouseId: state.warehouse1Id,
+        supplierInvoiceNumber: 'SUP-PRICING-3',
+        items: [{ productId, quantity: 1, unitCost: 200 }],
+        paidAmount: 200,
+      });
+      expect(badSale.status).toBe(201);
+      const rejected = await tenantA.post(api(`/products/${productId}/price-review`), {
+        costChoice: 'new',
+        sellingPrice: 150,
+      });
+      expect(rejected.status).toBe(400);
+    });
+  });
+
   // --------------------------------------------------------------------- sales
   describe('sales, returns and profit integrity', () => {
     it('registers a credit sale (customer balance + stock decrease)', async () => {

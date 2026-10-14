@@ -261,6 +261,17 @@ Permissions Required: products.update
 Response 200: { "success": true, "data": {...}, "message": "تم تحديث المنتج بنجاح" }
 ```
 
+### Resolve Product Price Review (مراجعة التسعير)
+```http
+POST /products/:id/price-review
+Permissions Required: products.update
+{ "costChoice": "previous | new", "sellingPrice": 200.00, "wholesalePrice": 180.00, "halfWholesalePrice": 190.00 }
+```
+- ينفع فقط لما يكون على المنتج تنبيه مراجعة تسعير مفتوح (`needsPriceReview = true`)، وإلا `400`.
+- `previous` = التكلفة المسجلة قبل فاتورة الشراء، `new` = التكلفة اللي نزل بيها المورد. التكلفة المختارة بتتحط في `costPrice`.
+- `sellingPrice` لازم يكون أكبر من التكلفة المختارة، ونفس الشرط على الجملة ونصف الجملة لو اتبعتوا. `halfWholesalePrice` محتاج ميزة `half_wholesale_pricing`.
+- بعد الحفظ يتقفل التنبيه وتتفضّى خانات المراجعة (`priceReviewPreviousCost` / `priceReviewNewCost` / `priceReviewPurchaseNumber` / `priceReviewAt`).
+
 ### Delete Product
 ```http
 DELETE /products/:id

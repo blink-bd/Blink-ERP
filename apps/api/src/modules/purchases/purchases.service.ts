@@ -187,6 +187,13 @@ export class PurchasesService {
       let subtotal = 0;
       let taxAmount = 0;
       const itemsToSave: Partial<PurchaseItem>[] = [];
+      // أي فرق بين سعر المورد والتكلفة المسجلة عند التاجر بيتجمع هنا، وبعد حفظ الفاتورة
+      // بيتحوّل لتنبيه مراجعة تسعير بالسعرين ورقم الفاتورة.
+      const priceReviews: {
+        productId: string;
+        previousCost: number;
+        newCost: number;
+      }[] = [];
       for (const itemInput of dto.items) {
         if (!Number.isFinite(itemInput.quantity) || itemInput.quantity <= 0) {
           throw new BadRequestException('كمية الشراء يجب أن تكون أكبر من صفر');
@@ -222,23 +229,19 @@ export class PurchasesService {
           userId,
         });
 
-        // Keep the tenant's cost unchanged; flag a higher supplier price for review.
+        // التكلفة المسجلة عند التاجر ما بتتغيرش لوحدها: أي فرق (بالزيادة أو بالنقصان)
+        // عن سعر المورد بيعمل تنبيه مراجعة تسعير، والتاجر هو اللي يقرر يشتغل على أنهي.
         const product = await manager.findOne(Product, {
           where: { id: itemInput.productId, tenantId, deletedAt: IsNull() },
         });
         if (!product) throw new NotFoundException('المنتج غير موجود في هذا التاجر');
         const oldCost = Number(product.costPrice);
-        if (itemInput.unitCost > oldCost + 0.0001) {
-          await this.productsService.update(
-            tenantId,
-            itemInput.productId,
-            {
-              needsPriceReview: true,
-              priceReviewNote: `سعر الشراء الجديد ${itemInput.unitCost.toFixed(2)} أعلى من سعر التكلفة المسجل ${oldCost.toFixed(2)} في فاتورة شراء بتاريخ ${new Date().toLocaleDateString('ar')} — راجع سعر التكلفة وأسعار البيع`,
-            } as any,
-            userId,
-            manager
-          );
+        if (Math.abs(itemInput.unitCost - oldCost) > 0.0001) {
+          priceReviews.push({
+            productId: itemInput.productId,
+            previousCost: oldCost,
+            newCost: itemInput.unitCost,
+          });
         }
       }
 
@@ -270,6 +273,24 @@ export class PurchasesService {
 
       for (const item of itemsToSave) {
         await manager.save(manager.create(PurchaseItem, { ...item, purchaseId: saved.id }));
+      }
+
+      // تنبيهات مراجعة التسعير بتتسجل بعد ما رقم الفاتورة يبقى معروف.
+      for (const review of priceReviews) {
+        await this.productsService.update(
+          tenantId,
+          review.productId,
+          {
+            needsPriceReview: true,
+            priceReviewNote: `سعر المورد ${review.newCost.toFixed(2)} يختلف عن التكلفة المسجلة ${review.previousCost.toFixed(2)} في فاتورة الشراء ${purchaseNumber} — اختار التكلفة اللي هتشتغل عليها وعدّل أسعار البيع`,
+            priceReviewPreviousCost: review.previousCost,
+            priceReviewNewCost: review.newCost,
+            priceReviewPurchaseNumber: purchaseNumber,
+            priceReviewAt: new Date(),
+          } as any,
+          userId,
+          manager
+        );
       }
 
       if (total - paidAmount > 0) {
