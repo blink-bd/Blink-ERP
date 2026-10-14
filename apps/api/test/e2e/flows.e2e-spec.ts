@@ -595,21 +595,45 @@ describe('Blink ERP — integration flows (e2e)', () => {
     });
 
     it('writes off a fully damaged return in one step (stock out + loss booked once)', async () => {
+      // صنف ومخزون مستقلين للاختبار ده: الإتلاف بيشيل الكمية نهائياً فمينفعش نستهلك
+      // رصيد الأصناف المشتركة اللي الاختبارات اللاحقة بتبيع منها.
+      const product = await tenantA.post(api('/products'), {
+        name: 'سماعة تالفة للإعدام',
+        sku: 'WRITEOFF-1',
+        barcode: '9876543210901',
+        costPrice: 100,
+        sellingPrice: 150,
+        unit: 'قطعة',
+        trackInventory: true,
+      });
+      expect(product.status).toBe(201);
+      const writeOffProductId = product.body.data.id;
+
+      const purchase = await tenantA.post(api('/purchases'), {
+        supplierId: state.supplierId,
+        warehouseId: state.warehouse1Id,
+        supplierInvoiceNumber: 'SUP-WRITEOFF-1',
+        items: [{ productId: writeOffProductId, quantity: 5, unitCost: 100 }],
+        paidAmount: 0,
+      });
+      expect(purchase.status).toBe(201);
+
       const stockOf = async () => {
         const [row] = await dataSource.query(
           `SELECT quantity, reserved_quantity AS reserved FROM inventory
            WHERE tenant_id = $1 AND product_id = $2 AND warehouse_id = $3`,
-          [state.tenantAId, state.productId, state.warehouse1Id]
+          [state.tenantAId, writeOffProductId, state.warehouse1Id]
         );
         return { quantity: Number(row.quantity), reserved: Number(row.reserved) };
       };
       const sale = await tenantA.post(api('/sales'), {
         customerId: state.customerId,
         warehouseId: state.warehouse1Id,
-        items: [{ productId: state.productId, quantity: 1 }],
+        items: [{ productId: writeOffProductId, quantity: 1 }],
       });
       expect([200, 201]).toContain(sale.status);
       const before = await stockOf();
+      expect(before).toEqual({ quantity: 4, reserved: 0 });
       const returned = await tenantA.post(api(`/sales/${sale.body.data.id}/return`), {
         items: [{ saleItemId: sale.body.data.items[0].id, quantity: 1 }],
         reason: 'تالف تماماً — للإعدام',
@@ -617,6 +641,9 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(returned.status).toBe(201);
       const returnItemId = returned.body.data.items[0].id;
       const unitCost = Number(returned.body.data.items[0].unitCost);
+      expect(unitCost).toBeCloseTo(100, 2);
+      // المرتجع دخل المخزن محجوز لحد الفحص
+      expect(await stockOf()).toEqual({ quantity: 5, reserved: 1 });
       const dispositionUrl = `/sales/returns/${returned.body.data.id}/items/${returnItemId}/disposition`;
 
       // الخسارة بتتحسب لوحدها بقيمة التكلفة، فأي رقم يدوي هنا هيكررها → مرفوض
@@ -638,9 +665,7 @@ describe('Blink ERP — integration flows (e2e)', () => {
       expect(Number(resolution.body.data.wasteExpense)).toBeCloseTo(unitCost, 2);
 
       // الكمية خرجت من المخزون وفكّ الحجز — من غير ما يتعمل صنف جديد
-      const after = await stockOf();
-      expect(after.quantity).toBe(before.quantity);
-      expect(after.reserved).toBe(before.reserved);
+      expect(await stockOf()).toEqual({ quantity: 4, reserved: 0 });
 
       const [item] = await dataSource.query(
         `SELECT disposition, waste_expense AS waste, new_product_id AS new_product
