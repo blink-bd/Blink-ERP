@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { Link, useNavigate } from 'react-router-dom';
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
@@ -106,6 +107,7 @@ export function AdminDashboardPage() {
         <StatCard
           label="إجمالي التجار"
           value={fmtNumber(t.total)}
+          signedValue={t.total}
           icon={<Store className="h-5 w-5" />}
           hint={`${fmtNumber(t.new30d)} جديد آخر 30 يوم`}
           onClick={() => goTenants('all')}
@@ -114,6 +116,7 @@ export function AdminDashboardPage() {
           label="نشطين"
           value={fmtNumber(t.active)}
           tone="green"
+          signedValue={t.active}
           icon={<CheckCircle2 className="h-5 w-5" />}
           onClick={() => goTenants('active')}
         />
@@ -136,6 +139,7 @@ export function AdminDashboardPage() {
           label="الدخل الشهري المتوقع"
           value={fmtMoney(data.revenue.monthlyRecurring)}
           tone="violet"
+          signedValue={data.revenue.monthlyRecurring}
           icon={<CircleDollarSign className="h-5 w-5" />}
           hint={`سنوي ≈ ${fmtMoney(data.revenue.yearlyRunRate)}${data.revenue.withoutAmount ? ` · ${data.revenue.withoutAmount} تاجر من غير مبلغ` : ''}`}
         />
@@ -143,11 +147,13 @@ export function AdminDashboardPage() {
           label="تجديدات مستحقة (30 يوم)"
           value={fmtMoney(data.revenue.renewalsValue30d)}
           tone="blue"
+          signedValue={data.revenue.renewalsValue30d}
           icon={<CalendarClock className="h-5 w-5" />}
         />
         <StatCard
           label="المستخدمين"
           value={fmtNumber(u.total)}
+          signedValue={u.total}
           icon={<Users className="h-5 w-5" />}
           hint={`${fmtNumber(u.activeToday)} النهارده · ${fmtNumber(u.active7d)} آخر 7 أيام`}
         />
@@ -184,7 +190,8 @@ export function AdminDashboardPage() {
                   <div className="flex shrink-0 items-center gap-2">
                     {r.amount !== null && (
                       <span className="text-xs text-slate-500">
-                        {fmtMoney(r.amount)} / {r.cycle === 'yearly' ? 'سنة' : 'شهر'}
+                        <Signed value={r.amount}>{fmtMoney(r.amount)}</Signed> /{' '}
+                        {r.cycle === 'yearly' ? 'سنة' : 'شهر'}
                       </span>
                     )}
                     <Badge tone={r.daysLeft < 0 ? 'red' : r.daysLeft <= 7 ? 'amber' : 'blue'}>

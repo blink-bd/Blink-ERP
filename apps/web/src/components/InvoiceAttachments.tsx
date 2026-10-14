@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { Download, Eye, Paperclip, Trash2, Upload } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -198,7 +199,7 @@ export function InvoiceAttachments({
                   {item.originalName}
                 </div>
                 <div className="text-xs text-gray-500">
-                  {(item.sizeBytes / 1024 / 1024).toFixed(2)} م.ب ·{' '}
+                  <Signed value={(item.sizeBytes / 1024 / 1024)}>{(item.sizeBytes / 1024 / 1024).toFixed(2)}</Signed> م.ب ·{' '}
                   {formatDateTime(item.createdAt)}
                 </div>
               </div>

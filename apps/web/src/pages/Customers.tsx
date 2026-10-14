@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { Button } from '@/components/ui/button';
@@ -162,7 +163,7 @@ export function CustomersPage() {
 
       <div className="bg-white rounded-lg shadow px-5 py-3 mb-4 inline-block">
         <span className="text-sm text-gray-500 ml-2">إجمالي المستحق من كل العملاء:</span>
-        <span className="text-xl font-bold text-orange-600">{totalOwed.toFixed(2)}</span>
+        <span className="text-xl font-bold"><Signed value={totalOwed}>{totalOwed.toFixed(2)}</Signed></span>
       </div>
 
       {showForm && (
@@ -191,7 +192,7 @@ export function CustomersPage() {
             {customers.map((c) => (
               <tr key={c.id} className="border-t">
                 <td className="p-3">{c.name}</td><td className="p-3 text-gray-500">{c.phone || '-'}</td><td className="p-3 text-gray-500">{c.email || '-'}</td>
-                <td className={`p-3 font-medium ${Number(c.balance) > 0 ? 'text-red-600' : ''}`}>{Number(c.balance).toFixed(2)}</td>
+                <td className={`p-3 font-medium`}><Signed value={Number(c.balance)}>{Number(c.balance).toFixed(2)}</Signed></td>
                 <td className="p-3 flex gap-1">
                   {statementEnabled && <Button size="sm" variant="outline" onClick={() => openStatement(c)}>كشف الحساب</Button>}
                   <Button size="icon" variant="ghost" title="تعديل" onClick={() => openEdit(c)}><Pencil className="h-4 w-4" /></Button>
@@ -211,11 +212,11 @@ export function CustomersPage() {
               <thead><tr className="border-b"><th className="text-right p-2">التاريخ</th><th className="text-right p-2">البيان</th><th className="text-right p-2">مدين</th><th className="text-right p-2">دائن</th><th className="text-right p-2">الرصيد</th><th className="p-2"></th></tr></thead>
               <tbody>{statement.entries.map((entry: any, i: number) => <tr key={i} className="border-b">
                 <td className="p-2">{formatDate(entry.date)}</td><td className="p-2">{entry.description} {entry.referenceNumber}</td>
-                <td className="p-2">{entry.debit ? Number(entry.debit).toFixed(2) : '-'}</td><td className="p-2">{entry.credit ? Number(entry.credit).toFixed(2) : '-'}</td><td className="p-2 font-medium">{Number(entry.balance).toFixed(2)}</td>
+                <td className="p-2"><Signed value={entry.debit}>{entry.debit ? Number(entry.debit).toFixed(2) : '-'}</Signed></td><td className="p-2"><Signed value={entry.credit}>{entry.credit ? Number(entry.credit).toFixed(2) : '-'}</Signed></td><td className="p-2 font-medium"><Signed value={Number(entry.balance)}>{Number(entry.balance).toFixed(2)}</Signed></td>
                 <td className="p-2">{entry.type === 'sale' && <Button size="sm" variant="outline" onClick={() => setReturnSaleId(entry.id)}>استرجاع</Button>}</td>
               </tr>)}</tbody>
             </table>
-            <div className="flex items-center justify-between bg-gray-50 rounded p-3 mb-4"><span className="font-bold">الرصيد الحالي المستحق</span><span className="text-xl font-bold text-red-600">{Number(statement.currentBalance).toFixed(2)}</span></div>
+            <div className="flex items-center justify-between bg-gray-50 rounded p-3 mb-4"><span className="font-bold">الرصيد الحالي المستحق</span><span className="text-xl font-bold"><Signed value={Number(statement.currentBalance)}>{Number(statement.currentBalance).toFixed(2)}</Signed></span></div>
             {paymentsEnabled && <div className="flex gap-2 items-end border-t pt-4"><div className="flex-1"><Label>سداد مبلغ</Label><Input type="number" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} placeholder="0.00" /></div><Button onClick={collectPayment} disabled={paying || !payAmount}>{paying ? 'جاري الحفظ...' : 'تسجيل السداد'}</Button></div>}
           </div>
         </div>

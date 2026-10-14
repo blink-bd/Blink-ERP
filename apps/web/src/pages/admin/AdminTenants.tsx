@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { Link, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { ChevronLeft, Plus, Search, Upload, Users, X, GitBranch } from 'lucide-react';
@@ -353,9 +354,14 @@ export function AdminTenantsPage() {
                   <Metric
                     label="المبلغ"
                     value={
-                      t.subscriptionAmount
-                        ? `${fmtMoney(t.subscriptionAmount)} / ${t.subscriptionCycle === 'yearly' ? 'سنة' : 'شهر'}`
-                        : '—'
+                      t.subscriptionAmount ? (
+                        <>
+                          <Signed value={t.subscriptionAmount}>{fmtMoney(t.subscriptionAmount)}</Signed>{' '}
+                          / {t.subscriptionCycle === 'yearly' ? 'سنة' : 'شهر'}
+                        </>
+                      ) : (
+                        '—'
+                      )
                     }
                   />
                   <Metric label="آخر دخول" value={timeAgo(t.lastActivityAt)} />

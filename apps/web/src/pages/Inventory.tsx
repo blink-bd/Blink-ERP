@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -84,7 +85,7 @@ export function InventoryPage() {
         <h1 className="text-2xl font-bold">المخزون</h1>
         <div className="bg-white rounded-lg shadow px-5 py-3 w-full sm:w-auto">
           <span className="text-sm text-gray-500 ml-2">إجمالي رصيد المخزون:</span>
-          <span className="text-xl font-bold text-primary">{totalValue.toFixed(2)}</span>
+          <span className="text-xl font-bold"><Signed value={totalValue}>{totalValue.toFixed(2)}</Signed></span>
         </div>
       </div>
 
@@ -132,8 +133,8 @@ export function InventoryPage() {
                     <td className="p-3 text-gray-500">{r.product?.sku || r.product?.barcode || '-'}</td>
                     <td className="p-3 text-gray-500">{r.product?.category?.name || '-'}</td>
                     <td className="p-3 text-gray-500">{r.warehouse?.name || '-'}</td>
-                    <td className="p-3 font-medium">{formatQuantity(r.availableQuantity)}</td>
-                    <td className="p-3">{toSafeNumber(r.stockValue).toFixed(2)}</td>
+                    <td className="p-3 font-medium"><Signed value={r.availableQuantity}>{formatQuantity(r.availableQuantity)}</Signed></td>
+                    <td className="p-3"><Signed value={toSafeNumber(r.stockValue)}>{toSafeNumber(r.stockValue).toFixed(2)}</Signed></td>
                     <td className="p-3"><span className={`px-2 py-1 rounded text-xs ${st.cls}`}>{st.text}</span></td>
                   </tr>
                 );

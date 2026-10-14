@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import toast from 'react-hot-toast';
 import { GitBranch, Link2, MapPin, Phone, Plus, Unlink, Users, Warehouse } from 'lucide-react';
 import { adminApi } from '@/lib/adminApi';
@@ -317,7 +318,10 @@ export function BranchesTab({ id }: { id: string }) {
                     <Users className="h-3.5 w-3.5" />
                     {b.users} مستخدم
                   </span>
-                  <span>{fmtNumber(b.operations30d)} فاتورة بيع آخر 30 يوم</span>
+                  <span>
+                    <Signed value={b.operations30d}>{fmtNumber(b.operations30d)}</Signed> فاتورة بيع
+                    آخر 30 يوم
+                  </span>
                   {b.phone && (
                     <span className="inline-flex items-center gap-1" dir="ltr">
                       <Phone className="h-3.5 w-3.5" />
@@ -353,7 +357,8 @@ export function BranchesTab({ id }: { id: string }) {
                       </span>
                       <span className="flex items-center gap-2">
                         <span className="text-xs text-slate-500">
-                          {fmtNumber(w.productsInStock)} صنف متاح
+                          <Signed value={w.productsInStock}>{fmtNumber(w.productsInStock)}</Signed>{' '}
+                          صنف متاح
                         </span>
                         {w.shared && (
                           <button

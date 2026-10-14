@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { useFeature } from '@/contexts/FeaturesContext';
 import { Button } from '@/components/ui/button';
@@ -79,9 +80,9 @@ export function ExpensesPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات اليوم</p><p className="text-2xl font-bold text-red-600">{summary.day ? Number(summary.day.total).toFixed(2) : '-'}</p></div>
-        <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات الشهر</p><p className="text-2xl font-bold text-red-600">{summary.month ? Number(summary.month.total).toFixed(2) : '-'}</p></div>
-        <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات السنة</p><p className="text-2xl font-bold text-red-600">{summary.year ? Number(summary.year.total).toFixed(2) : '-'}</p></div>
+        <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات اليوم</p><p className="text-2xl font-bold"><Signed value={summary.day?.total}>{summary.day ? Number(summary.day.total).toFixed(2) : '-'}</Signed></p></div>
+        <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات الشهر</p><p className="text-2xl font-bold"><Signed value={summary.month?.total}>{summary.month ? Number(summary.month.total).toFixed(2) : '-'}</Signed></p></div>
+        <div className="bg-white rounded-lg shadow p-4"><p className="text-sm text-gray-500">مصروفات السنة</p><p className="text-2xl font-bold"><Signed value={summary.year?.total}>{summary.year ? Number(summary.year.total).toFixed(2) : '-'}</Signed></p></div>
       </div>
 
       {showForm && (
@@ -113,7 +114,7 @@ export function ExpensesPage() {
                 <td className="p-3">{e.expenseNumber}</td>
                 <td className="p-3">{e.description}</td>
                 <td className="p-3 text-gray-500">{formatDateTime(e.expenseDate)}</td>
-                <td className="p-3 font-medium">{Number(e.amount).toFixed(2)}</td>
+                <td className="p-3 font-medium"><Signed value={Number(e.amount)}>{Number(e.amount).toFixed(2)}</Signed></td>
               </tr>
             ))}
           </tbody>

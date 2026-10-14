@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { RefreshCw, SearchCheck } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -206,19 +207,19 @@ export function ReturnsPage() {
                 </div>
                 <div className="text-left text-sm">
                   <div className="font-semibold">
-                    إجمالي المرتجع: {Number(saleReturn.total).toFixed(2)} ج.م
+                    إجمالي المرتجع: <Signed value={Number(saleReturn.total)}>{Number(saleReturn.total).toFixed(2)}</Signed> ج.م
                   </div>
                   <div className="mt-1 space-x-2 text-xs text-gray-500 rtl:space-x-reverse">
                     {Number(saleReturn.invoiceCredit) > 0 && (
-                      <span>خصم من الفاتورة {Number(saleReturn.invoiceCredit).toFixed(2)}</span>
+                      <span>خصم من الفاتورة <Signed value={Number(saleReturn.invoiceCredit)}>{Number(saleReturn.invoiceCredit).toFixed(2)}</Signed></span>
                     )}
                     {Number(saleReturn.accountCredit) > 0 && (
                       <span>
-                        خصم من مديونية العميل {Number(saleReturn.accountCredit).toFixed(2)}
+                        خصم من مديونية العميل <Signed value={Number(saleReturn.accountCredit)}>{Number(saleReturn.accountCredit).toFixed(2)}</Signed>
                       </span>
                     )}
                     {Number(saleReturn.refundPaid) > 0 && (
-                      <span>مردود للعميل {Number(saleReturn.refundPaid).toFixed(2)}</span>
+                      <span>مردود للعميل <Signed value={Number(saleReturn.refundPaid)}>{Number(saleReturn.refundPaid).toFixed(2)}</Signed></span>
                     )}
                   </div>
                 </div>
@@ -236,11 +237,11 @@ export function ReturnsPage() {
                             <h3 className="font-semibold">{item.product?.name || 'صنف مرتجع'}</h3>
                             <p className="mt-1 text-sm text-gray-600">
                               الكمية: {Number(item.quantity)} · سعر البيع:{' '}
-                              {Number(item.unitPrice).toFixed(2)} ج.م · التكلفة الأصلية:{' '}
-                              {Number(item.unitCost).toFixed(2)} ج.م
+                              <Signed value={Number(item.unitPrice)}>{Number(item.unitPrice).toFixed(2)}</Signed> ج.م · التكلفة الأصلية:{' '}
+                              <Signed value={Number(item.unitCost)}>{Number(item.unitCost).toFixed(2)}</Signed> ج.م
                             </p>
                             <p className="mt-1 text-xs text-gray-500">
-                              إجمالي القيمة: {Number(item.total).toFixed(2)} ج.م
+                              إجمالي القيمة: <Signed value={Number(item.total)}>{Number(item.total).toFixed(2)}</Signed> ج.م
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
@@ -302,7 +303,7 @@ export function ReturnsPage() {
                               سيُخصم من المخزون {Number(item.quantity)} وحدة، ويُخفض رصيد المورد
                               بمقدار{' '}
                               <strong>
-                                {(Number(item.unitCost) * Number(item.quantity)).toFixed(2)} ج.م
+                                <Signed value={(Number(item.unitCost) * Number(item.quantity))}>{(Number(item.unitCost) * Number(item.quantity)).toFixed(2)}</Signed> ج.م
                               </strong>
                               .
                             </div>
@@ -311,7 +312,7 @@ export function ReturnsPage() {
                           <p className="rounded bg-emerald-50 p-3 text-sm text-emerald-800">
                             الصنف سليم وهيرجع المخزن على نفس الصنف الأصلي
                             {item.product?.sku ? ` (${item.product.sku})` : ''} بتكلفته الأصلية{' '}
-                            {Number(item.unitCost).toFixed(2)} ج.م، والكمية ({Number(item.quantity)})
+                            <Signed value={Number(item.unitCost)}>{Number(item.unitCost).toFixed(2)}</Signed> ج.م، والكمية ({Number(item.quantity)})
                             هتبقى متاحة للبيع تاني فوراً.
                           </p>
                         ) : draft.disposition === 'write_off' ? (
@@ -322,7 +323,7 @@ export function ReturnsPage() {
                               <li>
                                 خسارة بقيمة التكلفة الأصلية{' '}
                                 <strong>
-                                  {(Number(item.unitCost) * Number(item.quantity)).toFixed(2)} ج.م
+                                  <Signed value={(Number(item.unitCost) * Number(item.quantity))}>{(Number(item.unitCost) * Number(item.quantity)).toFixed(2)}</Signed> ج.م
                                 </strong>{' '}
                                 هتتحسب لوحدها مصروف وتظهر في الأرباح.
                               </li>

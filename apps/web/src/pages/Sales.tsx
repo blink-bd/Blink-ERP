@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Signed } from '@/lib/signed';
 import { MessageCircle, Paperclip, RotateCcw, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -112,14 +113,14 @@ export function SalesPage() {
                   <div className="text-xs text-gray-500">{formatDateTime(sale.saleDate)}</div>
                 </div>
                 <div className="text-left">
-                  <div className="font-bold">{money(sale.total)}</div>
-                  <div className="text-xs text-gray-500">مدفوع {money(sale.paidAmount)}</div>
+                  <div className="font-bold"><Signed value={sale.total}>{money(sale.total)}</Signed></div>
+                  <div className="text-xs text-gray-500">مدفوع <Signed value={sale.paidAmount}>{money(sale.paidAmount)}</Signed></div>
                   {Number(sale.returnedTotal) > 0 && (
-                    <div className="text-xs text-red-600">مرتجع {money(sale.returnedTotal)}</div>
+                    <div className="text-xs text-red-600">مرتجع <Signed value={sale.returnedTotal}>{money(sale.returnedTotal)}</Signed></div>
                   )}
                   {Number(sale.remainingAmount) > 0 && (
                     <div className="text-xs text-orange-600">
-                      متبقي {money(sale.remainingAmount)}
+                      متبقي <Signed value={sale.remainingAmount}>{money(sale.remainingAmount)}</Signed>
                     </div>
                   )}
                 </div>
@@ -196,13 +197,17 @@ export function SalesPage() {
                   <tr className="border-t">
                     <td className="p-3 font-medium">{sale.saleNumber}</td>
                     <td className="p-3 text-gray-500">{formatDateTime(sale.saleDate)}</td>
-                    <td className="p-3">{money(sale.total)}</td>
-                    <td className="p-3">{money(sale.paidAmount)}</td>
-                    <td className="p-3 text-red-600">
-                      {Number(sale.returnedTotal) > 0 ? money(sale.returnedTotal) : '—'}
+                    <td className="p-3"><Signed value={sale.total}>{money(sale.total)}</Signed></td>
+                    <td className="p-3"><Signed value={sale.paidAmount}>{money(sale.paidAmount)}</Signed></td>
+                    <td className="p-3">
+                      <Signed value={sale.returnedTotal}>
+                        {Number(sale.returnedTotal) > 0 ? money(sale.returnedTotal) : '—'}
+                      </Signed>
                     </td>
                     <td className="p-3">
-                      {Number(sale.remainingAmount) > 0 ? money(sale.remainingAmount) : '—'}
+                      <Signed value={sale.remainingAmount}>
+                        {Number(sale.remainingAmount) > 0 ? money(sale.remainingAmount) : '—'}
+                      </Signed>
                     </td>
                     <td className="p-3">{statusLabel(sale)}</td>
                     <td className="p-3">

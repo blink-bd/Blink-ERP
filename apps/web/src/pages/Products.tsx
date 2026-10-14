@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -691,21 +692,25 @@ export function ProductsPage() {
                   <td className="p-3 text-gray-500">{p.sku || '-'}</td>
                   <td className="p-3 text-gray-500">{p.barcode || '-'}</td>
                   <td className="p-3 text-gray-500">{p.category?.name || '-'}</td>
-                  {costVisible && <td className="p-3">{Number(p.costPrice).toFixed(2)}</td>}
-                  <td className="p-3 font-medium">{Number(p.sellingPrice).toFixed(2)}</td>
+                  {costVisible && <td className="p-3"><Signed value={Number(p.costPrice)}>{Number(p.costPrice).toFixed(2)}</Signed></td>}
+                  <td className="p-3 font-medium"><Signed value={Number(p.sellingPrice)}>{Number(p.sellingPrice).toFixed(2)}</Signed></td>
                   {halfWholesaleEnabled && (
                     <td className="p-3 text-gray-500">
-                      {p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null
-                        ? Number(p.halfWholesalePrice).toFixed(2)
-                        : '-'}
+                      <Signed value={p.halfWholesalePrice}>
+                        {p.halfWholesalePrice !== undefined && p.halfWholesalePrice !== null
+                          ? Number(p.halfWholesalePrice).toFixed(2)
+                          : '-'}
+                      </Signed>
                     </td>
                   )}
                   <td className="p-3 text-gray-500">
-                    {p.wholesalePrice !== undefined && p.wholesalePrice !== null
-                      ? Number(p.wholesalePrice).toFixed(2)
-                      : '-'}
+                    <Signed value={p.wholesalePrice}>
+                      {p.wholesalePrice !== undefined && p.wholesalePrice !== null
+                        ? Number(p.wholesalePrice).toFixed(2)
+                        : '-'}
+                    </Signed>
                   </td>
-                  <td className="p-3">{formatQuantity(p.availableQuantity)}</td>
+                  <td className="p-3"><Signed value={p.availableQuantity}>{formatQuantity(p.availableQuantity)}</Signed></td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded text-xs ${st.cls}`}>{st.text}</span>
                   </td>

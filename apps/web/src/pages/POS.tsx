@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -478,7 +479,7 @@ export function POSPage() {
                       {product.sku || product.barcode || ''}
                     </span>
                     <span className="text-xs text-primary mr-3">
-                      {Number(product.sellingPrice).toFixed(2)}
+                      <Signed value={Number(product.sellingPrice)}>{Number(product.sellingPrice).toFixed(2)}</Signed>
                     </span>
                   </button>
                 ))}
@@ -696,8 +697,8 @@ export function POSPage() {
                       </Button>
                     </div>
                   </td>
-                  <td className="p-3">{priceFor(line).toFixed(2)}</td>
-                  <td className="p-3 font-medium">{(priceFor(line) * line.quantity).toFixed(2)}</td>
+                  <td className="p-3"><Signed value={priceFor(line)}>{priceFor(line).toFixed(2)}</Signed></td>
+                  <td className="p-3 font-medium"><Signed value={(priceFor(line) * line.quantity)}>{(priceFor(line) * line.quantity).toFixed(2)}</Signed></td>
                   <td className="p-3">
                     <Button size="icon" variant="ghost" onClick={() => removeLine(line.productId)}>
                       <Trash2 className="h-4 w-4 text-red-500" />
@@ -715,11 +716,11 @@ export function POSPage() {
         <div className="space-y-2 text-sm flex-1">
           <div className="flex justify-between">
             <span>المجموع الفرعي</span>
-            <span>{subtotal.toFixed(2)}</span>
+            <span><Signed value={subtotal}>{subtotal.toFixed(2)}</Signed></span>
           </div>
           <div className="flex justify-between">
             <span>الضريبة</span>
-            <span>{taxTotal.toFixed(2)}</span>
+            <span><Signed value={taxTotal}>{taxTotal.toFixed(2)}</Signed></span>
           </div>
           {discountEnabled && (
             <div className="flex justify-between items-center">
@@ -734,7 +735,7 @@ export function POSPage() {
           )}
           <div className="flex justify-between text-xl font-bold pt-3 border-t mt-3">
             <span>الإجمالي</span>
-            <span className="text-primary">{total.toFixed(2)}</span>
+            <span ><Signed value={total}>{total.toFixed(2)}</Signed></span>
           </div>
         </div>
         <div className="space-y-2 mt-6">
@@ -765,7 +766,7 @@ export function POSPage() {
           >
             <h2 className="text-lg font-bold">تأكيد {confirmMethod.nameAr}</h2>
             <p className="text-gray-600">
-              تأكد من استلام المبلغ <strong>{total.toFixed(2)}</strong> عبر {confirmMethod.nameAr}{' '}
+              تأكد من استلام المبلغ <strong><Signed value={total}>{total.toFixed(2)}</Signed></strong> عبر {confirmMethod.nameAr}{' '}
               قبل تأكيد الفاتورة.
             </p>
             <div className="flex justify-center gap-2">

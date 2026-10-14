@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect } from 'react';
+import { Signed } from '@/lib/signed';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -183,7 +184,7 @@ export function PurchasesPage() {
             </div>
             <div className="text-left">
               <p className="text-sm text-gray-500">الإجمالي</p>
-              <p className="text-2xl font-bold">{total.toFixed(2)}</p>
+              <p className="text-2xl font-bold"><Signed value={total}>{total.toFixed(2)}</Signed></p>
             </div>
           </div>
 
@@ -206,7 +207,7 @@ export function PurchasesPage() {
                   <div className="text-xs text-gray-500">{formatDate(p.purchaseDate)}</div>
                 </div>
                 <div className="text-left">
-                  <div className="font-bold">{Number(p.total).toFixed(2)}</div>
+                  <div className="font-bold"><Signed value={Number(p.total)}>{Number(p.total).toFixed(2)}</Signed></div>
                   <div className="text-xs text-gray-500">{PAYMENT_STATUS[p.paymentStatus] || p.paymentStatus}</div>
                 </div>
               </div>
@@ -257,7 +258,7 @@ export function PurchasesPage() {
                 <tr className="border-t">
                   <td className="p-3">{p.purchaseNumber}</td>
                   <td className="p-3 text-gray-500">{formatDate(p.purchaseDate)}</td>
-                  <td className="p-3 font-medium">{Number(p.total).toFixed(2)}</td>
+                  <td className="p-3 font-medium"><Signed value={Number(p.total)}>{Number(p.total).toFixed(2)}</Signed></td>
                   <td className="p-3">{PAYMENT_STATUS[p.paymentStatus] || p.paymentStatus}</td>
                   <td className="p-3">
                     <div className="flex flex-wrap gap-2">

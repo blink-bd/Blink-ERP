@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Signed, signedTone } from '@/lib/signed';
 import { BadgeDollarSign, MessageCircle, Plus, RefreshCw, Wrench, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useFeature } from '@/contexts/FeaturesContext';
@@ -341,7 +342,7 @@ export function MaintenancePage() {
               <div
                 className={`mt-1 text-xl font-bold ${projectedProfit < 0 ? 'text-red-700' : 'text-green-700'}`}
               >
-                {money(projectedProfit)}
+                <Signed value={projectedProfit}>{money(projectedProfit)}</Signed>
               </div>
               <div className="text-xs text-gray-500">سعر الخدمة − تكلفة القطع</div>
             </div>
@@ -395,19 +396,31 @@ export function MaintenancePage() {
       </section>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric title="عدد فواتير الصيانة" value={Number(summary.count).toLocaleString('ar-EG')} />
-        <Metric title="إيراد خدمة الصيانة" value={money(summary.serviceRevenue)} />
-        <Metric title="تكلفة قطع الصيانة" value={money(summary.partsCost)} tone="red" />
+        <Metric
+          title="عدد فواتير الصيانة"
+          value={Number(summary.count).toLocaleString('ar-EG')}
+          signedValue={summary.count}
+        />
+        <Metric
+          title="إيراد خدمة الصيانة"
+          value={money(summary.serviceRevenue)}
+          signedValue={summary.serviceRevenue}
+        />
+        <Metric
+          title="تكلفة قطع الصيانة"
+          value={money(summary.partsCost)}
+          signedValue={summary.partsCost}
+        />
         <Metric
           title="ربح الصيانة"
           value={money(summary.profit)}
-          tone={Number(summary.profit) < 0 ? 'red' : 'green'}
+          signedValue={summary.profit}
         />
       </div>
       {Number(summary.returnRepairs) > 0 && (
         <p className="text-xs text-gray-500">
-          منها {Number(summary.returnRepairs).toLocaleString('ar-EG')} صيانة لأصناف مرتجعة بتكلفة{' '}
-          {money(summary.returnRepairsCost)} (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
+          منها <Signed value={Number(summary.returnRepairs)}>{Number(summary.returnRepairs).toLocaleString('ar-EG')}</Signed> صيانة لأصناف مرتجعة بتكلفة{' '}
+          <Signed value={summary.returnRepairsCost}>{money(summary.returnRepairsCost)}</Signed> (صيانة داخلية من غير إيراد، ومحسوبة في الربح).
         </p>
       )}
 
@@ -472,12 +485,12 @@ export function MaintenancePage() {
                         {invoice.productModel || invoice.productSerial || '—'}
                       </div>
                     </td>
-                    <td className="p-3">{money(invoice.servicePrice)}</td>
-                    <td className="p-3">{money(invoice.partsCost)}</td>
+                    <td className="p-3"><Signed value={invoice.servicePrice}>{money(invoice.servicePrice)}</Signed></td>
+                    <td className="p-3"><Signed value={invoice.partsCost}>{money(invoice.partsCost)}</Signed></td>
                     <td
                       className={`p-3 font-bold ${Number(invoice.profit) < 0 ? 'text-red-700' : 'text-green-700'}`}
                     >
-                      {money(invoice.profit)}
+                      <Signed value={invoice.profit}>{money(invoice.profit)}</Signed>
                     </td>
                     {shareEnabled && (
                       <td className="p-3">
@@ -543,13 +556,22 @@ function Metric({
   title,
   value,
   tone = 'default',
+  signedValue,
 }: {
   title: string;
   value: string;
   tone?: 'default' | 'green' | 'red';
+  /** لو اتبعتت، اللون بيتحسب من إشارة الرقم: سالب أحمر، صفر أسود، موجب أخضر. */
+  signedValue?: unknown;
 }) {
   const textColor =
-    tone === 'green' ? 'text-green-700' : tone === 'red' ? 'text-red-700' : 'text-gray-900';
+    signedValue !== undefined
+      ? signedTone(signedValue as number)
+      : tone === 'green'
+        ? 'text-green-700'
+        : tone === 'red'
+          ? 'text-red-700'
+          : 'text-gray-900';
   return (
     <div className="rounded-lg border bg-white p-4">
       <div className="text-sm text-gray-500">{title}</div>
