@@ -87,7 +87,7 @@ function AppRoutes() {
           <Route path="/pos" element={<FeatureRoute feature="pos" title="نقطة البيع"><POSPage /></FeatureRoute>} />
           <Route path="/sales" element={<FeatureRoute feature="sales" title="المبيعات"><SalesPage /></FeatureRoute>} />
           <Route path="/returns" element={<FeatureRoute feature="return_disposition" title="المرتجعات"><ReturnsPage /></FeatureRoute>} />
-          <Route path="/maintenance" element={<FeatureRoute feature="maintenance_management" title="الصيانة"><MaintenancePage /></FeatureRoute>} />
+          <Route path="/maintenance" element={<FeatureRoute feature="maintenance_management" title="الصيانة" permission="maintenance.view"><MaintenancePage /></FeatureRoute>} />
           <Route path="/products" element={<FeatureRoute feature="products" title="المنتجات"><ProductsPage /></FeatureRoute>} />
           <Route path="/inventory" element={<FeatureRoute feature="inventory" title="المخزون"><InventoryPage /></FeatureRoute>} />
           <Route path="/customers" element={<FeatureRoute feature="customers" title="العملاء"><CustomersPage /></FeatureRoute>} />

@@ -45,7 +45,7 @@ import {
   TenantStatusDto,
   TenantSubscriptionDto,
 } from './dto/master-admin.dto';
-import { CreateTenantUserDto } from '@/modules/users/dto/user-management.dto';
+import { CreateTenantUserDto, RoleDto } from '@/modules/users/dto/user-management.dto';
 import { AuditService } from '@/modules/audit/audit.service';
 
 @ApiTags('master-auth')
@@ -366,6 +366,28 @@ export class MasterAdminController {
   @Get('tenants/:id/roles')
   async roles(@Param('id', ParseUUIDPipe) id: string) {
     return { success: true, data: await this.service.listTenantRoles(id) };
+  }
+
+  @Get('tenants/:id/permissions')
+  async tenantPermissions(@Param('id', ParseUUIDPipe) id: string) {
+    return { success: true, data: await this.service.listTenantPermissions(id) };
+  }
+
+  @Post('tenants/:id/roles')
+  async createTenantRole(
+    @Request() req,
+    @Ip() ip: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RoleDto
+  ) {
+    const data = await this.service.createTenantRole(
+      id,
+      dto,
+      req.masterAdmin.id,
+      req.masterAdmin.email,
+      ip
+    );
+    return { success: true, data, message: 'تم إنشاء الدور للتاجر' };
   }
 
   @Post('tenants/:id/users')

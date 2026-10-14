@@ -520,6 +520,9 @@ PUT    /admin/tenants/:id/warehouses/:warehouseId   { branchId?, name?, isActive
 POST   /admin/tenants/:id/warehouses/:warehouseId/branches  { branchId }     فرع يستخدم مخزن موجود (مشترك)
 DELETE /admin/tenants/:id/warehouses/:warehouseId/branches/:branchId         فك ربط فرع مشترك
 GET    /admin/tenants/:id/users
+GET    /admin/tenants/:id/roles
+GET    /admin/tenants/:id/permissions
+POST   /admin/tenants/:id/roles       { name, nameAr, description?, permissions[] } إنشاء دور مخصص للتاجر
 POST   /admin/tenants/:id/reset-user-password
 GET    /admin/tenants/:id/audit-logs
 GET    /admin/tenants/:id/backup        نسخة JSON (بدون هاشات أو أسرار)
@@ -529,6 +532,12 @@ DELETE /admin/tenants/:id               { businessName } للتأكيد
 
 إنشاء الفروع والمخازن وربطها (بما فيها المخازن المشتركة بين الفروع) متاح للمدير العام فقط من
 المسارات أعلاه؛ التاجر يستهلك الفروع والمخازن الموجودة في البيع والشراء والتحويلات.
+المدير العام يقدر ينشئ دوراً مخصصاً بصلاحياته من `/admin/tenants/:id/roles`؛ الدور يظهر بعدها
+في قائمة الاختيار عند إنشاء/تعديل مستخدم للتاجر.
+
+`maintenance.view` يعرض إدارة الصيانة، و`maintenance.create` يسمح بتسجيل فاتورة جديدة؛ تظهر الصلاحيتان
+في مجموعة «إدارة الصيانة» داخل اختيار صلاحيات الأدوار. مسارات الفواتير تتطلب صلاحية العرض، ومسار الإنشاء
+يتطلب صلاحية التسجيل، بالإضافة إلى ميزة `maintenance_management`.
 
 `GET /api/v1/maintenance/:id/share` (Feature: `maintenance.share`) يرجع بيانات إرسال فاتورة الصيانة
 للعميل: رقم الفاتورة والتاريخ وبيانات العميل ورقم الواتساب و`servicePrice` و`message` جاهزة.

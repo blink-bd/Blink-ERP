@@ -17,6 +17,8 @@ import { JwtAuthGuard } from '@/modules/auth/guards/jwt-auth.guard';
 import { TenantContextGuard } from '@/modules/auth/guards/tenant-context.guard';
 import { FeaturesGuard } from '@/modules/features/features.guard';
 import { RequireFeature } from '@/common/decorators/require-feature.decorator';
+import { RequirePermission } from '@/common/decorators/require-permission.decorator';
+import { PermissionGuard } from '@/common/guards/permission.guard';
 import { CreateMaintenanceInvoiceDto } from './dto/create-maintenance-invoice.dto';
 import { MaintenanceService } from './maintenance.service';
 import {
@@ -30,7 +32,8 @@ import {
 @ApiBearerAuth()
 @Controller({ path: 'maintenance', version: '1' })
 @RequireFeature('maintenance_management')
-@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard)
+@RequirePermission('maintenance.view')
+@UseGuards(JwtAuthGuard, TenantContextGuard, FeaturesGuard, PermissionGuard)
 export class MaintenanceController {
   constructor(
     private readonly maintenance: MaintenanceService,
@@ -90,6 +93,7 @@ export class MaintenanceController {
   }
 
   @Post()
+  @RequirePermission('maintenance.create')
   async create(@Request() req, @Body() dto: CreateMaintenanceInvoiceDto) {
     const scope = scopeOf(req);
     if (dto.branchId && !isBranchAllowed(scope, dto.branchId)) {

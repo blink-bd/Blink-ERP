@@ -3,6 +3,7 @@ import { Signed, signedTone } from '@/lib/signed';
 import { BadgeDollarSign, MessageCircle, Plus, RefreshCw, Wrench, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useFeature } from '@/contexts/FeaturesContext';
+import { usePermissions } from '@/lib/permissions';
 import { ShareMaintenanceDialog } from '@/components/ShareMaintenanceDialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -67,6 +68,9 @@ const money = (value: unknown) =>
 
 export function MaintenancePage() {
   const shareEnabled = useFeature('maintenance.share');
+  const { has } = usePermissions();
+  const canCreate = has('maintenance.create');
+  const canViewCustomers = has('customers.view');
   const [shareInvoiceId, setShareInvoiceId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const { workspace, loading: workspaceLoading } = useWorkspace();
@@ -107,11 +111,12 @@ export function MaintenancePage() {
   }, [endDate, selectedBranches, startDate]);
 
   useEffect(() => {
+    if (!canCreate || !canViewCustomers) return;
     api
       .get('/customers')
       .then((customerResponse) => setCustomers(customerResponse.data.data))
-      .catch(() => toast.error('تعذر تحميل بيانات العملاء'));
-  }, []);
+      .catch(() => setCustomers([]));
+  }, [canCreate, canViewCustomers]);
 
   useEffect(() => {
     if (workspaceLoading || workspace) return;

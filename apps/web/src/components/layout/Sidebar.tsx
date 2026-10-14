@@ -45,7 +45,13 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/pos', labelKey: 'pos', icon: ShoppingCart, feature: 'pos' },
   { to: '/sales', labelKey: 'sales', icon: FileText, feature: 'sales' },
   { to: '/returns', labelKey: 'returns', icon: RotateCcw, feature: 'return_disposition' },
-  { to: '/maintenance', labelKey: 'maintenance', icon: Wrench, feature: 'maintenance_management' },
+  {
+    to: '/maintenance',
+    labelKey: 'maintenance',
+    icon: Wrench,
+    feature: 'maintenance_management',
+    permission: ['maintenance.view'],
+  },
   { to: '/products', labelKey: 'products', icon: Package, feature: 'products' },
   { to: '/inventory', labelKey: 'inventory', icon: Warehouse, feature: 'inventory' },
   // التحويلات إجراء بيتقفل/يتفتح للتاجر من لوحة المدير العام (inventory.transfers).

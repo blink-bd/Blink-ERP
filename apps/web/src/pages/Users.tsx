@@ -813,12 +813,17 @@ function RolesTab() {
     setShowForm(true);
   };
   const toggle = (perm: string) =>
-    setForm((f) => ({
-      ...f,
-      permissions: f.permissions.includes(perm)
-        ? f.permissions.filter((p) => p !== perm)
-        : [...f.permissions, perm],
-    }));
+    setForm((f) => {
+      const permissions = new Set(f.permissions);
+      if (permissions.has(perm)) {
+        permissions.delete(perm);
+        if (perm === 'maintenance.view') permissions.delete('maintenance.create');
+      } else {
+        permissions.add(perm);
+        if (perm === 'maintenance.create') permissions.add('maintenance.view');
+      }
+      return { ...f, permissions: Array.from(permissions) };
+    });
   const toggleGroup = (items: PermissionInfo[], on: boolean) =>
     setForm((f) => {
       const names = items.map((i) => i.name).filter(canGrant);

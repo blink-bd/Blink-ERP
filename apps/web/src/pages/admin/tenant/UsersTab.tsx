@@ -60,6 +60,27 @@ interface UserForm {
   warehouseId?: string | null;
 }
 
+interface PermissionOption {
+  name: string;
+  label: string;
+  category: string;
+  categoryLabel: string;
+}
+
+interface NewRoleForm {
+  name: string;
+  nameAr: string;
+  description: string;
+  permissions: string[];
+}
+
+const emptyRoleForm = (): NewRoleForm => ({
+  name: '',
+  nameAr: '',
+  description: '',
+  permissions: [],
+});
+
 const emptyForm = (): UserForm => ({
   fullName: '',
   email: '',
@@ -79,8 +100,13 @@ const copy = (text: string) => {
 export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
   const [users, setUsers] = useState<any[] | null>(null);
   const [roles, setRoles] = useState<any[]>([]);
+  const [permissionCatalog, setPermissionCatalog] = useState<PermissionOption[]>([]);
+  const [permissionCatalogLoading, setPermissionCatalogLoading] = useState(true);
   const [branches, setBranches] = useState<any[]>([]);
   const [form, setForm] = useState<UserForm | null>(null);
+  const [roleForm, setRoleForm] = useState<NewRoleForm>(emptyRoleForm);
+  const [showRoleForm, setShowRoleForm] = useState(false);
+  const [savingRole, setSavingRole] = useState(false);
   const [resetFor, setResetFor] = useState<any | null>(null);
   const [password, setPassword] = useState('');
   const [saving, setSaving] = useState(false);
@@ -91,11 +117,19 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
   };
   useEffect(() => {
     setUsers(null);
+    setRoles([]);
+    setPermissionCatalog([]);
+    setPermissionCatalogLoading(true);
     load().catch(() => setUsers([]));
     adminApi
       .get(`/admin/tenants/${id}/roles`)
       .then((r) => setRoles(r.data.data))
       .catch(() => undefined);
+    adminApi
+      .get(`/admin/tenants/${id}/permissions`)
+      .then((r) => setPermissionCatalog(r.data.data))
+      .catch(() => setPermissionCatalog([]))
+      .finally(() => setPermissionCatalogLoading(false));
     adminApi
       .get(`/admin/tenants/${id}/branches`)
       .then((r) => setBranches(r.data.data))
@@ -104,6 +138,16 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
 
   const ownerRoleId = useMemo(() => roles.find((r) => r.name === 'owner')?.id, [roles]);
   const formIsOwner = !!form && !!ownerRoleId && form.roleIds.includes(ownerRoleId);
+  const permissionGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; items: PermissionOption[] }>();
+    for (const permission of permissionCatalog) {
+      if (!groups.has(permission.category)) {
+        groups.set(permission.category, { label: permission.categoryLabel, items: [] });
+      }
+      groups.get(permission.category)!.items.push(permission);
+    }
+    return Array.from(groups.values());
+  }, [permissionCatalog]);
   const refresh = () => {
     load();
     onSaved();
@@ -128,6 +172,77 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
 
   const toggleIn = (list: string[], value: string) =>
     list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+
+  const openRoleCreate = () => {
+    setRoleForm(emptyRoleForm());
+    setShowRoleForm(true);
+  };
+
+  const toggleRolePermission = (permission: string) =>
+    setRoleForm((current) => {
+      const next = new Set(current.permissions);
+      if (next.has(permission)) {
+        next.delete(permission);
+        if (permission === 'maintenance.view') next.delete('maintenance.create');
+      } else {
+        next.add(permission);
+        if (permission === 'maintenance.create') next.add('maintenance.view');
+      }
+      return { ...current, permissions: Array.from(next) };
+    });
+
+  const togglePermissionGroup = (items: PermissionOption[], enabled: boolean) =>
+    setRoleForm((current) => {
+      const next = new Set(current.permissions);
+      items.forEach((permission) =>
+        enabled ? next.add(permission.name) : next.delete(permission.name)
+      );
+      return { ...current, permissions: Array.from(next) };
+    });
+
+  const saveRole = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const name = roleForm.name.trim().toLowerCase();
+    const nameAr = roleForm.nameAr.trim();
+    if (nameAr.length < 2) return toast.error('اكتب اسم الدور بالعربي');
+    if (!/^[a-z0-9_-]{2,100}$/i.test(name)) {
+      return toast.error('اكتب الاسم البرمجي بحروف إنجليزية أو أرقام أو _ أو -');
+    }
+    if (permissionCatalogLoading) return toast.error('استنى تحميل قائمة الصلاحيات');
+    if (!permissionCatalog.length) return toast.error('تعذر تحميل الصلاحيات المتاحة');
+
+    setSavingRole(true);
+    try {
+      const response = await adminApi.post(`/admin/tenants/${id}/roles`, {
+        name,
+        nameAr,
+        description: roleForm.description.trim() || undefined,
+        permissions: roleForm.permissions,
+      });
+      const createdRole = response.data.data;
+      const availableRole = {
+        ...createdRole,
+        permissionsCount: createdRole.permissions?.length ?? 0,
+      };
+      setRoles((current) =>
+        current.some((role) => role.id === availableRole.id)
+          ? current
+          : [...current, availableRole]
+      );
+      setForm((current) =>
+        current
+          ? { ...current, roleIds: Array.from(new Set([...current.roleIds, availableRole.id])) }
+          : current
+      );
+      setShowRoleForm(false);
+      setRoleForm(emptyRoleForm());
+      toast.success('تم إنشاء الدور، وبقى متاحاً لاختياره عند إضافة مستخدم');
+    } catch {
+      // handled by interceptor
+    } finally {
+      setSavingRole(false);
+    }
+  };
 
   const toggleBranch = (branchId: string) => {
     if (!form) return;
@@ -289,9 +404,14 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
       title={`المستخدمين (${users.length})`}
       description="كل بيانات مستخدمي التاجر من هنا: البيانات، الأدوار، الفروع، كلمة المرور، الإيقاف والحذف. التاجر وموظفينه مش بيغيروا كلمات المرور بنفسهم."
       actions={
-        <Button size="sm" onClick={openCreate}>
-          <Plus className="ml-1 h-4 w-4" /> مستخدم جديد
-        </Button>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={openRoleCreate}>
+            <Plus className="ml-1 h-4 w-4" /> دور جديد
+          </Button>
+          <Button size="sm" onClick={openCreate}>
+            <Plus className="ml-1 h-4 w-4" /> مستخدم جديد
+          </Button>
+        </div>
       }
     >
       {users.length === 0 ? (
@@ -629,6 +749,127 @@ export function UsersTab({ id, onSaved }: { id: string; onSaved: () => void }) {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={showRoleForm}
+        title="إنشاء دور جديد للتاجر"
+        onClose={() => setShowRoleForm(false)}
+        wide
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setShowRoleForm(false)}>
+              إلغاء
+            </Button>
+            <Button
+              type="submit"
+              form="tenant-role-form"
+              disabled={savingRole || permissionCatalogLoading || !permissionCatalog.length}
+            >
+              {savingRole ? 'جاري إنشاء الدور...' : 'إنشاء الدور'}
+            </Button>
+          </>
+        }
+      >
+        <form id="tenant-role-form" onSubmit={saveRole} className="space-y-4">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label>اسم الدور بالعربي</Label>
+              <Input
+                required
+                minLength={2}
+                maxLength={100}
+                value={roleForm.nameAr}
+                onChange={(event) => setRoleForm({ ...roleForm, nameAr: event.target.value })}
+                placeholder="مثال: مسؤول الصيانة"
+              />
+            </div>
+            <div>
+              <Label>الاسم البرمجي</Label>
+              <Input
+                required
+                dir="ltr"
+                minLength={2}
+                maxLength={100}
+                pattern="[A-Za-z0-9_\\-]+"
+                value={roleForm.name}
+                onChange={(event) => setRoleForm({ ...roleForm, name: event.target.value })}
+                placeholder="مثال: maintenance_staff"
+              />
+              <p className="mt-1 text-xs text-slate-400">
+                حروف إنجليزية أو أرقام أو شرطة سفلية أو عادية.
+              </p>
+            </div>
+            <div className="sm:col-span-2">
+              <Label>وصف الدور (اختياري)</Label>
+              <Input
+                maxLength={500}
+                value={roleForm.description}
+                onChange={(event) =>
+                  setRoleForm({ ...roleForm, description: event.target.value })
+                }
+                placeholder="مثال: عرض فواتير الصيانة وتسجيل فواتير جديدة"
+              />
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <Label>الصلاحيات</Label>
+              <span className="text-xs text-slate-500">
+                {roleForm.permissions.length} صلاحية محددة
+              </span>
+            </div>
+            {permissionCatalogLoading ? (
+              <p className="rounded-lg border p-4 text-sm text-slate-500">
+                جاري تحميل قائمة الصلاحيات...
+              </p>
+            ) : permissionGroups.length ? (
+              <div className="max-h-[45vh] space-y-3 overflow-y-auto">
+                {permissionGroups.map((group) => {
+                  const allSelected =
+                    group.items.length > 0 &&
+                    group.items.every((permission) =>
+                      roleForm.permissions.includes(permission.name)
+                    );
+                  return (
+                    <div key={group.label} className="rounded-lg border">
+                      <div className="flex items-center justify-between gap-2 bg-slate-50 px-3 py-2">
+                        <span className="text-sm font-semibold">{group.label}</span>
+                        <button
+                          type="button"
+                          className="text-xs text-primary"
+                          onClick={() => togglePermissionGroup(group.items, !allSelected)}
+                        >
+                          {allSelected ? 'إلغاء الكل' : 'تحديد الكل'}
+                        </button>
+                      </div>
+                      <div className="grid gap-2 p-3 sm:grid-cols-2 lg:grid-cols-3">
+                        {group.items.map((permission) => (
+                          <label
+                            key={permission.name}
+                            className="flex cursor-pointer items-center gap-2 text-sm"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={roleForm.permissions.includes(permission.name)}
+                              onChange={() => toggleRolePermission(permission.name)}
+                            />
+                            {permission.label}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="rounded-lg border p-4 text-sm text-slate-500">
+                مفيش صلاحيات متاحة حالياً.
+              </p>
+            )}
+          </div>
+        </form>
       </Modal>
     </Section>
   );

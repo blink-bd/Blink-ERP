@@ -17,7 +17,11 @@ import { Plan } from '@/modules/features/entities/plan.entity';
 import { Feature } from '@/modules/features/entities/feature.entity';
 import { UsersService } from '@/modules/users/users.service';
 import { Actor, UserManagementService } from '@/modules/users/user-management.service';
-import { CreateTenantUserDto, UpdateTenantUserDto } from '@/modules/users/dto/user-management.dto';
+import {
+  CreateTenantUserDto,
+  RoleDto,
+  UpdateTenantUserDto,
+} from '@/modules/users/dto/user-management.dto';
 import { assertStrongPassword } from '@/common/utils/password-policy';
 import { burnPasswordVerification } from '@/common/security/timing';
 import { TenantLimitsDto, TenantStatusDto, TenantSubscriptionDto } from './dto/master-admin.dto';
@@ -466,6 +470,36 @@ export class MasterAdminService implements OnModuleInit {
       ...role,
       permissionsCount: permissions.length,
     }));
+  }
+
+  async listTenantPermissions(tenantId: string) {
+    await this.getTenant(tenantId);
+    return this.userManagement.listPermissions();
+  }
+
+  async createTenantRole(
+    tenantId: string,
+    dto: RoleDto,
+    adminId: string,
+    adminEmail: string,
+    ip: string
+  ) {
+    await this.getTenant(tenantId);
+    const role = await this.userManagement.createRole(
+      { ...this.adminActor(tenantId), id: adminId },
+      dto,
+      this.adminRequest(tenantId, adminEmail, ip)
+    );
+    await this.audit(
+      adminEmail,
+      'TENANT_ROLE_CREATED',
+      'role',
+      role?.id,
+      { tenantId, name: dto.name, nameAr: dto.nameAr, permissions: dto.permissions },
+      ip,
+      'warning'
+    );
+    return role;
   }
 
   async createTenantUser(

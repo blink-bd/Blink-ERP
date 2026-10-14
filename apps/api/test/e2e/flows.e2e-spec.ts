@@ -2120,20 +2120,49 @@ describe('Blink ERP — integration flows (e2e)', () => {
         isEffective: false,
       });
 
+      const permissionCatalog = await master.get(
+        api(`/admin/tenants/${state.tenantAId}/permissions`)
+      );
+      expect(permissionCatalog.status).toBe(200);
+      expect(permissionCatalog.body.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'maintenance.view', categoryLabel: 'إدارة الصيانة' }),
+          expect.objectContaining({ name: 'maintenance.create', categoryLabel: 'إدارة الصيانة' }),
+        ])
+      );
+
+      const newRole = await master.post(api(`/admin/tenants/${state.tenantAId}/roles`), {
+        name: 'maintenance_reader',
+        nameAr: 'متابع الصيانة',
+        description: 'عرض فواتير الصيانة فقط',
+        permissions: ['maintenance.view'],
+      });
+      expect(newRole.status).toBe(201);
+      expect(newRole.body.data.permissions).toContain('maintenance.view');
+      expect(newRole.body.data.permissions).not.toContain('maintenance.create');
+
       const roles = await master.get(api(`/admin/tenants/${state.tenantAId}/roles`));
       expect(roles.status).toBe(200);
-      const staffRole = roles.body.data.find((r: any) => r.name !== 'owner');
-      expect(staffRole).toBeTruthy();
+      expect(roles.body.data.some((role: any) => role.id === newRole.body.data.id)).toBe(true);
 
       const created = await master.post(api(`/admin/tenants/${state.tenantAId}/users`), {
         fullName: 'موظف من الإدارة',
         email: 'admin-made@tenant-a.test',
         password: 'Admin-Made-Pass-2026',
-        roleIds: [staffRole.id],
+        roleIds: [newRole.body.data.id],
         accessAllBranches: true,
       });
       expect(created.status).toBe(201);
       const userId = created.body.data.id;
+
+      const maintenanceReader = new TestClient(baseUrl);
+      const maintenanceLogin = await maintenanceReader.post(
+        api(`/auth/login?tenantId=${state.tenantAId}`),
+        { email: 'admin-made@tenant-a.test', password: 'Admin-Made-Pass-2026' }
+      );
+      expect([200, 201]).toContain(maintenanceLogin.status);
+      expect((await maintenanceReader.get(api('/maintenance'))).status).toBe(200);
+      expect((await maintenanceReader.post(api('/maintenance'), {})).status).toBe(403);
 
       // التاجر نفسه مايقدرش يغيّر كلمة مرور موظفيه (الزرار مقفول افتراضياً).
       const merchantReset = await tenantA.post(api(`/users/${userId}/reset-password`), {
