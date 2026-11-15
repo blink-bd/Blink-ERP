@@ -1,0 +1,48 @@
+name: Keep alive
+
+# بيحل مشكلتين بيخلّوا السيستم يبان "واقف":
+#  1) خدمة Render المجانية بتنام بعد 15 دقيقة بدون استخدام، وأول طلب بعدها
+#     بياخد 30-60 ثانية — فالمستخدم بيفتكر الموقع واقع.
+#  2) مشروع Supabase المجاني بيتوقف مؤقتاً (paused) بعد أسبوع بدون نشاط،
+#     وقتها /api/v1/health بيرجع 503.
+# الـ ping بيروح على /api/v1/health (اللي بينفذ SELECT 1) كل 10 دقايق،
+# فبيسخّن الاتنين: خدمة Render وقاعدة البيانات.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Ping API health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Ping /api/v1/health (wakes Render + keeps DB active)
+        env:
+          # تقدر تغيّره من Settings → Variables → API_HEALTH_URL
+          HEALTH_URL: ${{ vars.API_HEALTH_URL || 'https://erp-api-dad5.onrender.com/api/v1/health' }}
+        run: |
+          set -u
+          for attempt in 1 2 3 4; do
+            code=$(curl -sS -o /tmp/health.json -w '%{http_code}' --max-time 100 "$HEALTH_URL" || echo "000")
+            echo "attempt $attempt → HTTP $code"
+            if [ "$code" = "200" ]; then
+              cat /tmp/health.json; echo
+              echo "✅ API is up"
+              exit 0
+            fi
+            sleep 30
+          done
+
+          echo "❌ API did not return 200 from $HEALTH_URL"
+          echo "راجع: Render Dashboard → erp-api → Logs، وتأكد إن قاعدة البيانات شغالة."
+          exit 1

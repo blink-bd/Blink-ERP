@@ -3,17 +3,23 @@ services:
     name: erp-api
     runtime: node
     plan: free
-    rootDir: apps/api
-    buildCommand: npm install --include=dev && npm run build
-    startCommand: npm run db:migrate:prod && npm run db:seed:prod && npm run start:prod
-    healthCheckPath: /api/v1/health
+    # الجذر بقى المستودع كله (مش apps/api) عشان نبني الواجهة كمان
+    # وتتقدم من نفس الخدمة على نفس الرابط — مفيش CORS ولا نشر واجهة منفصل.
+    rootDir: .
+    buildCommand: npm ci --include=dev && npm run build && rm -rf apps/api/public && cp -r apps/web/dist apps/api/public
+    # migrations بإعادة محاولة + seed غير قاتل + تشغيل الـ API
+    startCommand: bash scripts/start-production.sh
+    # فحص حياة ما بيعتمدش على قاعدة البيانات: قاعدة نائمة/مقطوعة مش هتوقف النشر
+    healthCheckPath: /api/v1/health/live
     envVars:
       - key: NODE_ENV
         value: production
+      - key: SERVE_WEB
+        value: "true" # تقديم الواجهة من نفس الخدمة
       - key: DATABASE_URL
         sync: false # PostgreSQL خارجي؛ لا تحفظ قاعدة البيانات على قرص خدمة Render المجانية
       - key: FRONTEND_URL
-        sync: false # أصل الواجهة المسموح له بإرسال Cookies مع credentials
+        sync: false # أصل الواجهة المسموح له بإرسال Cookies مع credentials (لو الواجهة من نفس الخدمة: نفس رابط Render)
       - key: PUBLIC_APP_URL
         sync: false # رابط واجهة المستخدم لبناء روابط الإيصالات الإلكترونية
       - key: JWT_ACCESS_SECRET
@@ -72,3 +78,8 @@ services:
         value: "1"         # Render بيحط Proxy واحد قدام السيرفر
       - key: THROTTLE_LIMIT
         value: "300"
+      # إعادة محاولة الاتصال بقاعدة البيانات عند الإقلاع (قاعدة مُدارة بتصحى في ~دقيقة)
+      - key: DB_CONNECT_RETRIES
+        value: "20"
+      - key: DB_CONNECT_RETRY_DELAY_MS
+        value: "5000"

@@ -29,3 +29,6 @@ yarn-error.log*
 .turbo/
 
 *.tsbuildinfo
+
+# مخرجات build الواجهة المقدَّمة من خدمة الـ API (بتتولد وقت النشر)
+apps/api/public/
