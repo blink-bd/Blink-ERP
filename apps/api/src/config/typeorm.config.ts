@@ -31,6 +31,11 @@ export const typeormConfig = (configService: ConfigService): TypeOrmModuleOption
     entities: [__dirname + '/../**/*.entity{.ts,.js}'],
     migrations: [__dirname + '/../database/migrations/*{.ts,.js}'],
     synchronize: false, // Always use migrations in production
+    // إعادة المحاولة عند الإقلاع: قاعدة بيانات مُدارة (Supabase مثلاً) بتترجع
+    // من الإيقاف المؤقت خلال دقيقة تقريباً؛ الافتراضي (10 محاولات × 3 ثوانٍ)
+    // بيخلص قبل ما القاعدة تصحى فيموت التطبيق ويظهر "السيستم واقف".
+    retryAttempts: Math.max(1, Number(process.env.DB_CONNECT_RETRIES) || 20),
+    retryDelay: Math.max(500, Number(process.env.DB_CONNECT_RETRY_DELAY_MS) || 5000),
     logging: dbLogging(),
     ssl: dbSslOptions(),
     extra: {
