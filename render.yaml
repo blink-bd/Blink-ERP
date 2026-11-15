@@ -6,7 +6,9 @@ services:
     # الجذر بقى المستودع كله (مش apps/api) عشان نبني الواجهة كمان
     # وتتقدم من نفس الخدمة على نفس الرابط — مفيش CORS ولا نشر واجهة منفصل.
     rootDir: .
-    buildCommand: npm ci --include=dev && npm run build && rm -rf apps/api/public && cp -r apps/web/dist apps/api/public
+    # سكربت البناء بيشتغل من أي Root Directory، وبيعيد المحاولة،
+    # وبناء الواجهة جوّاه متسلسل واختياري (فشله ما يوقفش النشر).
+    buildCommand: bash scripts/render-build.sh
     # migrations بإعادة محاولة + seed غير قاتل + تشغيل الـ API
     startCommand: bash scripts/start-production.sh
     # فحص حياة ما بيعتمدش على قاعدة البيانات: قاعدة نائمة/مقطوعة مش هتوقف النشر
